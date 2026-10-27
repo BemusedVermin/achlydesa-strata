@@ -4,6 +4,8 @@
 #![deny(clippy::float_arithmetic)]
 #![warn(missing_docs)]
 
+extern crate self as strata_kernel;
+
 pub mod hash;
 pub mod hex;
 pub mod pcg;
@@ -19,3 +21,4 @@ pub use rng::CommandRng;
 pub use rotation::Rotation;
 pub use shape::Shape;
 pub use space::Space;
+pub use strata_derive::StableHash;
