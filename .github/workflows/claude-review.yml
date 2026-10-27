@@ -1,12 +1,11 @@
 name: Claude PR review
 
-# Advisory review of PRs targeting master. Runs once when a PR is opened (or leaves draft),
-# then only on request: add the `claude-review` label for another Sonnet pass, or
-# `deep-review` for an Opus pass. Pushes alone never trigger a review.
+# Advisory review of PRs targeting master, only on request:
+# add the `claude-review` label for a Sonnet pass, or `deep-review` for an Opus pass.
 on:
   pull_request:
     branches: [master]
-    types: [opened, ready_for_review, labeled]
+    types: [labeled]
 
 concurrency:
   group: claude-review-${{ github.event.pull_request.number }}
@@ -14,13 +13,10 @@ concurrency:
 
 jobs:
   review:
-    # Skip drafts, PRs from forks (they get no secrets), and labels other than the two triggers.
+    # Only the two request labels trigger a review; PRs from forks get no secrets, so skip them.
     if: >-
-      github.event.pull_request.draft == false &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      (github.event.action != 'labeled' ||
-       github.event.label.name == 'claude-review' ||
-       github.event.label.name == 'deep-review')
+      (github.event.label.name == 'claude-review' || github.event.label.name == 'deep-review')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
