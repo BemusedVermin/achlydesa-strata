@@ -6,6 +6,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::hash::BuildHasher;
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 use xxhash_rust::xxh3::Xxh3;
@@ -84,6 +85,12 @@ impl StableHash for String {
 }
 
 impl<T: StableHash + ?Sized> StableHash for &T {
+    fn stable_hash(&self, hasher: &mut StableHasher) {
+        (**self).stable_hash(hasher);
+    }
+}
+
+impl<T: StableHash + ?Sized> StableHash for Arc<T> {
     fn stable_hash(&self, hasher: &mut StableHasher) {
         (**self).stable_hash(hasher);
     }
