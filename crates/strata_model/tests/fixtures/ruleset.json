@@ -1,0 +1,1 @@
+{"id":22,"name":"Intro","extends":"advanced","stats":["life","attack"],"dice":["combat"],"slots":{"tokens":null,"combat":{"id":"core:combat","config":{"height_bonus":{"Int":0}}}},"addons":[{"id":"morale","config":{"break_at":{"Int":2}}}],"abilities":false,"undo":"until_random_or_reveal"}

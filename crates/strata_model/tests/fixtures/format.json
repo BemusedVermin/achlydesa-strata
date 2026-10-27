@@ -1,0 +1,1 @@
+{"id":25,"name":"Duel, 500 points","ruleset":"advanced","army":[{"native":{"Str":"max_points"}}],"selection":"build","scenarios":{"pool":["hold_the_fords"],"pick":"alternate_veto"},"round_limit":12,"clock_minutes":45,"tiebreakers":["points_destroyed","initiative_roll"]}
