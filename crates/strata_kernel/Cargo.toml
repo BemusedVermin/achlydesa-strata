@@ -9,6 +9,8 @@ publish = false
 [dependencies]
 strata_derive = { path = "../strata_derive" }
 serde = { version = "1", features = ["derive"] }
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+indexmap = "2"
 
 [dev-dependencies]
 proptest = "1"

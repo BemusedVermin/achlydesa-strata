@@ -4,12 +4,18 @@
 #![deny(clippy::float_arithmetic)]
 #![warn(missing_docs)]
 
+pub mod hash;
 pub mod hex;
+pub mod pcg;
+pub mod rng;
 pub mod rotation;
 pub mod shape;
 pub mod space;
 
+pub use hash::{StableHash, StableHasher};
 pub use hex::{Axis, DIRECTIONS, Hex};
+pub use pcg::Pcg32;
+pub use rng::CommandRng;
 pub use rotation::Rotation;
 pub use shape::Shape;
 pub use space::Space;
