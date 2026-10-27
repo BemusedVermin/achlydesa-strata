@@ -26,7 +26,7 @@ fn sym_serializes_as_a_plain_string() {
 #[test]
 fn def_id_round_trips_and_hashes_as_u32() {
     let id = DefId(7);
-    let bytes = postcard::to_stdvec(&id).unwrap();
+    let bytes = postcard::to_allocvec(&id).unwrap();
     assert_eq!(postcard::from_bytes::<DefId>(&bytes).unwrap(), id);
     assert_eq!(id.stable_hash_value(), 7u32.stable_hash_value());
 }

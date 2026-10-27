@@ -15,7 +15,7 @@ fn sample() -> Value {
 #[test]
 fn round_trips_through_postcard() {
     let value = sample();
-    let bytes = postcard::to_stdvec(&value).unwrap();
+    let bytes = postcard::to_allocvec(&value).unwrap();
     assert_eq!(postcard::from_bytes::<Value>(&bytes).unwrap(), value);
 }
 
