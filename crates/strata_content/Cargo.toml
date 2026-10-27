@@ -1,0 +1,11 @@
+[package]
+name = "strata_content"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+strata_lua = { path = "../strata_lua" }
+strata_model = { path = "../strata_model" }
