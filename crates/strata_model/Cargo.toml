@@ -10,6 +10,7 @@ publish = false
 strata_kernel = { path = "../strata_kernel" }
 strata_derive = { path = "../strata_derive" }
 serde = { version = "1", features = ["derive"] }
+thiserror = "2"
 
 [dev-dependencies]
 serde_json = "1"
