@@ -4,6 +4,8 @@ use std::collections::BTreeSet;
 
 use serde::{Deserialize, Serialize};
 
+use crate::StableHash;
+
 use crate::hex::Hex;
 use crate::rotation::Rotation;
 
@@ -16,7 +18,9 @@ mod tests;
 ///
 /// Offsets are kept sorted and unique, so equal shapes compare equal and the
 /// cell count is the number of distinct cells.
-#[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(
+    Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, StableHash,
+)]
 #[serde(from = "Vec<Hex>", into = "Vec<Hex>")]
 pub struct Shape {
     cells: Vec<Hex>,

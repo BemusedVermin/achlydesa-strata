@@ -2,9 +2,22 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::StableHash;
+
 /// A rotation of `k` × 60° clockwise, with `k` in `0..6`.
 #[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    StableHash,
 )]
 #[serde(try_from = "u8", into = "u8")]
 pub struct Rotation(u8);

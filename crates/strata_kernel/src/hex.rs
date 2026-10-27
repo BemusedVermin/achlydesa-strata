@@ -2,6 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::StableHash;
+
 use crate::rotation::Rotation;
 
 /// The six neighbor offsets, in clockwise order starting east.
@@ -33,7 +35,18 @@ pub enum Axis {
 /// Arithmetic is plain `i32`, so coordinates are expected to stay well inside
 /// the `i32` range (boards are small).
 #[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    StableHash,
 )]
 pub struct Hex {
     /// Axial column coordinate.
