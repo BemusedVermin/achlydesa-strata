@@ -1,0 +1,1 @@
+{"id":1,"name":"Defense","min":0,"max":99,"abbrev":"DEF","order":5,"tags":["core"],"meta":{"k":{"Int":3}},"source":{"file":"stats.lua","line":4}}
