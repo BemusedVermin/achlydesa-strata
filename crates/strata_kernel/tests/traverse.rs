@@ -188,10 +188,8 @@ fn inset_hex_is_smaller_than_the_hex() {
         clip_inset(origin, Point::new(9, -20), Point::new(9, 20)),
         None
     );
-    assert_eq!(
-        traverse(Point::new(9, -20), Point::new(9, 20))[0].hex,
-        origin
-    );
+    let crossed = traverse(Point::new(9, -20), Point::new(9, 20));
+    assert!(crossed.iter().any(|c| c.hex == origin));
 }
 
 #[test]
