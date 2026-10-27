@@ -2,11 +2,23 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::StableHash;
 use crate::hex::Hex;
 
 /// A hex column `(q, r)` at integer level `z`, where one level is one tile thickness.
 #[derive(
-    Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    Default,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Serialize,
+    Deserialize,
+    StableHash,
 )]
 pub struct Space {
     /// Axial column coordinate.
