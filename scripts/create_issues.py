@@ -41,6 +41,8 @@ LABEL_COLORS = {
 EXTRA_LABELS = {
     "task": ("0e8a16", "One PR-sized unit of engine work"),
     "budget-exempt": ("fbca04", "Maintainer only: exempt this PR from the 500-line budget"),
+    "claude-review": ("7057ff", "Request another Claude review (Sonnet); removed automatically"),
+    "deep-review": ("5319e7", "Claude reviews this PR with Opus"),
 }
 
 

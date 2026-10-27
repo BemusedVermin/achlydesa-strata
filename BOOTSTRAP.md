@@ -23,8 +23,7 @@ This kit turns the empty repo into one a Sonnet agent can work through issue by 
 1. **Commit the kit.** Copy everything into the repo root (keep your README) and push straight to `master`:
    `git add . && git commit -m "Bootstrap: CI, Claude review, agent guide, design doc, tasks" && git push`
 2. **Install the Claude GitHub app** on the repo: <https://github.com/apps/claude>.
-3. **Add a secret.** Settings → Secrets and variables → Actions → `ANTHROPIC_API_KEY`.
-   To bill your Claude subscription instead, run `claude setup-token`, store it as `CLAUDE_CODE_OAUTH_TOKEN`, and swap the commented line in both Claude workflows.
+3. **Add your Claude token.** Settings → Secrets and variables → Actions → New repository secret named `CLAUDE_CODE_OAUTH_TOKEN`, with the token you already have (from `claude setup-token`) as the value.
 4. **Optional variables** (same page, Variables tab): `CLAUDE_REVIEW_MODEL` (default `claude-opus-5-5`) and `CLAUDE_IMPL_MODEL` (default `claude-sonnet-5-5`).
 5. **Protect `master`** (Settings → Rules → Rulesets, or Branch protection):
    - Require a pull request before merging; block force pushes and deletions.

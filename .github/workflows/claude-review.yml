@@ -1,10 +1,12 @@
 name: Claude PR review
 
-# Advisory review of every non-draft PR targeting master, before Liam reviews it.
+# Advisory review of PRs targeting master. Runs once when a PR is opened (or leaves draft),
+# then only on request: add the `claude-review` label for another Sonnet pass, or
+# `deep-review` for an Opus pass. Pushes alone never trigger a review.
 on:
   pull_request:
     branches: [master]
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [opened, ready_for_review, labeled]
 
 concurrency:
   group: claude-review-${{ github.event.pull_request.number }}
@@ -12,16 +14,19 @@ concurrency:
 
 jobs:
   review:
-    # Skip drafts and PRs from forks (forks get no secrets on a public repo).
+    # Skip drafts, PRs from forks (they get no secrets), and labels other than the two triggers.
     if: >-
       github.event.pull_request.draft == false &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event.action != 'labeled' ||
+       github.event.label.name == 'claude-review' ||
+       github.event.label.name == 'deep-review')
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
       pull-requests: write
-      issues: read
+      issues: write
       id-token: write
     steps:
       - uses: actions/checkout@v4
@@ -30,12 +35,10 @@ jobs:
 
       - uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # To bill a Claude subscription instead, replace the line above with:
-          # claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           track_progress: true
           claude_args: |
-            --model ${{ vars.CLAUDE_REVIEW_MODEL || 'claude-opus-5-5' }}
+            --model ${{ contains(github.event.pull_request.labels.*.name, 'deep-review') && 'claude-opus-5-5' || (vars.CLAUDE_REVIEW_MODEL || 'claude-sonnet-5-5') }}
             --max-turns 40
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh issue view:*),Bash(git diff:*),Bash(git log:*),Bash(python3 scripts/line_budget.py:*),Read,Grep,Glob"
           prompt: |
@@ -70,3 +73,9 @@ jobs:
               ("Ready for human review" or "Changes needed"), the list of BLOCKING items, and anything
               the human reviewer should look at closely. Keep it short.
             - Do not comment on formatting that rustfmt or clippy already enforce.
+
+      - name: Clear the request label so it can be added again
+        if: always() && github.event.action == 'labeled' && github.event.label.name == 'claude-review'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr edit "${{ github.event.pull_request.number }}" --repo "${{ github.repository }}" --remove-label claude-review

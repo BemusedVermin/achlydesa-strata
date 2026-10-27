@@ -12,7 +12,11 @@ If something is ambiguous, do not guess on design decisions. Comment on the issu
 
 ## Workflow for one issue
 
-1. Confirm every issue listed under **Depends on** is merged. If not, stop and comment.
+1. Make sure the issue is not blocked. GitHub tracks this as the issue's **Blocked by** relationships; this must print nothing:
+   ```
+   gh api repos/{owner}/{repo}/issues/<N>/dependencies/blocked_by --jq '.[] | select(.state == "open") | .number'
+   ```
+   If it prints issue numbers, stop: the work isn't ready.
 2. Read the cited design sections in full.
 3. Branch from `master`: `t-NNN-short-slug` (for example `t-014-pack-manifests`).
 4. Implement only the issue's scope. Anything else becomes a note in the PR under "Follow-ups", not code.
