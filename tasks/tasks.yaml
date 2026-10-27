@@ -1,0 +1,1283 @@
+# Strata engine task list. Rendered to tasks/T-*.md and created as GitHub issues by
+# scripts/create_issues.py. Each task is one PR with at most 500 lines of core logic.
+
+milestones:
+  - title: "M0 Foundations"
+    description: "Workspace, kernel geometry and RNG, model types, determinism lints. Gate: geometry property tests pass; identical golden hashes on Linux, macOS and Windows."
+  - title: "M1 Lua data stage"
+    description: "mlua sandbox, pack resolution, data stages, freeze, registry, stubs, `strata pack validate`. Gate: every load error names its file and line."
+  - title: "M2 Rules core"
+    description: "Registrar, queries, resolver with answer tape, phases, descriptors, windows, Lua bridge, pack tests. Gate: pack tests pass with one slot swapped between Rust and Lua."
+  - title: "M3 Standard rules and archetypes"
+    description: "Rust modules for every slot, the eight archetype families, strata_std content, session, determinism harness. Gate: 1,000 self-play games with zero hash mismatches."
+  - title: "M4 Playable client"
+    description: "Bevy 2.5D isometric client with sprite figures, playback, previews, decision UI and hotseat flow. Gate: a full hotseat match with zero art assets."
+  - title: "M5 Map editor"
+    description: "Editor core, validation, Lua writer, editor UI. Gate: build, validate and playtest a map without leaving the app."
+  - title: "M6 AI and tooling"
+    description: "Greedy AI, balance sim, coverage stats, rules inspector, hot reload, lints, replay tools. Gate: the AI beats a random player in 90% of games."
+  - title: "M7 Release readiness"
+    description: "Release packaging. Gate: a distributable build."
+  - title: "Post-1.0"
+    description: "Work after the engine ships."
+
+tasks:
+  # ---------------------------------------------------------------- M0
+  - id: T-001
+    title: "Workspace skeleton, toolchain and determinism lints"
+    milestone: "M0 Foundations"
+    labels: [area:workspace]
+    depends: []
+    budget: 120
+    doc: ["§3 Architecture", "§5.6 Determinism guards"]
+    goal: "Create the Cargo workspace and every guard rail the later tasks rely on, so CI is meaningful from the first real PR."
+    scope:
+      - "Cargo workspace (edition 2024, resolver 3) with library crates `strata_kernel`, `strata_model`, `strata_rules`, `strata_modules`, `strata_lua`, `strata_content`, `strata_session`, `strata_ai`, `strata_editor`, proc-macro crate `strata_derive`, binary crate `strata_cli` (binary name `strata`) and binary crate `strata_client` (binary name `strata-client`, empty `main` for now; Bevy arrives in T-047)."
+      - "Each crate depends only on the crates CLAUDE.md's layering allows; add the path dependencies now so the graph is fixed."
+      - "`rust-toolchain.toml` pinning the current stable release (1.85 or later) with `rustfmt` and `clippy` components; `rustfmt.toml` with `edition = \"2024\"`."
+      - "Every core crate's `lib.rs` (all but `strata_cli` and `strata_client`) starts with `#![forbid(unsafe_code)]`, `#![deny(clippy::float_arithmetic)]` and `#![warn(missing_docs)]`."
+      - "`clippy.toml`: `disallowed-types` for `std::collections::HashMap` and `std::collections::HashSet`; `disallowed-methods` for `std::time::Instant::now` and `std::time::SystemTime::now`."
+      - "`deny.toml`: permissive license allowlist (MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, Zlib, Unicode-3.0, MPL-2.0); `[bans]` entries using `wrappers` so `bevy` may only be a dependency of `strata_client` and `mlua` only of `strata_lua`."
+      - "`.gitignore` including `target/`; commit `Cargo.lock`; add a short Building section to README.md."
+    acceptance:
+      - "`cargo build --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace` and `cargo deny check` pass on CI for Linux, macOS and Windows."
+      - "Adding a `HashMap` to a core crate locally makes clippy fail (state in the PR that you verified this; do not commit it)."
+      - "The crate dependency graph matches the layering in CLAUDE.md."
+    tests:
+      - "CI green is the test; no unit tests required."
+    out_of_scope:
+      - "Any real logic."
+
+  - id: T-002
+    title: "Kernel: hex coordinates, distances, rotations and footprints"
+    milestone: "M0 Foundations"
+    labels: [area:kernel]
+    depends: [T-001]
+    budget: 300
+    doc: ["§7.1 Coordinates", "§7.3 Footprints"]
+    goal: "Give every other crate one exact, integer hex vocabulary."
+    scope:
+      - "`Hex { q: i32, r: i32 }` with `s()`, the six neighbor directions in a fixed documented order, `neighbors()`, `distance()`, rotation by k×60° about the origin and about a center, reflection across an axis (for the editor's symmetry tool), `ring(radius)` and `spiral(radius)` in a deterministic order."
+      - "`Space { q, r, z }` (z = level) and `Rotation(u8)` in 0..6."
+      - "`Shape` (a list of axial offsets) with `rotated`, `translated`, `is_connected`, and a `common` module of named shapes (one, two-line, three-line, triangle, seven-hex flower)."
+      - "Derive `Ord` so `Hex` and `Space` work as `BTreeMap` keys; serde support."
+    acceptance:
+      - "All operations are integer-only."
+      - "Shapes rotate and translate without changing their cell count or connectivity."
+    tests:
+      - "proptest: distance is symmetric and satisfies the triangle inequality; every neighbor is at distance 1; rotation preserves distance; six 60° rotations are the identity; reflection twice is the identity; ring k has 6k cells for k ≥ 1."
+    out_of_scope:
+      - "Line traversal (T-006)."
+
+  - id: T-003
+    title: "Kernel: PCG32, bounded sampling, command RNG streams and stable hashing"
+    milestone: "M0 Foundations"
+    labels: [area:kernel, determinism]
+    depends: [T-001]
+    budget: 300
+    doc: ["§5.4 Randomness", "§5.5 Hashing, snapshots and undo"]
+    goal: "Own every bit of randomness and hashing so no dependency bump can ever change a replay."
+    scope:
+      - "Our own PCG32 (PCG-XSH-RR, 64-bit state, 32-bit output) with seed and stream selection."
+      - "`bounded(n)` using Lemire's nearly-divisionless method with rejection; `roll(sides)` returning 1..=sides."
+      - "`CommandRng::for_command(game_seed: u64, command_index: u32)` deriving the PCG seed and stream from an xxh3 hash of both values (document the exact derivation)."
+      - "`StableHash` trait and `StableHasher` (xxh3-64 via `xxhash-rust`) with implementations for integers (little-endian), `bool`, `str`/`String` (length-prefixed), `Option`, `Vec`, slices, tuples up to 4, `BTreeMap`, `BTreeSet`, `IndexMap` (insertion order)."
+    acceptance:
+      - "PCG32 output matches the reference implementation's published test vectors; cite the source in the test."
+      - "`bounded` never returns a value ≥ n and has no modulo bias."
+      - "Hashing is independent of platform endianness and pointer width."
+    tests:
+      - "Known-answer test for PCG32."
+      - "A deterministic chi-square sanity check of `bounded(6)` over a fixed seed."
+      - "Golden-value tests for `StableHash` of a few fixed structures (constants committed)."
+    out_of_scope:
+      - "The derive macro (T-004)."
+
+  - id: T-004
+    title: "strata_derive: #[derive(StableHash)]"
+    milestone: "M0 Foundations"
+    labels: [area:kernel, determinism]
+    depends: [T-003]
+    budget: 200
+    doc: ["§5.5 Hashing, snapshots and undo"]
+    goal: "Make hashing a derive so new state types can't forget a field."
+    scope:
+      - "Proc-macro crate `strata_derive` (`syn`, `quote`, `proc-macro2`) exporting `#[derive(StableHash)]`, re-exported from `strata_kernel`."
+      - "Structs hash fields in declaration order; enums hash the variant index as `u32` and then the variant's fields; tuple and unit structs supported; simple generics supported with `StableHash` bounds."
+      - "`#[stable_hash(skip)]` attribute for caches that must not affect the hash."
+    acceptance:
+      - "Derived hashes equal hand-written hashes for the same field order."
+      - "Reordering fields or adding a variant changes the hash (documented behavior)."
+    tests:
+      - "Unit tests on structs, enums, tuple structs, generics and `skip`, plus golden values."
+
+  - id: T-005
+    title: "Kernel: symbols, definition IDs and the Value type"
+    milestone: "M0 Foundations"
+    labels: [area:kernel]
+    depends: [T-003, T-004]
+    budget: 250
+    doc: ["§4.4 IDs", "§5.1 Commands, events, decisions"]
+    goal: "Provide the identifier and dynamic-value types every layer shares."
+    scope:
+      - "`Sym`: an immutable string compared, ordered and hashed by content (wrap `Arc<str>`; no global interner, so nothing depends on interning order)."
+      - "`DefId(u32)` dense handle (assigned later at freeze), `PackId`, `ModuleId`, `SlotId`, `WindowId` as `Sym` newtypes."
+      - "`Value` enum: `Nil`, `Bool`, `Int(i64)`, `Str(Sym)`, `Id(DefId)`, `List(Vec<Value>)`, `Map(BTreeMap<Sym, Value>)`. No float variant. Accessors (`as_int`, `get(\"key\")`, ...) returning `Result` with a typed error."
+      - "serde and `StableHash` for all of the above."
+    acceptance:
+      - "`Value` round-trips through `postcard` and `serde_json` unchanged."
+      - "`Map` iteration order is key order."
+    tests:
+      - "Round-trip tests; ordering tests; golden hash values."
+
+  - id: T-006
+    title: "Kernel: exact 2D segment traversal through the hex grid"
+    milestone: "M0 Foundations"
+    labels: [area:kernel, area:los, determinism]
+    depends: [T-002]
+    budget: 450
+    doc: ["§7.5 Line of sight", "§7.6 Line of sight with sprites"]
+    goal: "The exact-geometry heart of line of sight: which hex interiors a segment passes through, and where."
+    scope:
+      - "Work in axial coordinates scaled by `LATTICE = 15`, so hex centers, hex corners (denominator 3) and the corners of 80% inset hexes (denominator 15) are all integer points. Document why 15."
+      - "`Frac` exact rational (`i128` numerator and denominator, normalized, total order) for segment parameters t ∈ [0, 1]."
+      - "`traverse(a, b) -> Vec<Crossing { hex, t_in: Frac, t_out: Frac }>` in increasing t: every hex whose open interior the segment passes through. Grazing an edge or vertex does not count (§7.5 tie rule)."
+      - "`clip_inset(hex, a, b) -> Option<(Frac, Frac)>`: where the segment crosses the open interior of the 80% inset hexagon of `hex` (needed for figure volumes)."
+      - "Implement clipping as exact Cyrus–Beck against the six edge half-planes; enumerate candidate hexes without floats."
+    acceptance:
+      - "No floating point anywhere."
+      - "Crossings are contiguous, ordered, and cover the segment's path through interiors."
+    tests:
+      - "proptest: reversing the segment reverses the crossings (with t ↦ 1 − t); rotating both endpoints by 60° rotates every crossing hex; every endpoint strictly inside a hex appears first or last."
+      - "Hand cases: center to center along each axis; a segment running exactly along a shared edge crosses neither neighbor's interior; vertex grazing."
+
+  - id: T-007
+    title: "Kernel: 3D occlusion test for columns and figure volumes"
+    milestone: "M0 Foundations"
+    labels: [area:kernel, area:los, determinism]
+    depends: [T-006]
+    budget: 350
+    doc: ["§7.5 Line of sight", "§7.6 Line of sight with sprites"]
+    goal: "Decide exactly whether a 3D segment is blocked, given what stands in each column."
+    scope:
+      - "`Seg3`: two points with lattice x/y and z in sub-level units (12 per level)."
+      - "`Blocker { footprint: FullHex | InsetHex, z0, z1 }` (half-open, sub-level units)."
+      - "`blocked(seg, blockers: impl Fn(Hex) -> &[Blocker], ignore: &[Hex]) -> bool`: for each crossing, compute the segment's height interval over the crossing (exact, linear in t) and test overlap with the open interior of every blocker; inset blockers use `clip_inset`. Endpoint columns listed in `ignore` are skipped."
+      - "`clear_count(origin, targets, ...)` returning how many target samples are unblocked, plus the clear segments as witnesses."
+    acceptance:
+      - "Touching a blocker's top, bottom or side does not block."
+      - "Pure integer and rational arithmetic."
+    tests:
+      - "Hand-built cases: a wall of height 3 between two figures blocks low samples but not high ones; a bridge deck blocks a segment passing through it but not one passing under it."
+      - "proptest: the result is invariant under 60° rotation of the whole scene and under swapping segment endpoints."
+
+  - id: T-008
+    title: "Model: vocabulary, terrain and board definition types"
+    milestone: "M0 Foundations"
+    labels: [area:model]
+    depends: [T-002, T-005]
+    budget: 300
+    doc: ["§10.1 Conventions", "§10.2 Vocabulary", "§10.3 Terrain, tiles and features", "§11.1 Map"]
+    goal: "The frozen Rust shapes of the board-side definitions."
+    scope:
+      - "`SourceLoc`, `Text`, and definition structs `StatDef`, `DieDef` (symbol faces or numeric range), `MarkerDef`, `TraitsDef`, `FactionDef`, `TerrainDef`, `TileDef`, `FeatureDef` (cells with segments, `top` flag, `blocks_los`), `FootprintDef` (cells, move mode, max spread), `MapDef` (pieces, features, zones, relic spots, constraints), `InventoryDef`."
+      - "Abilities attached to terrain are stored as an opaque `Vec<AbilityRef>` placeholder until T-009."
+      - "All types derive serde, `Clone`, `Debug` and `StableHash`."
+    acceptance:
+      - "Field names and units match §10 and §11.1."
+    tests:
+      - "serde round-trip for each type from hand-written JSON fixtures in `crates/strata_model/tests/fixtures/`."
+
+  - id: T-009
+    title: "Model: unit, figure, ability, relic, ruleset, scenario, format and army definition types"
+    milestone: "M0 Foundations"
+    labels: [area:model]
+    depends: [T-008]
+    budget: 400
+    doc: ["§10.4 Footprints and units", "§10.5 Abilities, frozen", "§10.6 Relics", "§6.3 Rulesets", "§11.2–11.4"]
+    goal: "The frozen Rust shapes of everything else a pack defines."
+    scope:
+      - "`UnitDef`, `FigureDef`, `LosProfile { target, hit_zone: (bottom, top), samples }`, `CardInfo`."
+      - "`AbilityDef` with `Scope`, `ArchetypeInfo`, `ModifierDef`, `ActionDef`, `TriggerDef`, `ReplacementDef`, `ReactionDef`, `vars`; `Logic { Native(Descriptor), Script(ScriptRef) }`; `Descriptor` as a tagged `Value` tree for now (typed in T-025); `ScriptRef { pack, def, path }`."
+      - "`RelicDef`, `RulesetDef` (stats, dice, slot map with `ModuleRef { id, config }` or empty, addons, `extends`, undo policy), `RuleModuleDef` (for Lua modules), `ScenarioDef`, `FormatDef`, `ArmyList`, `TestDef` placeholder."
+    acceptance:
+      - "Field names and units match the design; sub-level units for LOS profiles."
+    tests:
+      - "serde round-trip fixtures for each type."
+
+  - id: T-010
+    title: "Model: runtime state, events, commands and decisions"
+    milestone: "M0 Foundations"
+    labels: [area:model, determinism]
+    depends: [T-009]
+    budget: 450
+    doc: ["§5.1 Commands, events, decisions", "§12 Data model: runtime game state"]
+    goal: "Define the game state and make events its only mutator."
+    scope:
+      - "Typed IDs `FigureId`, `UnitId`, `PlayerId`; `GameState`, `MatchSetup`, `PlayerSetup`, `PackIdentity`, `PlayerState`, `UnitState`, `FigureState` (location, rotation, status, controller, markers), `RelicState`, `AbilityInstance`, `FlowState` (phase stack, round, turn, active player, activation), `PendingDecision`, `BoardChanges`, `VarKey`."
+      - "`Command` (place tokens, activate unit, action, end activation, custom) and `Event` (figure moved, dice rolled, wounds applied, figure destroyed, marker changed, token placed, token revealed, phase entered, phase exited, relic claimed, var set, control changed, custom), each with a `Visibility` tag."
+      - "`Decision` kinds (choose figure, choose space, choose option, yes/no, number, order) and `Answer`."
+      - "`GameState::apply(&Event)`: the only mutator, exhaustive over core events."
+      - "`#[derive(StableHash)]` on all state; `GameState::hash()`."
+    acceptance:
+      - "Applying an event never panics on a state where the event is valid; invalid events return an error."
+      - "Cloning a state and applying events to the clone leaves the original untouched."
+    tests:
+      - "One test per event kind for `apply`; hash changes when and only when state changes."
+
+  - id: T-011
+    title: "Model: board compilation from placed pieces"
+    milestone: "M0 Foundations"
+    labels: [area:model, area:board]
+    depends: [T-008]
+    budget: 400
+    doc: ["§7.2 Columns, segments and surfaces", "§11.1 Map"]
+    goal: "Turn a map's placed pieces and features into the column structure all geometry runs on."
+    scope:
+      - "`CompiledBoard`: dense grid over the bounding box; per column an ordered list of `Segment { z0, z1, terrain }`, derived surfaces with headroom, and feature segments with their flags."
+      - "Compile `MapDef` + tile/feature lookups: apply rotation and level; error on overlapping pieces; enforce `require_support`."
+      - "Queries: `column(hex)`, `surfaces(hex)`, `top_surface(hex)`, `is_solid(hex, z)`, `blockers(hex)` producing kernel `Blocker`s for LOS."
+    acceptance:
+      - "A bridge (ground 0–1, deck 4–5) yields two surfaces at the same hex."
+      - "Errors carry the offending piece index and hex."
+    tests:
+      - "Overlap and support errors; bridge surfaces; rotating every piece of a map by 60° yields the rotated board."
+
+  - id: T-012
+    title: "Golden determinism fixtures across platforms"
+    milestone: "M0 Foundations"
+    labels: [determinism, ci]
+    depends: [T-007, T-010, T-011]
+    budget: 60
+    doc: ["§16.5 Determinism harness", "§17 Build order (M0 gate)"]
+    goal: "Prove on all three CI platforms that geometry, RNG and hashing agree bit for bit. This closes the M0 gate."
+    scope:
+      - "`fixtures/boards/` with two small hand-written maps (one with a bridge and a wall)."
+      - "A test that compiles them, runs a fixed set of LOS queries, draws 1,000 values from a fixed `CommandRng`, hashes a fixed `GameState`, and compares everything against committed golden values."
+      - "`STRATA_BLESS=1 cargo test` rewrites the goldens; document this in the test file."
+    acceptance:
+      - "The test passes unchanged on Linux, macOS and Windows CI."
+    tests:
+      - "The golden test itself."
+
+  # ---------------------------------------------------------------- M1
+  - id: T-013
+    title: "strata_lua: sandboxed Lua host"
+    milestone: "M1 Lua data stage"
+    labels: [area:lua, determinism]
+    depends: [T-005]
+    budget: 450
+    doc: ["§9.3 Sandbox", "§9.4 Determinism rules"]
+    goal: "A Lua 5.4 host that cannot do anything nondeterministic or unsafe."
+    scope:
+      - "`mlua` with features `lua54`, `vendored`, `serde`. `LuaHost::new(Limits)` creating a state with only base, `string`, `table`, `math` and `utf8`."
+      - "Remove `io`, `os`, `debug`, `package`, `coroutine`, `dofile`, `loadfile`, `load`, `collectgarbage`, `math.random`, `math.randomseed`, `next`; replace `pairs` with a version that iterates keys in sorted order (numbers before strings, each ascending)."
+      - "Per-pack environments built from the sandbox globals, with `freeze(table)` making a table read-only (writes raise)."
+      - "Deterministic per-call instruction budget via mlua's instruction-count hook, and `set_memory_limit`."
+      - "A `Halt` sentinel userdata; `pcall`/`xpcall` replacements that rethrow it."
+      - "Conversion `lua_to_value` / `value_to_lua` (T-005 `Value`) rejecting floats, NaN and functions with a typed error."
+    acceptance:
+      - "Two states that insert the same keys in different orders iterate them identically with `pairs`."
+      - "An infinite loop aborts after the same instruction count every run."
+      - "A script cannot swallow `Halt` with `pcall`."
+    tests:
+      - "One test per removed library and function; sorted pairs; budget; memory limit; float rejection; halt rethrow."
+
+  - id: T-014
+    title: "Pack discovery, manifests and dependency resolution"
+    milestone: "M1 Lua data stage"
+    labels: [area:content]
+    depends: [T-013]
+    budget: 350
+    doc: ["§4.1 Layout", "§4.2 Manifest", "§4.3 Load stages (step 1)"]
+    goal: "Find packs and decide the order they load in."
+    scope:
+      - "Scan one or more pack roots for directories containing `pack.lua`."
+      - "Evaluate `pack.lua` in an empty environment (no globals at all) and convert the returned table into `PackManifest { id, version, name, engine, dependencies, visibility }` using `semver`."
+      - "Resolve: missing dependency, version mismatch, duplicate IDs, cycles, and engine-range mismatch against `strata_content::ENGINE_VERSION` are errors naming the pack and file."
+      - "Topological load order with ties broken by pack ID."
+    acceptance:
+      - "Resolution is a pure function of the manifests (directory listing order does not matter)."
+    tests:
+      - "Fixture packs under `fixtures/packs/` covering each error and a diamond dependency with tie-breaking."
+
+  - id: T-015
+    title: "Data stage: constructors, the data table and pack-scoped require"
+    milestone: "M1 Lua data stage"
+    labels: [area:content, area:lua]
+    depends: [T-014]
+    budget: 450
+    doc: ["§4.3 Load stages (steps 2–4)", "§4.4 IDs", "§10.1 Conventions"]
+    goal: "Run the three data stages and collect every definition with its source location."
+    scope:
+      - "Run `data.lua`, then `data_updates.lua`, then `data_final.lua` for all packs in load order (later stages optional per pack)."
+      - "A constructor registry: each kind (`stat`, `die`, `terrain`, `unit`, ...) registers a Lua global that validates required fields cheaply and records the table into `data[kind][full_id]`, capturing the caller's file and line via `Lua::inspect_stack`."
+      - "Namespaced ID resolution: bare IDs resolve to the current pack, then dependencies in declared order; ambiguity is an error."
+      - "`data.each(kind, filter)` iterating in ID order; raw `pairs(data)` raises an error that points at `data.each`."
+      - "Pack-scoped `require` resolving only within the pack and its declared dependencies, caching and freezing module tables."
+    acceptance:
+      - "Edits made in `data_updates.lua` are visible to later packs and to the freeze."
+      - "Every record knows the file and line that created it."
+    tests:
+      - "Stage ordering; cross-pack edits; ambiguous-ID error; `require` boundary error; source locations."
+
+  - id: T-016
+    title: "Freeze: convert records to typed definitions and extract ScriptRefs"
+    milestone: "M1 Lua data stage"
+    labels: [area:content, area:lua]
+    depends: [T-015, T-009]
+    budget: 350
+    doc: ["§4.3 Load stages (step 5)", "§9.1 Loader and runtime states"]
+    goal: "Turn Lua tables into the typed structs from T-008 and T-009, without losing where anything came from."
+    scope:
+      - "Walk each record; replace every Lua function with `ScriptRef { pack, def, path }`, where `path` is a stable `/`-separated route through the record (for example `unit:ironclad_line/abilities/2/after/figure_destroyed`). Document the path grammar."
+      - "Deserialize the function-free table into the typed struct via mlua's serde support."
+      - "Map serde errors to `LoadError { file, line, field_path, message }`."
+    acceptance:
+      - "Every error names file, line and field path."
+      - "ScriptRef paths are identical across runs and machines."
+    tests:
+      - "A fixture pack with one error of each kind (missing field, wrong type, float, unknown field) asserting the exact error text with insta."
+
+  - id: T-017
+    title: "Reference resolution and the ContentRegistry"
+    milestone: "M1 Lua data stage"
+    labels: [area:content]
+    depends: [T-016]
+    budget: 350
+    doc: ["§4.4 IDs", "§4.3 Load stages (step 5)"]
+    goal: "Resolve every cross-reference and freeze the result into the immutable registry the rules read."
+    scope:
+      - "Assign `DefId`s per kind in sorted order of the full `pack:name` string."
+      - "Resolve string references (terrain in tiles, footprints in figures, factions, stats, dice, rulesets) to `DefId`s with kind checks; errors name the referencing file and line."
+      - "`ContentRegistry` (behind `Arc`, `Send + Sync`): typed lookup by `DefId` and by full ID, iteration in ID order, and the pack load order."
+      - "`strata_content::load(roots) -> Result<ContentRegistry, Vec<LoadError>>` collecting all errors rather than stopping at the first."
+    acceptance:
+      - "Loading the same packs twice yields equal registries and identical `DefId`s."
+    tests:
+      - "Dangling reference, wrong-kind reference, and a full load of a small valid fixture pack."
+
+  - id: T-018
+    title: "Content hash and pack-set identity"
+    milestone: "M1 Lua data stage"
+    labels: [area:content, determinism]
+    depends: [T-017]
+    budget: 150
+    doc: ["§4.3 Load stages (step 6)", "§4.5 Versioning and identity"]
+    goal: "Give every loaded pack set a fingerprint that replays can verify."
+    scope:
+      - "SHA-256 over the canonical `postcard` serialization of the registry plus every pack script's bytes, ordered by path."
+      - "`PackIdentity { id, version, content_hash }` per pack and for the whole set; exposed on the registry."
+    acceptance:
+      - "Changing any definition or any script byte changes the hash; reloading unchanged packs does not."
+    tests:
+      - "The three cases above with fixture packs copied to a temp dir."
+
+  - id: T-019
+    title: "CLI: `strata pack validate` with file-and-line diagnostics"
+    milestone: "M1 Lua data stage"
+    labels: [area:cli]
+    depends: [T-018]
+    budget: 250
+    doc: ["§16.1 CLI"]
+    goal: "The first user-facing tool, and the M1 gate."
+    scope:
+      - "`clap` CLI `strata` with subcommand groups; unimplemented subcommands print a clear message."
+      - "`strata pack validate <paths...>` loads the pack set and prints every `LoadError` with `miette` (file, line, source snippet, field path), then a summary with the pack-set hash."
+      - "Exit code 0 on success, 1 on load errors, 2 on usage errors."
+    acceptance:
+      - "Every load error shown names its file and line (M1 gate)."
+    tests:
+      - "`assert_cmd` + `insta` snapshots for a valid pack and for a pack with several errors."
+
+  - id: T-020
+    title: "LuaLS type stubs: `strata stubs`"
+    milestone: "M1 Lua data stage"
+    labels: [area:lua, area:cli, modding]
+    depends: [T-017]
+    budget: 400
+    doc: ["§9.5 Editor support", "§16.3 Editor setup"]
+    goal: "Autocomplete and type warnings for pack authors, generated from the same schemas the loader uses."
+    scope:
+      - "Derive `schemars::JsonSchema` on the definition types (or a small hand-written schema trait if that is cleaner; justify the choice)."
+      - "Translate schemas to LuaLS `---@meta` files: one `---@class` per definition, constructor functions with `---@param`, enums as string unions."
+      - "`strata stubs --out <dir>` writes the files; a template `.luarc.json` pointing at them lives in `templates/pack/`."
+    acceptance:
+      - "Stubs regenerate identically from the same source."
+    tests:
+      - "insta snapshot of the generated stub for `unit`, `terrain` and `ruleset`."
+    out_of_scope:
+      - "Stubs for `ctx` and archetypes (added by the tasks that create them)."
+
+  # ---------------------------------------------------------------- M2
+  - id: T-021
+    title: "Rules: RuleModule trait, Registrar and ruleset resolution"
+    milestone: "M2 Rules core"
+    labels: [area:rules]
+    depends: [T-017, T-010]
+    budget: 450
+    doc: ["§6.1 Slots", "§6.2 The module contract", "§6.3 Rulesets"]
+    goal: "Assemble a ruleset's modules into one immutable rules runtime."
+    scope:
+      - "`RuleModule` trait and `Registrar` exactly as in §6.2 (phases, command handlers, actions, modifiers, triggers, replacements, windows, services, Lua API descriptors)."
+      - "The twelve standard slot names from §6.1 as constants."
+      - "`ModuleCatalog`: built-in Rust modules registered by ID; Lua modules added later by T-028."
+      - "Ruleset resolution: follow `extends`, apply slot overrides including `false`, add addons, look up modules, check dependencies (a hard dependency on an empty slot is an error), validate each config `Value` against the module's `ConfigSchema`."
+      - "`RulesRuntime`: the finished, immutable, `Send + Sync` registration set."
+    acceptance:
+      - "Resolution errors name the ruleset, slot and module."
+    tests:
+      - "Fake modules in tests covering extends chains, `false` slots, addons, missing modules, dependency errors and config validation."
+
+  - id: T-022
+    title: "Rules: queries, modifiers and memoization"
+    milestone: "M2 Rules core"
+    labels: [area:rules]
+    depends: [T-021]
+    budget: 400
+    doc: ["§6.6 Queries, modifiers and descriptors"]
+    goal: "Compute every stat and rules question through one composable pipeline."
+    scope:
+      - "`Query` trait with typed output; `StatQuery { stat, subject, context }` and boolean vote queries (`can_enter`, `is_engaged`, `can_target`, `provokes_reprisal`, plus custom keys)."
+      - "Modifier application in layers `set`, `add`, `mul`, `final`, sorted by (layer, priority, source ID); clamp to `StatDef` bounds; votes resolve deny > allow > default unless `override`."
+      - "A `LogicEvaluator` trait for `Logic::Native` and a `ScriptCaller` trait for `Logic::Script` (implemented in T-025 and T-027)."
+      - "Per-resolution-step memo cache, invalidated on every applied event."
+      - "Every query can emit a trace (inputs, each modifier, result) for the inspector in T-064."
+    acceptance:
+      - "Modifier order never depends on registration order."
+    tests:
+      - "Layer ordering, clamping, vote precedence, override, cache invalidation."
+
+  - id: T-023
+    title: "Rules: resolver with answer tape, events, replacements and triggers"
+    milestone: "M2 Rules core"
+    labels: [area:rules, determinism]
+    depends: [T-022]
+    budget: 450
+    doc: ["§5.1 Commands, events, decisions", "§5.2 Resolution with an answer tape", "§5.3 Pipeline", "§6.7 Triggers, replacements and windows"]
+    goal: "Resolve a command deterministically, pausing for decisions without ever suspending code."
+    scope:
+      - "`Ctx` implementation over a working clone of `GameState`; `Halt::NeedsDecision`; decision cap of 64 per command."
+      - "Emit pipeline: replacements (each at most once per event; affected controller orders several) → `apply` → queue triggers."
+      - "Trigger queue: active player first; a decision orders a player's simultaneous triggers; trigger limits (once per turn, round, game)."
+      - "`Engine::submit(command) -> Outcome` and `Engine::answer(answer) -> Outcome`: re-run from the start with the extended tape; commit, record `CommandRecord`, hash."
+      - "`Engine::legal_commands()` entry point (filled in by T-024)."
+    acceptance:
+      - "Re-running a command with the same tape produces identical events and dice."
+      - "A rejected command leaves state untouched."
+    tests:
+      - "Toy handlers in tests: a two-decision command; replacement loop prevention; trigger ordering; cap exceeded."
+
+  - id: T-024
+    title: "Rules: phases, activations, slots and actions"
+    milestone: "M2 Rules core"
+    labels: [area:rules]
+    depends: [T-023]
+    budget: 450
+    doc: ["§6.4 Phases", "§6.5 Actions", "§12.4 Flow and pending decisions"]
+    goal: "Generic game flow that modules fill in."
+    scope:
+      - "Phase tree with named anchors (`before`, `after`, `inside`), `PhaseEntered`/`PhaseExited` events, `FlowState` stack updates."
+      - "Activation model: steps, per-figure slot budgets, consume and grant slots, ordering policies (`all_figures_per_step`, `per_figure`)."
+      - "`ActionDef` execution: targeting validation, slot consumption, then the resolver."
+      - "`legal_commands()` derived from the current phase, activation and actions."
+    acceptance:
+      - "A module inserting a phase at an anchor needs no change to other modules."
+    tests:
+      - "A toy ruleset with two phases, one inserted phase, and an activation of move then attack."
+
+  - id: T-025
+    title: "Rules: native descriptor evaluator (selectors, conditions, values)"
+    milestone: "M2 Rules core"
+    labels: [area:rules, archetypes]
+    depends: [T-022, T-011]
+    budget: 450
+    doc: ["§6.6 Queries, modifiers and descriptors", "§8.2 Descriptor vocabulary"]
+    goal: "The fast path: evaluate descriptors in Rust so most abilities never enter Lua."
+    scope:
+      - "Typed `Descriptor` enum compiled from the `Value` tree at freeze, with clear errors for unknown tags."
+      - "Selectors: `self`, `allies`, `enemies`, `my_units`, `occupant`, with filters `adjacent_to`, `within`, `of`, `trait`, `kind`. Results always sorted by ID."
+      - "Conditions: `all`, `any`, `none`, `not`, comparisons, `count`, `phase`, `on_terrain`, `higher_than`."
+      - "Values: literals, `stat`, `count`, `distance`, `level_difference`, `sum`, `min`, `max`."
+      - "A card-text phrase for each descriptor (used by T-041)."
+    acceptance:
+      - "`LogicEvaluator` for `Logic::Native` is implemented; unknown descriptors fail at load, not at runtime."
+    tests:
+      - "One test per descriptor on a small compiled board fixture."
+    out_of_scope:
+      - "Effects (`eff.*`) and descriptors needing combat or LOS modules (T-041)."
+
+  - id: T-026
+    title: "Rules: windows and reactions"
+    milestone: "M2 Rules core"
+    labels: [area:rules]
+    depends: [T-023]
+    budget: 250
+    doc: ["§6.7 Triggers, replacements and windows"]
+    goal: "Named pauses inside a resolution where other players may react."
+    scope:
+      - "`ctx.window(id)`: collect eligible reactions (registered per window), offer them to their controllers as decisions, resolve chosen reactions in order."
+      - "Windows declared by modules; reactions registered by abilities."
+    acceptance:
+      - "A window with no eligible reactions costs no decision."
+    tests:
+      - "Two reactions from different players in one window; a declined reaction; nested window guard."
+
+  - id: T-027
+    title: "Lua runtime states and ScriptRef calls"
+    milestone: "M2 Rules core"
+    labels: [area:lua, determinism]
+    depends: [T-023, T-017]
+    budget: 400
+    doc: ["§9.1 Loader and runtime states"]
+    goal: "Bind the registry's ScriptRefs to real functions in each thread's own Lua state."
+    scope:
+      - "`RuntimeLua::new(registry, packs)`: create a sandboxed state, run the pack scripts in runtime mode, harvest functions by `ScriptRef` path, and reject the state if the harvested path set's hash differs from the registry's."
+      - "`ScriptCaller` implementation: call a ScriptRef with converted arguments under the instruction budget; propagate `Halt`; convert results with float rejection."
+      - "Runtime states are created per thread and never shared."
+    acceptance:
+      - "Two runtime states built from the same packs call identical functions for every ScriptRef."
+    tests:
+      - "Harvest-hash mismatch; budget abort; halt propagation from Lua through Rust."
+
+  - id: T-028
+    title: "Lua ctx API and Lua rule modules"
+    milestone: "M2 Rules core"
+    labels: [area:lua, area:rules, modding]
+    depends: [T-027, T-024, T-025]
+    budget: 450
+    doc: ["§9.2 API surface", "§6.2 The module contract"]
+    goal: "Give scripts the full `ctx` surface and let a Lua module fill any slot."
+    scope:
+      - "`ctx.state` read-only proxies (writes raise); `ctx.select`; `ctx.query.*`; `ctx.choose`; `ctx.dice.roll` returning a roll object with `:count`, `:sum`, `:faces`; `ctx.vars(owner)` writing via `VarSet` events; `ctx.emit`; `ctx.log`."
+      - "Module namespaces registered through `Registrar::lua_api` appear as `ctx.<namespace>`."
+      - "`rule_module {}` constructor and an adapter implementing `RuleModule` whose `register` calls the Lua function; its registrations store ScriptRefs."
+      - "Extend `strata stubs` with the `ctx` API."
+    acceptance:
+      - "A Lua module can register an action, a modifier and a trigger, and they behave like their Rust equivalents."
+    tests:
+      - "Lua fixture modules exercising every `ctx` entry point."
+
+  - id: T-029
+    title: "Pack test harness and `strata pack test`"
+    milestone: "M2 Rules core"
+    labels: [area:content, area:cli, testing]
+    depends: [T-028]
+    budget: 450
+    doc: ["§16.4 Pack tests"]
+    goal: "Let packs prove their rules with fast, rigged-dice tests."
+    scope:
+      - "`test {}` constructor: ruleset, map, `place` (put figures directly, skipping deployment), `steps`."
+      - "`act.*` helpers that submit commands and answer decisions; `rig` that forces the next dice faces; `expect.*` helpers for stats, events, figure state and decisions."
+      - "Figure handles like `p0.unit.figure#2` resolved by the harness."
+      - "Rust runner API used by `cargo test` and the `strata pack test <path>` subcommand with a readable summary and nonzero exit on failure."
+    acceptance:
+      - "Failures report the test name, the step index and the expected versus actual values."
+    tests:
+      - "Harness tests against a fixture pack, including a deliberately failing test whose output is snapshotted."
+
+  - id: T-030
+    title: "Toy ruleset with a slot swapped between Rust and Lua (M2 gate)"
+    milestone: "M2 Rules core"
+    labels: [area:rules, testing]
+    depends: [T-029, T-026]
+    budget: 200
+    doc: ["§17 Build order (M2 gate)"]
+    goal: "Prove the core premise: any slot can be Rust or Lua with identical behavior."
+    scope:
+      - "`fixtures/packs/toy/`: two stats, one die, two terrains, two units, a 10×10 flat map."
+      - "A minimal Rust `toy:combat` module in `strata_modules` and an equivalent Lua module in the toy pack."
+      - "Two rulesets differing only in the combat slot; the same pack tests run against both."
+      - "CI runs `strata pack test fixtures/packs/toy` (add a step to `ci.yml`; this task may edit `.github/workflows/`)."
+    acceptance:
+      - "Pack tests pass for both rulesets with identical event logs."
+    tests:
+      - "The pack tests themselves plus an event-log equality test."
+
+  # ---------------------------------------------------------------- M3
+  - id: T-031
+    title: "core:units and dice rolling"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:modules]
+    depends: [T-030]
+    budget: 350
+    doc: ["§6.1 Slots", "§6.8 Dice"]
+    goal: "Heroes, squads, wounds and destruction, plus dice pools."
+    scope:
+      - "`core:units`: unit kinds as module vocabulary, `ctx.units.wound`, `heal`, `destroy`, removal of a unit when its last figure is destroyed, `FigureDestroyed` events."
+      - "Dice: roll pools from `DieDef`s through the command RNG, `DiceRolled` events, `DicePool` query, reroll as decision plus replacement roll."
+      - "Lua namespaces `ctx.units` and `ctx.dice`."
+    acceptance:
+      - "Wounds at or above life destroy a figure exactly once."
+    tests:
+      - "Pack tests in a fixture pack for wounding, destruction and rerolls."
+
+  - id: T-032
+    title: "core:rounds and core:command_tokens"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:modules, hidden-info]
+    depends: [T-031]
+    budget: 450
+    doc: ["§6.1 Slots", "§6.3 Rulesets", "§12.5 Hidden information"]
+    goal: "The round loop, initiative and hidden command tokens."
+    scope:
+      - "`core:rounds`: rounds, initiative roll with a configurable die and tie rule, turns per round, round end."
+      - "`core:command_tokens`: numbered tokens plus decoys placed secretly on unit cards (owner-only visibility), revealed in order, deciding which unit activates each turn; tokens removed when a unit is destroyed."
+      - "Empty `tokens` slot: players choose units freely."
+    acceptance:
+      - "Opponents' events and views never contain token assignments before reveal."
+    tests:
+      - "Pack tests for initiative ties, token order, decoys, and a destroyed unit holding a token."
+
+  - id: T-033
+    title: "core:activation"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:modules]
+    depends: [T-032]
+    budget: 300
+    doc: ["§6.5 Actions", "§6.3 Rulesets"]
+    goal: "A unit's turn: steps, slots and ordering, configured by the ruleset."
+    scope:
+      - "Steps from config (default move then attack), per-figure slots, `all_figures_per_step` ordering, ending an activation early."
+      - "Hooks for abilities granting extra slots."
+    acceptance:
+      - "A squad moves all figures before any attacks under the default config."
+    tests:
+      - "Pack tests for ordering, early end and a granted extra move."
+
+  - id: T-034
+    title: "core:movement: reachable() for one-space figures"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:modules, area:board]
+    depends: [T-033, T-011]
+    budget: 450
+    doc: ["§7.4 Movement", "§7.2 Columns, segments and surfaces"]
+    goal: "Native, deterministic pathfinding that every preview and the AI read."
+    scope:
+      - "`reachable(figure)`: Dijkstra over surfaces with integer costs from `move_cost`, `can_enter` and `can_climb` queries; deterministic tie-breaking by `Space` order."
+      - "Edge-cost cache per (figure, terrain, level change) for one query (§7.4)."
+      - "Flags: `stops_here` (stop-on-enter terrain), `falls` (descending beyond the configured limit), `occupied`; headroom check (`ignore` or `figure_height`)."
+      - "The ordinary `move` action using the result; `FigureMoved` with the full path."
+    acceptance:
+      - "Results are identical regardless of query order or cache state."
+    tests:
+      - "Pack tests on fixture maps: climbing limits, stop-on-enter, bridges (moving under and over), occupied spaces."
+      - "proptest: path cost is never less than hex distance."
+
+  - id: T-035
+    title: "core:movement: multi-space footprints and falling"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:modules, area:board]
+    depends: [T-034]
+    budget: 400
+    doc: ["§7.3 Footprints", "§7.4 Movement"]
+    goal: "Two-space and larger figures, in both move modes, and fall damage."
+    scope:
+      - "Search over (anchor space, rotation) nodes; every cell must have a surface within `max_spread` levels."
+      - "`snake` mode (rear follows the leader's path) and `rigid` mode (shape translates)."
+      - "Falling: a configurable rule emitting wounds via `ctx.units`."
+    acceptance:
+      - "A two-space figure never ends with a cell over empty space."
+    tests:
+      - "Pack tests for snake turns, rigid translation, spread limits and falling."
+
+  - id: T-036
+    title: "core:engagement and reprisals"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:modules]
+    depends: [T-034]
+    budget: 250
+    doc: ["§6.1 Slots", "§6.6 Queries, modifiers and descriptors"]
+    goal: "Who is engaged with whom, and what leaving costs."
+    scope:
+      - "`is_engaged` query (default: adjacent enemies whose height ranges overlap, configurable)."
+      - "Leaving engagement offers each engaged enemy a reprisal roll with the configured die; `provokes_reprisal` query so abilities can deny it."
+      - "Movement integration: `provokes_reprisal` flag on reachable spaces."
+    acceptance:
+      - "A figure denied reprisal by a modifier triggers no rolls."
+    tests:
+      - "Pack tests for engagement across height differences, reprisals and denial."
+
+  - id: T-037
+    title: "core:los: geometric policy with sprite-aware volumes"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:modules, area:los]
+    depends: [T-007, T-031]
+    budget: 400
+    doc: ["§7.5 Line of sight", "§7.6 Line of sight with sprites"]
+    goal: "Line of sight that matches what players see on screen, computed without a camera."
+    scope:
+      - "Build blockers per column from terrain segments, LOS-blocking features and figures (80% inset prisms over their footprint cells, from the hit zone's bottom to top)."
+      - "21 sample points per one-space figure (three heights × center plus six inset corners), more for larger footprints; the attacker's target point at `target` above its anchor center."
+      - "`LineOfSight` service returning `{ visible, clear_fraction, witnesses }`; policies `geometric` (threshold `any` by default) and `columns` (center to center)."
+      - "`in_los` selector filter wired to the service."
+    acceptance:
+      - "LOS between two figures is invariant under rotating the whole board by 60°."
+    tests:
+      - "Pack tests with walls, bridges, partial cover over a low wall, and intervening figures."
+      - "proptest rotation invariance on generated small boards."
+
+  - id: T-038
+    title: "core:combat"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:modules]
+    depends: [T-036, T-037]
+    budget: 400
+    doc: ["§6.1 Slots", "§6.7 Triggers, replacements and windows", "§7.6 Line of sight with sprites"]
+    goal: "The standard attack."
+    scope:
+      - "The `attack` action: range from the `range` stat and hex distance, LOS required beyond adjacency, attack and defense pools from queries, height bonus from config, hits minus blocks as wounds."
+      - "Windows `combat.before_attack_roll`, `combat.before_defense_roll`, `combat.after_defense_roll`, `combat.after_wounds`."
+      - "Optional `cover` config: +1 defense when at least half the LOS samples are blocked."
+      - "Lua namespace `ctx.combat.attack { ... }` for special attacks."
+    acceptance:
+      - "All randomness comes from the command RNG; rigged dice in tests fully determine outcomes."
+    tests:
+      - "Pack tests for range, height bonus, cover, and a reaction in each window."
+
+  - id: T-039
+    title: "core:relics and core:deployment"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:modules]
+    depends: [T-033]
+    budget: 400
+    doc: ["§10.6 Relics", "§11.2 Scenario", "§6.1 Slots"]
+    goal: "Claimable relics and the setup phase."
+    scope:
+      - "Relics placed on spots from the scenario, face-up or face-down; claiming on `ends_move_on`; `while_occupied` grants (abilities attached to the occupant's army) and `on_claim` effects."
+      - "Deployment: start zones per slot, placement order, a placement command validated against zones and surfaces."
+    acceptance:
+      - "A `while_occupied` bonus disappears exactly when the occupant leaves."
+    tests:
+      - "Pack tests for claiming, face-down reveal, bonus on and off, and illegal placement."
+
+  - id: T-040
+    title: "core:army and core:victory"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:modules]
+    depends: [T-038]
+    budget: 350
+    doc: ["§11.2 Scenario", "§11.3 Format", "§11.4 Army list"]
+    goal: "Army legality and how matches end."
+    scope:
+      - "`army_rule.*` constructors: `max_points`, `unique_once`, `max_copies`, `banned`, `require_faction`, `max_footprint`; `validate(list, format, scenario)` returning all violations with their rule."
+      - "`win.*` constructors: `eliminate_all`, `hold_zone`, `round_limit` with tiebreaks; evaluation after each command and at round end; optional `progress` estimate for the AI."
+    acceptance:
+      - "A scenario's army rules and its format's rules both apply."
+    tests:
+      - "Validation fixtures; pack tests ending a match by each victory condition."
+
+  - id: T-041
+    title: "Effect descriptors and card-text generation"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:rules, archetypes]
+    depends: [T-025, T-038]
+    budget: 400
+    doc: ["§8.2 Descriptor vocabulary", "§8.4 Card text"]
+    goal: "Finish the descriptor vocabulary so archetypes can be data."
+    scope:
+      - "`eff.*`: `wound`, `heal`, `place`, `remove`, `move`, `grant_slot`, `add_marker`, `take_control`, `cancel_wounds`, `excess_blocks_wound_attacker`."
+      - "Remaining selectors and conditions that need modules: `engaged`, `in_los`, `attack_kind`."
+      - "Card-text rendering: template strings with `{param}` substitution and descriptor phrases, producing text like \"Adjacent friendly soldier figures add 1 to their defense.\""
+    acceptance:
+      - "Every descriptor in §8.2 evaluates natively and renders a phrase."
+    tests:
+      - "One test per effect; insta snapshots of rendered card text."
+
+  - id: T-042
+    title: "strata_std: the eight archetype families and keywords"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:packs, archetypes]
+    depends: [T-041]
+    budget: 450
+    doc: ["§8.1 The eight families", "§8.3 Archetypes in use", "§8.5 Unique abilities"]
+    goal: "Make most abilities one-line archetype calls."
+    scope:
+      - "`packs/strata_std/abilities/`: `stat_bonus`, `aura`, `special_attack`, `movement_mode`, `reaction`, `roll_trigger`, `activation_trick`, `board_effect`, each building an `ability {}` definition from descriptors and recording `ArchetypeInfo`."
+      - "`hazard_roll` terrain archetype (a `board_effect` variant using `sel.occupant`)."
+      - "`packs/strata_std/lib/keywords.lua` with a handful of original keywords (for example `flight`, `steady`, `disciplined`) that accept overrides."
+      - "Extend `strata stubs` with archetype signatures."
+    acceptance:
+      - "Each archetype produces abilities that evaluate natively (no `Logic::Script`) unless a Lua function is passed in."
+    tests:
+      - "Pack tests: at least two per archetype, including a mixed archetype with one Lua function parameter."
+
+  - id: T-043
+    title: "strata_std: base content and eight test units"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:packs]
+    depends: [T-042, T-039, T-040]
+    budget: 150
+    doc: ["§10.2 Vocabulary", "§6.3 Rulesets"]
+    goal: "A playable standard pack."
+    scope:
+      - "Stats, combat die and d20, wound marker, traits vocabulary, terrains (grass, rock, sand, water, magma), tiles in 1/3/7/24 shapes, one- and two-space footprints."
+      - "Rulesets `advanced` and `intro` exactly as in §6.3."
+      - "A 12×12 test map with height, a bridge and water; one scenario; one format."
+      - "Eight units (heroes and squads, one two-space) with neutral names and archetype abilities; `assets.lua` with no sprites (fallbacks render)."
+    acceptance:
+      - "`strata pack validate packs/strata_std` passes; every unit appears in at least one pack test."
+    tests:
+      - "Pack tests per unit ability."
+
+  - id: T-044
+    title: "strata_session: match setup, command loop, saves and replays"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:session, determinism]
+    depends: [T-030]
+    budget: 450
+    doc: ["§12.2 Match setup", "§12.6 Saves and replays", "§15.1 Controllers", "§15.3 Visibility"]
+    goal: "Run whole matches headlessly."
+    scope:
+      - "`MatchSetup` → initial `GameState` (deploy army lists, place relics, compile board)."
+      - "`Controller` trait (§15.1); `Session` loop asking the right controller for commands and answers."
+      - "`PlayerView` projection and per-player event filtering by visibility."
+      - "Replay format (postcard): engine version, pack identities, setup, `CommandRecord`s, optional snapshots every 20 commands; save, load and verify pack hashes before replaying."
+    acceptance:
+      - "Replaying a saved match reproduces every state hash."
+    tests:
+      - "Scripted controllers playing a short match on the toy pack; save, load, replay and compare hashes."
+
+  - id: T-045
+    title: "Simulation thread, channels and a random controller"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [area:session]
+    depends: [T-044]
+    budget: 300
+    doc: ["§13.1 The simulation thread"]
+    goal: "Run the session on its own thread so the client never touches Lua or blocks."
+    scope:
+      - "`SimHandle`: spawns the session thread with its own runtime Lua state; `crossbeam-channel` in (commands, answers, control) and out (filtered event batches, player views, errors)."
+      - "`HumanController` fed from the inbound channel."
+      - "`RandomController` choosing uniformly among legal commands and answers using its own seeded kernel RNG."
+    acceptance:
+      - "Shutting down the handle joins the thread cleanly."
+    tests:
+      - "Two random controllers play a match through the channels to completion."
+
+  - id: T-046
+    title: "Determinism harness and minimal `strata sim` (M3 gate)"
+    milestone: "M3 Standard rules and archetypes"
+    labels: [determinism, ci, area:cli]
+    depends: [T-045, T-043]
+    budget: 250
+    doc: ["§16.5 Determinism harness", "§17 Build order (M3 gate)"]
+    goal: "Prove 1,000 seeded matches produce identical hash sequences across processes and platforms."
+    scope:
+      - "`strata sim --pack ... --format ... --games N --seed S --hashes out.txt` using random controllers, writing one hash-sequence digest per game."
+      - "A `determinism` CI job (Linux, macOS, Windows) that runs the sim twice in separate processes and diffs the outputs, and compares Linux's output against the other platforms'."
+      - "Pack tests also run twice with output comparison."
+      - "This task may edit `.github/workflows/`."
+    acceptance:
+      - "1,000 games, zero mismatches, on all three platforms."
+    tests:
+      - "The CI job is the test."
+
+  # ---------------------------------------------------------------- M4
+  - id: T-047
+    title: "Client skeleton: Bevy app and SimLinkPlugin"
+    milestone: "M4 Playable client"
+    labels: [area:client]
+    depends: [T-045]
+    budget: 300
+    doc: ["§13.1 The simulation thread", "§13.3 Plugins", "§13.7 Containing Bevy upgrades"]
+    goal: "The Bevy shell that talks to the simulation."
+    scope:
+      - "Add `bevy` (latest release at the time) and the matching `bevy_egui` to `strata_client` only; pin exact versions."
+      - "`SimLinkPlugin`: starts a `SimHandle` from CLI args (packs, scenario, armies), drains outbound batches into a `PendingEvents` resource each frame, exposes a `SendCommand` event."
+      - "Plugin skeletons for the other plugins in §13.3, empty for now."
+    acceptance:
+      - "`strata-client --pack packs/strata_std --scenario ...` opens a window and logs incoming events."
+    tests:
+      - "A headless Bevy `App` test with `MinimalPlugins` verifying the channel drain."
+
+  - id: T-048
+    title: "Isometric camera and kernel-based picking"
+    milestone: "M4 Playable client"
+    labels: [area:client]
+    depends: [T-047]
+    budget: 350
+    doc: ["§13.8 Isometric rendering and sprites", "§13.3 Plugins"]
+    goal: "The 2.5D view and exact hex picking."
+    scope:
+      - "Orthographic 3D camera at a configurable elevation (default 30°), six yaw steps of 60° with smooth turning, integer zoom steps, pan."
+      - "World mapping from axial coordinates and levels (pointy or flat orientation from the map)."
+      - "Picking: cast the cursor ray against compiled-board surfaces with kernel math (no physics) to get the hovered space; `HoveredSpace` resource."
+    acceptance:
+      - "The hovered space is correct on stacked terrain and under bridges from every yaw."
+    tests:
+      - "Unit tests for the ray-to-space math on a fixture board."
+
+  - id: T-049
+    title: "Terrain rendering"
+    milestone: "M4 Playable client"
+    labels: [area:client]
+    depends: [T-048]
+    budget: 450
+    doc: ["§13.3 Plugins (BoardPlugin)", "§13.8 Isometric rendering and sprites"]
+    goal: "Draw the compiled board."
+    scope:
+      - "Build hex-prism meshes per terrain material from `CompiledBoard`: top faces, and side faces only where exposed."
+      - "Chunked meshes for large maps; rebuild only changed chunks on `BoardChanges`."
+      - "Flat-shaded materials with nearest-neighbor textures from `assets.lua`, or tinted fallbacks."
+      - "A level-slicing hook (hide segments above level N) for the editor."
+    acceptance:
+      - "Bridges and overhangs render with their gaps."
+    tests:
+      - "Unit tests for mesh face generation (exposed faces only) on fixture columns."
+
+  - id: T-050
+    title: "Sprite figures: billboards, directional frames and fallbacks"
+    milestone: "M4 Playable client"
+    labels: [area:client, sprites]
+    depends: [T-049]
+    budget: 450
+    doc: ["§13.8 Isometric rendering and sprites", "§13.4 Asset fallbacks", "§7.6 Line of sight with sprites"]
+    goal: "Every figure is an upright, camera-facing sprite that sorts correctly against terrain."
+    scope:
+      - "`sprite {}` metadata in `assets.lua` (sheet, frame size, foot anchor, six directions, animations); pack-level `pixels_per_level` and `hex_width_px`."
+      - "Upright billboard quads that yaw with the camera, alpha-cutout materials so the depth buffer sorts them; anchored at the foot point on the figure's surface; scaled from pixels per level."
+      - "Frame selection: direction = (figure rotation − camera yaw) mod 6; animation playback with `idle` fallback."
+      - "Generated fallback sprites: a faction-colored capsule at the figure's hit-zone height in six directions, with a footprint-shaped base."
+    acceptance:
+      - "A fallback sprite's height on screen equals its hit-zone height in levels."
+    tests:
+      - "Unit tests for direction selection and pixel-to-world scaling."
+
+  - id: T-051
+    title: "Occlusion: silhouettes and column fading"
+    milestone: "M4 Playable client"
+    labels: [area:client, sprites]
+    depends: [T-050]
+    budget: 300
+    doc: ["§13.3 Plugins (OcclusionPlugin)"]
+    goal: "Players can always see their figures."
+    scope:
+      - "Draw an outline silhouette of any figure hidden behind terrain (second pass ignoring depth, or a stencil approach)."
+      - "Fade terrain columns between the camera and the selected or hovered figure."
+    acceptance:
+      - "A figure fully behind a wall shows its silhouette in its controller's color."
+    tests:
+      - "Unit test for the which-columns-to-fade computation."
+
+  - id: T-052
+    title: "Event playback"
+    milestone: "M4 Playable client"
+    labels: [area:client]
+    depends: [T-050]
+    budget: 400
+    doc: ["§13.3 Plugins (PlaybackPlugin)"]
+    goal: "Show what happened, in order, at a readable pace."
+    scope:
+      - "`EventPlayer` queue with per-event views: figure moves along its path (with `move` animation), dice tumble and result display, wound and marker changes, destruction, token reveal, phase banners."
+      - "Custom events map to a generic view from `assets.lua` (text, optional sound key)."
+      - "Input lock during playback; skip and speed controls."
+    acceptance:
+      - "Visual state after playback matches the simulation's state for every figure."
+    tests:
+      - "A headless test feeding an event batch and checking final entity transforms."
+
+  - id: T-053
+    title: "UI panels: unit cards, turn tracker and log"
+    milestone: "M4 Playable client"
+    labels: [area:client, ui]
+    depends: [T-047]
+    budget: 450
+    doc: ["§13.3 Plugins (UiPlugin)", "§8.4 Card text"]
+    goal: "The information a player needs, from queries rather than raw definitions."
+    scope:
+      - "`bevy_egui` unit cards showing queried (buffed) stats, generated card text, figures alive and wounds."
+      - "Round, turn, active player and token status (own tokens visible, opponents' hidden)."
+      - "Scrollable game log from filtered events."
+    acceptance:
+      - "A stat modified by an aura shows its modified value."
+    tests:
+      - "Unit tests for the card view-model built from a `PlayerView`."
+
+  - id: T-054
+    title: "Decision UI and command input"
+    milestone: "M4 Playable client"
+    labels: [area:client, ui]
+    depends: [T-053, T-048]
+    budget: 450
+    doc: ["§13.5 Generic decision UI", "§13.3 Plugins (InputPlugin)"]
+    goal: "Every decision and command, with no per-ability UI code."
+    scope:
+      - "Decision widgets: board highlighting for figure and space choices, dialog for options, stepper for numbers, drag list for ordering, yes/no."
+      - "Command building from `legal_commands`: select unit, select figure, select action, select target; invalid clicks explain why."
+      - "Token placement screen."
+    acceptance:
+      - "A Lua ability's `ctx.choose` with figures highlights exactly the legal figures."
+    tests:
+      - "Unit tests for decision-to-widget mapping and command building from legal commands."
+
+  - id: T-055
+    title: "Previews: movement, LOS volume and combat odds"
+    milestone: "M4 Playable client"
+    labels: [area:client, area:los]
+    depends: [T-054, T-037]
+    budget: 400
+    doc: ["§13.6 Previews", "§7.6 Line of sight with sprites"]
+    goal: "Show players exactly what the rules will do."
+    scope:
+      - "Movement: shade `reachable` spaces, label costs, flag `stops_here`, `provokes_reprisal` and `falls`."
+      - "Attack: outline the defender's LOS volume as a faint prism around its sprite, draw the witness rays, show clear fraction."
+      - "Exact wound distribution by convolving the two dice definitions (no sampling)."
+    acceptance:
+      - "The preview's wound distribution sums to exactly 1 (as rationals)."
+    tests:
+      - "Unit tests for the convolution against hand-computed distributions."
+
+  - id: T-056
+    title: "Hotseat match flow (M4 gate)"
+    milestone: "M4 Playable client"
+    labels: [area:client, ui]
+    depends: [T-052, T-054]
+    budget: 350
+    doc: ["§17 Build order (M4 gate)"]
+    goal: "Two people can play a full match on one machine with zero art."
+    scope:
+      - "Main menu: pick packs, ruleset, scenario and army lists (from files)."
+      - "Hidden information handoff: a pass-the-device screen before each player's secret token placement."
+      - "Victory screen with a summary and save-replay button."
+    acceptance:
+      - "A full match of the `strata_std` scenario plays to a victory using only fallback visuals."
+    tests:
+      - "A headless smoke test driving a match with scripted inputs through the UI layer."
+
+  # ---------------------------------------------------------------- M5
+  - id: T-057
+    title: "strata_editor: map document and undoable edit commands"
+    milestone: "M5 Map editor"
+    labels: [area:editor]
+    depends: [T-011]
+    budget: 400
+    doc: ["§14.1 Editor core"]
+    goal: "Editing logic with no Bevy dependency."
+    scope:
+      - "`MapDocument` wrapping a `MapDef` plus a compiled board refreshed after each edit."
+      - "Edit commands: place, remove, move and rotate piece; place and remove feature; paint and erase zone cells; set and clear relic spot; set metadata. Each with `apply` and `undo`."
+      - "Undo and redo stacks."
+    acceptance:
+      - "Any sequence of edits followed by the same number of undos restores the original map exactly."
+    tests:
+      - "proptest over random edit sequences with undo."
+
+  - id: T-058
+    title: "Editor validation and fairness analysis"
+    milestone: "M5 Map editor"
+    labels: [area:editor]
+    depends: [T-057, T-034]
+    budget: 400
+    doc: ["§14.1 Editor core"]
+    goal: "Tell the map author what is wrong and how fair the map is."
+    scope:
+      - "Findings with severity and cells: overlaps, unsupported cells, inventory overruns, zones on unstandable columns, start zones too small for a given army size, relic spots unreachable from start zones."
+      - "Reachability between start zones for a reference one-space figure; per-objective path-length comparison across start zones."
+      - "`strata map check <file>` CLI using the same code."
+    acceptance:
+      - "Validation of an unchanged document is cached and cheap."
+    tests:
+      - "Fixture maps for each finding; fairness report snapshot."
+
+  - id: T-059
+    title: "Lua map writer with stable output"
+    milestone: "M5 Map editor"
+    labels: [area:editor]
+    depends: [T-057]
+    budget: 250
+    doc: ["§11.1 Map", "§14.1 Editor core (Writer)"]
+    goal: "Save maps as clean, diffable Lua."
+    scope:
+      - "Serialize `MapDef` to a `return map { ... }` Lua literal with stable key order and one piece per line, matching the style in §11.1."
+      - "Round trip: write, load through the data stage, compare."
+    acceptance:
+      - "Writing the same map twice produces byte-identical files."
+    tests:
+      - "Round-trip tests on fixture maps; snapshot of written output."
+
+  - id: T-060
+    title: "Editor UI: palette, placement and brushes"
+    milestone: "M5 Map editor"
+    labels: [area:client, area:editor, ui]
+    depends: [T-057, T-049]
+    budget: 450
+    doc: ["§14.2 Editor UI"]
+    goal: "Build terrain by hand, quickly."
+    scope:
+      - "`EditorPlugin` mode switch; palette from loaded packs' tiles and features with inventory counts."
+      - "Placement ghost with rotation, snapping to the top surface under the cursor or a locked level."
+      - "Freeform brushes: single hex, line, region fill; undo and redo bindings."
+    acceptance:
+      - "Every UI action goes through `strata_editor` edit commands."
+    tests:
+      - "Unit tests for ghost placement level selection."
+
+  - id: T-061
+    title: "Editor UI: slicing, zones, relics, symmetry, validation, playtest (M5 gate)"
+    milestone: "M5 Map editor"
+    labels: [area:client, area:editor, ui]
+    depends: [T-060, T-058, T-059]
+    budget: 450
+    doc: ["§14.2 Editor UI", "§14.3 Scenarios from a map", "§17 Build order (M5 gate)"]
+    goal: "Finish the editor and close the loop from building to playing."
+    scope:
+      - "Level slicing control; zone painter with named, colored layers; relic-spot tool."
+      - "Symmetry tool (mirror or rotate placements for 2 to 6 players) using kernel reflection and rotation."
+      - "Validation panel; clicking a finding frames its cells."
+      - "Save via the Lua writer; generate a scenario skeleton; playtest button starting a hotseat match on the current map."
+    acceptance:
+      - "A map can be built, validated, saved and playtested without leaving the app."
+    tests:
+      - "Unit tests for symmetry mapping and skeleton generation."
+
+  # ---------------------------------------------------------------- M6
+  - id: T-062
+    title: "Greedy AI controller and evaluator terms"
+    milestone: "M6 AI and tooling"
+    labels: [area:ai]
+    depends: [T-046]
+    budget: 450
+    doc: ["§15.2 AI"]
+    goal: "A competent one-ply opponent that works for modded abilities automatically."
+    scope:
+      - "`AiController`: for each legal command, clone, resolve with a runtime Lua state, score, pick the best; deterministic tie-breaking."
+      - "Evaluator terms registered by modules: material (points weighted by wounds), threat (expected damage next turn from exact dice distributions), objective progress from victory conditions."
+      - "Decisions answered by shallow simulation with a budget, falling back to the first option."
+      - "`rayon` workers, each owning a runtime Lua state."
+    acceptance:
+      - "The AI beats `RandomController` in at least 90% of 200 seeded games on the standard scenario."
+      - "Same seed, same choices."
+    tests:
+      - "Determinism test; the win-rate test (may be `#[ignore]`d in normal runs and executed in CI's determinism job)."
+
+  - id: T-063
+    title: "`strata sim` balance stats, ability coverage and slow-path profiler"
+    milestone: "M6 AI and tooling"
+    labels: [area:cli, area:ai]
+    depends: [T-062]
+    budget: 350
+    doc: ["§8.6 Measuring coverage", "§16.1 CLI"]
+    goal: "Numbers for balancing and for the M6 coverage gate."
+    scope:
+      - "`strata sim` with AI controllers: win rates, points destroyed, per-unit survival, as a table and CSV."
+      - "`strata stats abilities <pack>`: counts of pure-archetype, archetype-plus-Lua and fully custom abilities."
+      - "Dev-build counters of `Logic::Script` calls per ability during sims."
+    acceptance:
+      - "Coverage counts match a hand-counted fixture pack."
+    tests:
+      - "Snapshot tests of the reports on fixture packs."
+
+  - id: T-064
+    title: "Rules inspector"
+    milestone: "M6 AI and tooling"
+    labels: [area:rules, area:client, modding]
+    depends: [T-022, T-053]
+    budget: 300
+    doc: ["§16.6 Rules inspector"]
+    goal: "Answer \"why is this number 5?\" for any query."
+    scope:
+      - "Collect query traces (from T-022) on demand for a selected figure and stat."
+      - "Dev panel showing base value, each modifier with source and whether it ran natively or in Lua, clamping, and the result."
+    acceptance:
+      - "The trace's arithmetic reproduces the displayed value."
+    tests:
+      - "Unit test for trace formatting."
+
+  - id: T-065
+    title: "Hot reload"
+    milestone: "M6 AI and tooling"
+    labels: [area:client, modding]
+    depends: [T-056]
+    budget: 350
+    doc: ["§16.2 Hot reload"]
+    goal: "See a pack edit in a running match within seconds."
+    scope:
+      - "Dev builds watch loaded pack folders with `notify`; on change, reload; if valid, swap the registry and replay the match log to the same command index, stopping at the last legal command."
+      - "Load errors appear as an in-game overlay with file and line."
+    acceptance:
+      - "Editing a unit's stat updates its card without restarting."
+    tests:
+      - "A session-level test: reload with a changed stat and verify the replayed state."
+
+  - id: T-066
+    title: "`strata lint`: Lua checks"
+    milestone: "M6 AI and tooling"
+    labels: [area:cli, modding, determinism]
+    depends: [T-019]
+    budget: 400
+    doc: ["§9.4 Determinism rules", "§8.4 Card text", "§16.1 CLI"]
+    goal: "Catch nondeterministic or drifting Lua before it runs."
+    scope:
+      - "Parse pack Lua with `full_moon`."
+      - "Errors: `/` division in logic files; assignments to upvalues inside functions stored in definitions (hooks); `pairs`-dependent side effects are out of scope."
+      - "Warnings: an explicit `text = ...` override that omits a number present in the archetype parameters."
+      - "Run `selene` with a generated Strata std definition if it is installed; skip with a notice otherwise."
+    acceptance:
+      - "Diagnostics name file, line and a fix."
+    tests:
+      - "Fixture Lua files for each check; snapshot of output."
+
+  - id: T-067
+    title: "Sprite lint: sprite height against the LOS profile"
+    milestone: "M6 AI and tooling"
+    labels: [area:cli, sprites, area:los]
+    depends: [T-066, T-050]
+    budget: 250
+    doc: ["§7.6 Line of sight with sprites"]
+    goal: "Guarantee the picture matches the rules."
+    scope:
+      - "For every figure with a sprite, load each direction's frames with `image`, measure the opaque bounding box from the foot anchor, convert with `pixels_per_level`, and compare against the hit zone."
+      - "Fail if the height differs by more than one sub-level unit; fail if the width exceeds the footprint's projected width."
+    acceptance:
+      - "Generated fallback sprites always pass."
+    tests:
+      - "Fixture PNGs that pass, are too tall, and are too wide."
+
+  - id: T-068
+    title: "`strata replay verify`, `dump` and `to-test`"
+    milestone: "M6 AI and tooling"
+    labels: [area:cli, determinism]
+    depends: [T-044, T-019]
+    budget: 300
+    doc: ["§12.6 Saves and replays", "§15.4 Replays"]
+    goal: "Tools for bug reports and regression tests."
+    scope:
+      - "`verify`: re-resolve every command and compare each state hash; report the first mismatch."
+      - "`dump`: readable text of setup, commands, answers and events."
+      - "`to-test --at N`: write a pack test that starts from the state at command N and asserts the recorded outcome."
+    acceptance:
+      - "A replay from T-044's tests verifies cleanly; a tampered one reports the exact command."
+    tests:
+      - "Snapshot tests of `dump`; round trip of `to-test`."
+
+  # ---------------------------------------------------------------- M7
+  - id: T-069
+    title: "Release packager"
+    milestone: "M7 Release readiness"
+    labels: [area:cli, release]
+    depends: [T-018]
+    budget: 300
+    doc: ["§4.2 Manifest"]
+    goal: "Produce a distributable build of the client and its public packs."
+    scope:
+      - "`strata package --out dist/` bundling the client binary, public packs and their assets."
+      - "Refuse any pack with `visibility = \"private\"`."
+      - "A manifest listing bundled packs with their content hashes."
+    acceptance:
+      - "Packaging with a private pack present in the search path fails with a clear message."
+    tests:
+      - "Fixture pack sets with and without a private pack."
+
+  # ---------------------------------------------------------------- Post
+  - id: T-070
+    title: "Campaign mode (Kalpa)"
+    milestone: "Post-1.0"
+    labels: [post-1.0]
+    depends: [T-056]
+    budget: 0
+    doc: []
+    goal: "Placeholder for the campaign layer described in Liam's separate campaign design. Not to be started until the engine ships; Liam will break it into tasks."
+    scope: []
+    acceptance: []
+    tests: []

@@ -1,0 +1,21 @@
+name: Line budget
+
+# Separate from CI so that adding or removing the `budget-exempt` label re-runs only this check.
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+jobs:
+  budget:
+    name: core logic <= 500 lines
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Count added core-logic lines
+        env:
+          BUDGET_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'budget-exempt') }}
+        run: python3 scripts/line_budget.py --base "origin/${{ github.base_ref }}" --limit 500
