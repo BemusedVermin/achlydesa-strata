@@ -11,6 +11,7 @@ pub mod hash;
 pub mod hex;
 pub mod id;
 pub mod lattice;
+pub mod occlusion;
 pub mod pcg;
 pub mod rng;
 pub mod rotation;
@@ -24,6 +25,9 @@ pub use hash::{StableHash, StableHasher};
 pub use hex::{Axis, DIRECTIONS, Hex};
 pub use id::{DefId, ModuleId, PackId, SlotId, Sym, WindowId};
 pub use lattice::{LATTICE, Point};
+pub use occlusion::{
+    Blocker, BlockerFootprint, ClearCount, Point3, SUB_LEVELS, Seg3, blocked, clear_count,
+};
 pub use pcg::Pcg32;
 pub use rng::CommandRng;
 pub use rotation::Rotation;
