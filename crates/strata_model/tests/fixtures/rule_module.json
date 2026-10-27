@@ -1,0 +1,1 @@
+{"id":23,"name":"Defender First","slot":"combat","depends":["core:units"],"config":{"min_wounds":{"type":"int","default":{"Int":0}}},"register":{"pack":"test","def":23,"path":"register"}}

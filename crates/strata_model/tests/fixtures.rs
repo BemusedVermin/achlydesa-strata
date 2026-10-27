@@ -4,7 +4,7 @@ use std::fmt::Debug;
 
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use strata_kernel::{StableHash, StableHasher};
+use strata_kernel::{SlotId, StableHash, StableHasher};
 use strata_model::*;
 
 fn hash<T: StableHash>(value: &T) -> u64 {
@@ -107,5 +107,80 @@ fn hash_depends_on_content() {
     let a: StatDef = serde_json::from_str(fixture!("stat")).unwrap();
     let mut b = a.clone();
     b.max = 98;
+    assert_ne!(hash(&a), hash(&b));
+}
+
+#[test]
+fn unit_with_figures_and_abilities() {
+    let def: UnitDef = round_trip(fixture!("unit"));
+    let figure = &def.figures[0];
+    assert_eq!((figure.count, figure.height), (4, 5));
+    assert_eq!((figure.los.target, figure.los.hit_zone), (54, (0, 60)));
+    let ability = &def.abilities[0];
+    assert_eq!(ability.scope, Scope::Figure);
+    assert_eq!(ability.archetype.as_ref().unwrap().family.as_str(), "aura");
+    assert_eq!(ability.modifiers[0].layer, ModifierLayer::Add);
+    assert!(!ability.modifiers[0].overrides);
+    assert!(matches!(ability.actions[0].resolve, Logic::Script(_)));
+    assert!(matches!(ability.modifiers[0].value, Logic::Native(_)));
+    assert_eq!(ability.triggers[0].limit, Some(TriggerLimit::OncePerTurn));
+    assert_eq!(ability.reactions[0].window.as_str(), "combat.after_wounds");
+}
+
+#[test]
+fn relic() {
+    let def: RelicDef = round_trip(fixture!("relic"));
+    assert_eq!(def.mode, RelicMode::WhileOccupied);
+    assert_eq!(def.grants.unwrap().abilities.len(), 1);
+}
+
+#[test]
+fn ruleset_slots_and_defaults() {
+    let def: RulesetDef = round_trip(fixture!("ruleset"));
+    assert_eq!(def.slots.len(), 2);
+    assert_eq!(def.slots[&SlotId::new("tokens")], None);
+    assert!(!def.abilities);
+    let minimal: RulesetDef = serde_json::from_str(r#"{"id":1}"#).unwrap();
+    assert!(minimal.abilities);
+    assert_eq!(minimal.undo, UndoPolicy::UntilRandomOrReveal);
+}
+
+#[test]
+fn rule_module() {
+    let def: RuleModuleDef = round_trip(fixture!("rule_module"));
+    assert_eq!(def.slot, Some(SlotId::new("combat")));
+    assert_eq!(def.config.len(), 1);
+}
+
+#[test]
+fn scenario() {
+    let def: ScenarioDef = round_trip(fixture!("scenario"));
+    assert_eq!((def.players.min, def.slots.len()), (2, 2));
+    assert_eq!(def.after.len(), 1);
+}
+
+#[test]
+fn format() {
+    let def: FormatDef = round_trip(fixture!("format"));
+    assert_eq!((def.round_limit, def.clock_minutes), (Some(12), Some(45)));
+}
+
+#[test]
+fn army_list() {
+    let def: ArmyList = round_trip(fixture!("army"));
+    assert_eq!(def.units[0].copies, 2);
+}
+
+#[test]
+fn test_def() {
+    let def: TestDef = round_trip(fixture!("test_def"));
+    assert_eq!(def.source.line, 1);
+}
+
+#[test]
+fn unit_hash_depends_on_los_profile() {
+    let a: UnitDef = serde_json::from_str(fixture!("unit")).unwrap();
+    let mut b = a.clone();
+    b.figures[0].los.hit_zone = (0, 59);
     assert_ne!(hash(&a), hash(&b));
 }

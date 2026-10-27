@@ -1,0 +1,1 @@
+{"id":21,"name":"Relic of Fury","mode":"while_occupied","claim":"ends_move_on","face_down_allowed":true,"grants":{"to":"occupant_army","abilities":[{"name":"Fury","text":"Add 1 attack.","scope":"holder"}]},"visual":"relic.fury"}
