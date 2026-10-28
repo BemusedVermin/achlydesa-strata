@@ -441,6 +441,7 @@ dependencies = [
  "serde_json",
  "strata_derive",
  "strata_kernel",
+ "thiserror",
 ]
 
 [[package]]

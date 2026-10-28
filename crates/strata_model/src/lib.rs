@@ -7,6 +7,7 @@
 extern crate self as strata_model;
 
 pub mod ability;
+pub mod board;
 pub mod command;
 pub mod decision;
 pub mod event;
