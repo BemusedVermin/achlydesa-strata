@@ -1,0 +1,17 @@
+{
+  "tiles": {
+    "ground": {"id": 1, "name": "Ground", "terrain": 1, "thickness": 1, "shape": [{"q": 0, "r": 0}, {"q": 1, "r": 0}, {"q": 2, "r": 0}]},
+    "deck": {"id": 2, "name": "Deck", "terrain": 2, "thickness": 1, "shape": [{"q": 0, "r": 0}, {"q": 1, "r": 0}, {"q": 2, "r": 0}]}
+  },
+  "features": {},
+  "map": {
+    "id": 100,
+    "name": "Bridge",
+    "orientation": "pointy",
+    "pieces": [
+      {"piece": "ground", "at": {"q": 0, "r": 0}, "rot": 0, "level": 0},
+      {"piece": "ground", "at": {"q": 4, "r": 0}, "rot": 0, "level": 0},
+      {"piece": "deck", "at": {"q": 2, "r": 0}, "rot": 0, "level": 1}
+    ]
+  }
+}
