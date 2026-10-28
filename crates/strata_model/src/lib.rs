@@ -7,6 +7,7 @@
 extern crate self as strata_model;
 
 pub mod ability;
+pub mod apply;
 pub mod board;
 pub mod command;
 pub mod decision;
@@ -26,6 +27,7 @@ pub use ability::{
     AbilityDef, ActionDef, ArchetypeInfo, Descriptor, Logic, ModifierDef, ModifierLayer,
     ReactionDef, ReplacementDef, Scope, ScriptRef, TriggerDef, TriggerLimit,
 };
+pub use apply::ApplyError;
 pub use command::{Command, TokenPlacement};
 pub use decision::{Answer, Decision, DecisionKind, PendingDecision};
 pub use event::{Event, Visibility};
