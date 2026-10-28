@@ -1,0 +1,8 @@
+bridge.columns = 9d5e621f49bc0178
+bridge.los_blocked = 010111
+wall.columns = f0fa6a1983f5a4e4
+wall.los_blocked = 11101110
+rng.first = [239733869, 1676658298, 3895492724, 3066373837]
+rng.hash = 8f690a169b84c3b3
+rng.rolls = 485d5517e1f661f8
+state.hash = 3aaaba29b45e6e3c

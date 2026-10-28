@@ -1,0 +1,22 @@
+{
+  "tiles": {
+    "row": {"id": 3, "name": "Row", "terrain": 1, "thickness": 1, "shape": [{"q": 0, "r": 0}, {"q": 1, "r": 0}, {"q": 2, "r": 0}, {"q": 3, "r": 0}, {"q": 4, "r": 0}]}
+  },
+  "features": {
+    "wall": {"id": 4, "name": "Wall", "blocks_los": true, "cells": [
+      {"at": {"q": 0, "r": 0}, "segments": [{"from": 0, "to": 2, "top": true}]},
+      {"at": {"q": 1, "r": 0}, "segments": [{"from": 0, "to": 2, "top": true}]}
+    ]}
+  },
+  "map": {
+    "id": 101,
+    "name": "Wall",
+    "orientation": "pointy",
+    "pieces": [
+      {"piece": "row", "at": {"q": 0, "r": 0}, "rot": 0, "level": 0},
+      {"piece": "row", "at": {"q": -1, "r": 1}, "rot": 0, "level": 0},
+      {"piece": "row", "at": {"q": -2, "r": 2}, "rot": 0, "level": 0}
+    ],
+    "features": [{"feature": "wall", "at": {"q": 2, "r": 0}, "rot": 0}]
+  }
+}
