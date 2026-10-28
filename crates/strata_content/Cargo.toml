@@ -7,5 +7,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
+strata_kernel = { path = "../strata_kernel" }
 strata_lua = { path = "../strata_lua" }
 strata_model = { path = "../strata_model" }
+semver = "1"
+thiserror = "2"
