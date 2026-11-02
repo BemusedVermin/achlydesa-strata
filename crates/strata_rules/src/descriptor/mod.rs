@@ -11,13 +11,11 @@
 use strata_kernel::Sym;
 
 mod compile;
-mod eval;
 #[cfg(test)]
 mod tests;
 mod text;
 
 pub use compile::{DescriptorError, check_ability, compile};
-pub use eval::{NativeEvaluator, World};
 
 /// Where a selector starts before its filters narrow it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

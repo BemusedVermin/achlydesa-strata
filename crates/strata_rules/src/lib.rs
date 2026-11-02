@@ -16,7 +16,7 @@ pub mod slots;
 
 pub use catalog::{DuplicateModule, ModuleCatalog};
 pub use config::{ConfigError, ConfigSchema};
-pub use descriptor::{DescriptorError, NativeEvaluator, Node, World, check_ability, compile};
+pub use descriptor::{DescriptorError, Node, check_ability, compile};
 pub use module::{ModuleError, RuleModule};
 pub use query::{
     EvalCtx, LogicError, LogicEvaluator, Logics, Query, QueryEngine, QueryError, QueryTrace,
