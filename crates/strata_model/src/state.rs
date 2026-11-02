@@ -204,8 +204,8 @@ pub struct Activation {
     pub unit: UnitId,
     /// The current step.
     pub step: Sym,
-    /// Remaining action slots per figure.
-    pub slots: BTreeMap<FigureId, u8>,
+    /// Remaining action slots per figure, by slot name.
+    pub slots: BTreeMap<FigureId, BTreeMap<Sym, u8>>,
 }
 
 /// Where the game is in its turn structure.

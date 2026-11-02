@@ -16,6 +16,7 @@ use strata_model::{Answer, Command, GameState, PendingDecision, PlayerId};
 use exec::Exec;
 use names::answer_fits;
 
+use crate::flow::Flow;
 use crate::runtime::RulesRuntime;
 
 /// Drives a game: owns the committed state and the command log.
@@ -24,6 +25,7 @@ pub struct Engine<'a> {
     hooks: &'a dyn HookRunner,
     state: GameState,
     log: Vec<CommandRecord>,
+    flow: Option<Flow<'a>>,
 }
 
 impl<'a> Engine<'a> {
@@ -34,7 +36,14 @@ impl<'a> Engine<'a> {
             hooks,
             state,
             log: Vec::new(),
+            flow: None,
         }
+    }
+
+    /// Supplies the turn structure that [`Engine::legal_commands`] is derived from.
+    pub fn with_flow(mut self, flow: Flow<'a>) -> Self {
+        self.flow = Some(flow);
+        self
     }
 
     /// The committed state.
@@ -70,9 +79,12 @@ impl<'a> Engine<'a> {
         self.run(pending.player, pending.command, tape)
     }
 
-    /// Commands `player` may legally submit. T-024 fills this in.
-    pub fn legal_commands(&self, _player: PlayerId) -> Vec<Command> {
-        Vec::new()
+    /// Commands `player` may legally submit; empty until [`Engine::with_flow`] is called.
+    pub fn legal_commands(&self, player: PlayerId) -> Vec<Command> {
+        match &self.flow {
+            Some(flow) => flow.legal_commands(self.rt, &self.state, player),
+            None => Vec::new(),
+        }
     }
 
     fn run(&mut self, player: PlayerId, command: Command, tape: Vec<Answer>) -> Outcome {

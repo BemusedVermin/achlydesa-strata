@@ -358,3 +358,45 @@ fn same_events_give_the_same_hash_sequence() {
     };
     assert_eq!(run(), run());
 }
+
+#[test]
+fn activations_start_spend_slots_change_step_and_end() {
+    let mut s = base();
+    let slots = |n| {
+        let budget = [(Sym::new("move"), n)].into_iter().collect();
+        [(FigureId(0), budget)].into_iter().collect()
+    };
+    let start = Event::ActivationStarted {
+        unit: UnitId(0),
+        step: Sym::new("move"),
+        slots: slots(1),
+    };
+    let spend = Event::SlotsChanged {
+        figure: FigureId(0),
+        slot: Sym::new("move"),
+        remaining: 0,
+    };
+    assert_eq!(rejected(&s, &spend), ApplyError::NoActivation);
+    assert_eq!(
+        rejected(&s, &Event::StepChanged(Sym::new("attack"))),
+        ApplyError::NoActivation
+    );
+    assert_eq!(
+        rejected(&s, &Event::ActivationEnded),
+        ApplyError::NoActivation
+    );
+    applied(&mut s, &start);
+    assert_eq!(rejected(&s, &start), ApplyError::ActivationBusy);
+    applied(&mut s, &spend);
+    assert_eq!(s.flow.activation.as_ref().unwrap().slots, slots(0));
+    let elsewhere = Event::SlotsChanged {
+        figure: FigureId(1),
+        slot: Sym::new("move"),
+        remaining: 1,
+    };
+    assert_eq!(rejected(&s, &elsewhere), ApplyError::NoSlots(FigureId(1)));
+    applied(&mut s, &Event::StepChanged(Sym::new("attack")));
+    assert_eq!(s.flow.activation.as_ref().unwrap().step, Sym::new("attack"));
+    applied(&mut s, &Event::ActivationEnded);
+    assert!(s.flow.activation.is_none());
+}
