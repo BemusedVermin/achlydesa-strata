@@ -22,10 +22,7 @@ fn redact_hashes(text: &str) -> String {
         });
         words.collect::<Vec<_>>().join(" ")
     };
-    text.lines().map(line).collect::<Vec<_>>().join(
-        "
-",
-    )
+    text.lines().map(line).collect::<Vec<_>>().join("\n")
 }
 
 #[test]
