@@ -158,11 +158,6 @@ impl ActivationRules {
         Ok(())
     }
 
-    /// Ends the current activation.
-    pub fn end(&self, ctx: &mut dyn Ctx) -> Result<(), Halt> {
-        ctx.emit(Event::ActivationEnded)
-    }
-
     /// Moves to the next step that still has slots once the current one has none.
     fn settle(&self, ctx: &mut dyn Ctx) -> Result<(), Halt> {
         let Some(act) = ctx.state().flow.activation.clone() else {

@@ -143,7 +143,7 @@ impl CommandHandler for Handler {
                 let runner = Runner(self.rules.clone());
                 take_action(&self.actions, &self.rules, &runner, ctx, player, command)
             }
-            Command::EndActivation => self.rules.end(ctx),
+            Command::EndActivation => ctx.emit(Event::ActivationEnded),
             _ if self.kind == "start" => self.tree.start(ctx),
             _ => self.tree.advance(ctx),
         }
