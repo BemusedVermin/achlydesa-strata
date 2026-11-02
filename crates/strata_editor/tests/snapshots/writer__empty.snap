@@ -1,0 +1,8 @@
+---
+source: crates/strata_editor/tests/writer.rs
+expression: "write_map(&empty(), \"empty\").unwrap()"
+---
+return map {
+  id = "empty", name = "Empty", authors = {}, orientation = "flat",
+  pieces = {},
+}

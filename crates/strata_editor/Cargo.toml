@@ -14,4 +14,7 @@ strata_modules = { path = "../strata_modules" }
 thiserror = "2"
 
 [dev-dependencies]
+insta = "1"
 proptest = "1"
+strata_lua = { path = "../strata_lua" }
+tempfile = "3"
