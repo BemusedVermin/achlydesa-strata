@@ -6,7 +6,8 @@ use thiserror::Error;
 use crate::event::{Event, Visibility};
 use crate::ids::{FigureId, PlayerId, RelicId, UnitId};
 use crate::state::{
-    FigureState, FigureStatus, GameState, Marker, PhaseFrame, PlayerState, Token, UnitState,
+    Activation, FigureState, FigureStatus, GameState, Marker, PhaseFrame, PlayerState, Token,
+    UnitState,
 };
 
 /// An event that cannot be applied to the state it was given. The state is unchanged.
@@ -42,6 +43,15 @@ pub enum ApplyError {
     /// The phase being exited is not the top of the stack.
     #[error("phase {0:?} is not the top phase")]
     PhaseMismatch(DefId),
+    /// An activation is already under way.
+    #[error("an activation is already under way")]
+    ActivationBusy,
+    /// No activation is under way.
+    #[error("no activation is under way")]
+    NoActivation,
+    /// The figure has no slot budget in the activation.
+    #[error("figure {0:?} has no slots in this activation")]
+    NoSlots(FigureId),
     /// The relic already has a holder.
     #[error("relic {0:?} is already held")]
     RelicHeld(RelicId),
@@ -112,6 +122,46 @@ impl GameState {
                 }
                 _ => return Err(ApplyError::PhaseMismatch(*phase)),
             },
+            Event::ActivationStarted { unit, step, slots } => {
+                self.unit(*unit)?;
+                if self.flow.activation.is_some() {
+                    return Err(ApplyError::ActivationBusy);
+                }
+                self.flow.activation = Some(Activation {
+                    unit: *unit,
+                    step: step.clone(),
+                    slots: slots.clone(),
+                });
+            }
+            Event::SlotsChanged {
+                figure,
+                slot,
+                remaining,
+            } => {
+                let act = self
+                    .flow
+                    .activation
+                    .as_mut()
+                    .ok_or(ApplyError::NoActivation)?;
+                let slots = act
+                    .slots
+                    .get_mut(figure)
+                    .ok_or(ApplyError::NoSlots(*figure))?;
+                slots.insert(slot.clone(), *remaining);
+            }
+            Event::StepChanged(step) => {
+                let act = self
+                    .flow
+                    .activation
+                    .as_mut()
+                    .ok_or(ApplyError::NoActivation)?;
+                act.step = step.clone();
+            }
+            Event::ActivationEnded => {
+                if self.flow.activation.take().is_none() {
+                    return Err(ApplyError::NoActivation);
+                }
+            }
             Event::RelicClaimed { relic, by } => {
                 self.player(*by)?;
                 let r = self

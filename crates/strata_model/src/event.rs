@@ -1,5 +1,7 @@
 //! State deltas (design §5.1). `GameState::apply` is the only mutator.
 
+use std::collections::BTreeMap;
+
 use serde::{Deserialize, Serialize};
 use strata_kernel::{DefId, Rotation, Space, StableHash, Sym, Value};
 
@@ -79,6 +81,28 @@ pub enum Event {
     PhaseEntered(DefId),
     /// The top phase ended and was popped.
     PhaseExited(DefId),
+    /// A unit began its activation with these slot budgets.
+    ActivationStarted {
+        /// The activating unit.
+        unit: UnitId,
+        /// The first step.
+        step: Sym,
+        /// Each figure's slot budget, by slot name.
+        slots: BTreeMap<FigureId, BTreeMap<Sym, u8>>,
+    },
+    /// A figure's remaining count of one slot was set, by consuming or granting.
+    SlotsChanged {
+        /// The figure.
+        figure: FigureId,
+        /// The slot.
+        slot: Sym,
+        /// Slots left afterwards.
+        remaining: u8,
+    },
+    /// The activation moved to another step.
+    StepChanged(Sym),
+    /// The current activation ended.
+    ActivationEnded,
     /// A player claimed a relic.
     RelicClaimed {
         /// The relic.

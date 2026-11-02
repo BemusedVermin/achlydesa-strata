@@ -8,6 +8,7 @@ pub mod catalog;
 pub mod config;
 pub mod descriptor;
 pub mod engine;
+pub mod flow;
 pub mod module;
 pub mod query;
 pub mod registrar;
@@ -20,6 +21,9 @@ pub use config::{ConfigError, ConfigSchema};
 pub use descriptor::{DescriptorError, NativeEvaluator, Node, World, check_ability, compile};
 pub use engine::{
     CommandRecord, Ctx, Engine, Halt, HookRunner, MAX_DECISIONS, Outcome, RuleViolation,
+};
+pub use flow::{
+    ActionRunner, ActivationRules, Flow, FlowError, OrderingPolicy, PhaseTree, ROOT, take_action,
 };
 pub use module::{ModuleError, RuleModule};
 pub use query::{
