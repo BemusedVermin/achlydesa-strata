@@ -16,7 +16,7 @@ use strata_rules::{ActionRunner, Ctx, Halt, HookRunner, RulesRuntime};
 use crate::convert::{lua_to_value, value_to_lua};
 use crate::ctx::{Args, Frame, Namespaces, RuleHost};
 use crate::data::PackSource;
-use crate::runtime::RuntimeLua;
+use crate::runtime::{ModuleBinding, RuntimeLua};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
 
@@ -33,17 +33,20 @@ pub struct LuaRules {
     token: u64,
     scripts: Vec<ScriptRef>,
     packs: Vec<PackSource>,
+    modules: Vec<ModuleBinding>,
     host: Arc<dyn RuleHost>,
     namespaces: Namespaces,
 }
 
 impl LuaRules {
-    /// Prepares to run the logic in `rt`. `scripts` are the registry's `ScriptRef`s, and `rt` supplies
-    /// the `ctx` namespaces its modules exported.
+    /// Prepares to run the logic in `rt`. `scripts` are the registry's `ScriptRef`s, `modules`
+    /// the Lua modules of the ruleset with their configs, and `rt` supplies the `ctx`
+    /// namespaces its modules exported.
     pub fn new(
         rt: &RulesRuntime,
         scripts: Vec<ScriptRef>,
         packs: Vec<PackSource>,
+        modules: Vec<ModuleBinding>,
         host: Arc<dyn RuleHost>,
     ) -> Self {
         let names = |api: &strata_rules::LuaApi| {
@@ -59,6 +62,7 @@ impl LuaRules {
             token: NEXT.fetch_add(1, Ordering::Relaxed),
             scripts,
             packs,
+            modules,
             host,
             namespaces: namespaces.collect(),
         }
@@ -68,7 +72,10 @@ impl LuaRules {
     pub fn with_state<R>(&self, f: impl FnOnce(&RuntimeLua) -> R) -> Result<R, Halt> {
         STATES.with(|states| {
             if !states.borrow().contains_key(&self.token) {
-                let built = RuntimeLua::new(&self.scripts, &self.packs);
+                let built = RuntimeLua::new(&self.scripts, &self.packs).and_then(|mut state| {
+                    state.bind_modules(&self.modules)?;
+                    Ok(state)
+                });
                 let state = built.map_err(|e| Halt::reject(e.to_string()))?;
                 states.borrow_mut().insert(self.token, state);
             }

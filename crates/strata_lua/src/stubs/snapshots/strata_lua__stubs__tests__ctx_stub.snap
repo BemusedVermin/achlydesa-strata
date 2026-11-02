@@ -31,11 +31,42 @@ expression: "text(\"ctx.lua\")"
 ---@field figures strata.Figure[]
 ---@field units strata.UnitView[]
 
+---@class strata.Roll
+local Roll = {}
+--- How many dice landed on `symbol`.
+---@param symbol string
+---@return integer
+function Roll:count(symbol) end
+--- The sum of the results.
+---@return integer
+function Roll:sum() end
+--- The face each die landed on.
+---@return (string|integer)[]
+function Roll:faces() end
+
+---@class strata.Dice
+local Dice = {}
+--- Rolls `n` dice of the die named `die` and emits `DiceRolled`.
+---@param die string
+---@param n integer
+---@return strata.Roll
+function Dice.roll(die, n) end
+
+---@class strata.Choice
+---@field chooser integer The player who answers.
+---@field prompt string Text key shown to the chooser.
+---@field figures? integer[] Pick one of these figures.
+---@field spaces? strata.Space[] Pick one of these spaces.
+---@field options? string[] Pick one of these labels; the answer is the label.
+---@field yes_no? boolean Ask yes or no.
+---@field number? { min: integer, max: integer } Pick a whole number.
+
 ---@class strata.Vars
 ---@field [string] any Reading gives the value; writing emits `VarSet`.
 
 ---@class strata.Ctx
 ---@field state strata.State
+---@field dice strata.Dice
 ---@field query table<string, fun(...: any): any> `ctx.query.stat(figure, "defense")` runs a query with every modifier applied.
 local Ctx = {}
 --- Evaluates a selector. The result is an array sorted by ID.
@@ -43,6 +74,10 @@ local Ctx = {}
 ---@param subject? any
 ---@return integer[]
 function Ctx.select(selector, subject) end
+--- Asks a decision. It returns the answer, or the command halts until one is recorded.
+---@param spec strata.Choice
+---@return any
+function Ctx.choose(spec) end
 --- Per-instance variables for `owner`; every write becomes a `VarSet` event.
 ---@param owner string
 ---@return strata.Vars

@@ -52,6 +52,15 @@ pub(super) fn reference(kind: &str, route: &[String]) -> Option<(Site, &'static 
         .map(|(_, _, site, target)| (*site, *target))
 }
 
+/// Fields typed as a `Value`, which Lua authors write as plain data.
+const VALUES: &[(&str, &str)] = &[("rule_module", "config/*/default")];
+
+pub(super) fn is_value(kind: &str, route: &[String]) -> bool {
+    VALUES
+        .iter()
+        .any(|(k, pattern)| *k == kind && matches(pattern, route))
+}
+
 /// Whether a function at `route` is a bare `ScriptRef`.
 pub(super) fn bare_script(kind: &str, route: &[String]) -> bool {
     BARE_SCRIPTS

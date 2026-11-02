@@ -63,6 +63,12 @@ pub enum RuntimeError {
     /// Lua failed while walking a record.
     #[error("lua error: {0}")]
     Lua(#[from] mlua::Error),
+    /// A module's `register` failed.
+    #[error(transparent)]
+    Host(#[from] HostError),
+    /// A binding names a module that no pack defines.
+    #[error("no rule module `{0}`")]
+    NoModule(String),
 }
 
 /// A failure while running the data stages.

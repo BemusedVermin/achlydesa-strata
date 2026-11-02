@@ -10,12 +10,22 @@ use strata_rules::{EvalCtx, LogicError, ScriptCaller};
 
 use crate::convert::{contents, lua_to_value, value_to_lua};
 use crate::data::{DataStage, PackSource, Record};
-use crate::error::{DataError, HostError, RuntimeError};
+use crate::error::{HostError, RuntimeError};
 use crate::host::Limits;
+use crate::module::run_register;
 
 const CTX_GLUE: &str = include_str!("ctx.lua");
 
 const MAX_DEPTH: usize = 64;
+
+/// A module whose `register` the runtime state runs again.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ModuleBinding {
+    /// The module record's full ID, such as `pack:name`.
+    pub id: String,
+    /// The module's resolved configuration.
+    pub config: strata_kernel::Value,
+}
 
 /// A runtime state that calls the functions behind `ScriptRef`s.
 ///
@@ -66,15 +76,28 @@ impl RuntimeLua {
             });
         }
         let host = stage.host();
-        let ctx = host
-            .new_env()
-            .and_then(|env| host.load(&env, "ctx", CTX_GLUE));
-        let ctx = ctx.map_err(DataError::from)?;
+        let ctx = host.load(&host.new_env()?, "ctx", CTX_GLUE)?;
         Ok(Self {
             stage,
             functions,
             ctx,
         })
+    }
+
+    /// Runs `register` of each module again, so the functions it registers are bound to the
+    /// same paths they were given when the registry was built.
+    pub fn bind_modules(&mut self, modules: &[ModuleBinding]) -> Result<(), RuntimeError> {
+        let records = self.stage.records();
+        for module in modules {
+            let found = records
+                .iter()
+                .find(|r| r.kind == "rule_module" && r.id == module.id);
+            let record = found.ok_or_else(|| RuntimeError::NoModule(module.id.clone()))?;
+            let root = run_register(&self.stage, &module.id, &module.config)?;
+            let lua = self.stage.host().lua();
+            harvest(lua, record, &root, &mut Vec::new(), &mut self.functions)?;
+        }
+        Ok(())
     }
 
     /// The underlying Lua state.

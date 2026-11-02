@@ -114,6 +114,10 @@ struct Host {
 }
 
 impl RuleHost for Host {
+    fn die(&self, _: &str) -> Option<(DefId, strata_model::DieKind)> {
+        None
+    }
+
     fn eval(&self, _: &GameState, d: &Descriptor, _: &Value) -> Result<Value, LogicError> {
         match d.0.get("sel").and_then(Value::as_str) {
             Ok("enemies") => Ok(Value::List(vec![Value::Int(2)])),
@@ -232,6 +236,7 @@ fn world(triggers: &[&str]) -> World {
         &rt,
         content.scripts.clone(),
         content.packs.clone(),
+        Vec::new(),
         host.clone(),
     );
     World {
