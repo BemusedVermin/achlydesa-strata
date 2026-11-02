@@ -3,3 +3,9 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::float_arithmetic)]
 #![warn(missing_docs)]
+
+mod document;
+mod edit;
+
+pub use document::MapDocument;
+pub use edit::{Edit, EditError, Metadata};
