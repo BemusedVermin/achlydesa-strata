@@ -1055,7 +1055,10 @@ dependencies = [
 name = "strata_rules"
 version = "0.1.0"
 dependencies = [
+ "serde_json",
+ "strata_kernel",
  "strata_model",
+ "thiserror",
 ]
 
 [[package]]
