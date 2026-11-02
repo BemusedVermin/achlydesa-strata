@@ -6,6 +6,7 @@
 
 mod discover;
 mod error;
+mod identity;
 mod intern;
 mod load;
 mod manifest;
@@ -15,6 +16,7 @@ mod stages;
 
 pub use discover::discover_packs;
 pub use error::PackError;
+pub use identity::{ContentHash, PackIdentity};
 pub use load::load;
 pub use manifest::{LoadedPack, PackManifest, Visibility, load_manifest};
 pub use registry::ContentRegistry;
