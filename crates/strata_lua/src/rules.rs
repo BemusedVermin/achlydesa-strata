@@ -1,0 +1,243 @@
+//! Runs the Lua actions, triggers, replacements and reactions a ruleset registered (design §6.2).
+
+use std::cell::RefCell;
+use std::collections::BTreeMap;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
+use strata_kernel::{CommandRng, Value, WindowId};
+use strata_model::{
+    ActionDef, Answer, Decision, Event, FigureId, GameState, Logic, PlayerId, ReactionDef,
+    ReplacementDef, ScriptRef, TriggerDef,
+};
+use strata_rules::{ActionRunner, Ctx, Halt, HookRunner, RulesRuntime};
+
+use crate::convert::{lua_to_value, value_to_lua};
+use crate::ctx::{Args, Frame, Namespaces, RuleHost};
+use crate::data::PackSource;
+use crate::runtime::RuntimeLua;
+
+static NEXT: AtomicU64 = AtomicU64::new(0);
+
+thread_local! {
+    /// The runtime state of each `LuaRules`, built the first time the thread uses it.
+    static STATES: RefCell<BTreeMap<u64, RuntimeLua>> = const { RefCell::new(BTreeMap::new()) };
+}
+
+/// Runs registered Lua logic for the engine.
+///
+/// A Lua state cannot cross threads, so this holds only what builds one. Each thread that calls
+/// it builds its own state from the packs the first time, and keeps it for the thread's life.
+pub struct LuaRules {
+    token: u64,
+    scripts: Vec<ScriptRef>,
+    packs: Vec<PackSource>,
+    host: Arc<dyn RuleHost>,
+    namespaces: Namespaces,
+}
+
+impl LuaRules {
+    /// Prepares to run the logic in `rt`. `scripts` are the registry's `ScriptRef`s, and `rt` supplies
+    /// the `ctx` namespaces its modules exported.
+    pub fn new(
+        rt: &RulesRuntime,
+        scripts: Vec<ScriptRef>,
+        packs: Vec<PackSource>,
+        host: Arc<dyn RuleHost>,
+    ) -> Self {
+        let names = |api: &strata_rules::LuaApi| {
+            api.functions
+                .iter()
+                .map(|f| f.as_str().to_owned())
+                .collect()
+        };
+        let namespaces = rt
+            .lua_apis()
+            .map(|(ns, api)| (ns.as_str().to_owned(), names(api)));
+        Self {
+            token: NEXT.fetch_add(1, Ordering::Relaxed),
+            scripts,
+            packs,
+            host,
+            namespaces: namespaces.collect(),
+        }
+    }
+
+    /// The runtime state for this thread, built on first use.
+    pub fn with_state<R>(&self, f: impl FnOnce(&RuntimeLua) -> R) -> Result<R, Halt> {
+        STATES.with(|states| {
+            if !states.borrow().contains_key(&self.token) {
+                let built = RuntimeLua::new(&self.scripts, &self.packs);
+                let state = built.map_err(|e| Halt::reject(e.to_string()))?;
+                states.borrow_mut().insert(self.token, state);
+            }
+            Ok(f(&states.borrow()[&self.token]))
+        })
+    }
+
+    /// Runs `logic` as a script with `args`, or as a native descriptor against no subject.
+    fn value(&self, logic: &Logic, ctx: &mut dyn Ctx, args: Args<'_>) -> Result<Value, Halt> {
+        match logic {
+            Logic::Native(descriptor) => {
+                let found = self.host.eval(ctx.state(), descriptor, &Value::Nil);
+                found.map_err(|e| Halt::reject(e.0))
+            }
+            Logic::Script(script) => {
+                let finish = |lua: &Lua, v: LuaValue| Ok(lua_to_value(lua, &v));
+                let frame = Frame::new(ctx, &self.host, &self.namespaces);
+                let run = self.with_state(|rt| frame.invoke(rt, script, args, finish))?;
+                run?.map_err(|e| Halt::reject(e.to_string()))
+            }
+        }
+    }
+
+    /// Whether the optional filter holds; no filter always holds.
+    fn holds(
+        &self,
+        filter: &Option<Logic>,
+        state: &GameState,
+        event: &Event,
+    ) -> Result<bool, Halt> {
+        let Some(logic) = filter else { return Ok(true) };
+        let mut view = View::new(state);
+        let verdict = self.value(logic, &mut view, &with_event(event))?;
+        verdict
+            .as_bool()
+            .map_err(|e| Halt::reject(format!("a filter must return a bool: {e}")))
+    }
+}
+
+fn with_event(event: &Event) -> impl Fn(&Lua) -> mlua::Result<Vec<LuaValue>> + '_ {
+    move |lua| Ok(vec![lua.to_value(event)?])
+}
+
+impl ActionRunner for LuaRules {
+    fn targets(
+        &self,
+        def: &ActionDef,
+        figure: FigureId,
+        state: &GameState,
+    ) -> Result<Vec<Value>, Halt> {
+        let Some(logic) = &def.targets else {
+            return Ok(Vec::new());
+        };
+        let args = |_: &Lua| Ok(vec![LuaValue::Integer(i64::from(figure.0))]);
+        match self.value(logic, &mut View::new(state), &args)? {
+            Value::List(targets) => Ok(targets),
+            other => Err(Halt::reject(format!(
+                "targets must be a list, found {}",
+                other.type_name()
+            ))),
+        }
+    }
+
+    fn resolve(
+        &self,
+        def: &ActionDef,
+        figure: FigureId,
+        args: &Value,
+        ctx: &mut dyn Ctx,
+    ) -> Result<(), Halt> {
+        let spread = match args {
+            Value::List(items) => items.clone(),
+            other => vec![other.clone()],
+        };
+        let args = |lua: &Lua| {
+            let mut all = vec![LuaValue::Integer(i64::from(figure.0))];
+            for item in &spread {
+                all.push(value_to_lua(lua, item).map_err(mlua::Error::external)?);
+            }
+            Ok(all)
+        };
+        self.value(&def.resolve, ctx, &args).map(drop)
+    }
+}
+
+impl HookRunner for LuaRules {
+    fn replaces(
+        &self,
+        def: &ReplacementDef,
+        event: &Event,
+        state: &GameState,
+    ) -> Result<bool, Halt> {
+        self.holds(&def.filter, state, event)
+    }
+
+    /// The script returns the events that take the event's place, in the event's own shape.
+    fn replace(
+        &self,
+        def: &ReplacementDef,
+        event: &Event,
+        ctx: &mut dyn Ctx,
+    ) -> Result<Vec<Event>, Halt> {
+        let Logic::Script(script) = &def.replace else {
+            return Err(Halt::reject("native replacements need the native runner"));
+        };
+        let frame = Frame::new(ctx, &self.host, &self.namespaces);
+        let finish = |lua: &Lua, v: LuaValue| lua.from_value::<Vec<Event>>(v);
+        self.with_state(|rt| frame.invoke(rt, script, &with_event(event), finish))?
+    }
+
+    fn fires(&self, def: &TriggerDef, event: &Event, state: &GameState) -> Result<bool, Halt> {
+        self.holds(&def.filter, state, event)
+    }
+
+    fn fire(&self, def: &TriggerDef, event: &Event, ctx: &mut dyn Ctx) -> Result<(), Halt> {
+        self.value(&def.effect, ctx, &with_event(event)).map(drop)
+    }
+
+    /// The `when` script returns the player who may react, or nil for nobody.
+    fn reactor(&self, def: &ReactionDef, state: &GameState) -> Result<Option<PlayerId>, Halt> {
+        let Some(when) = &def.when else {
+            return Ok(Some(state.flow.active));
+        };
+        match self.value(when, &mut View::new(state), &|_: &Lua| Ok(Vec::new()))? {
+            Value::Int(player) => Ok(Some(PlayerId(player as u8))),
+            Value::Bool(true) => Ok(Some(state.flow.active)),
+            _ => Ok(None),
+        }
+    }
+
+    fn react(&self, def: &ReactionDef, ctx: &mut dyn Ctx) -> Result<(), Halt> {
+        self.value(&def.effect, ctx, &|_: &Lua| Ok(Vec::new()))
+            .map(drop)
+    }
+}
+
+/// A read-only `Ctx` for filters and targeting, which see the state but change nothing.
+struct View<'a> {
+    state: &'a GameState,
+    rng: CommandRng,
+}
+
+impl<'a> View<'a> {
+    fn new(state: &'a GameState) -> Self {
+        Self {
+            state,
+            rng: CommandRng::for_command(0, 0),
+        }
+    }
+}
+
+impl Ctx for View<'_> {
+    fn state(&self) -> &GameState {
+        self.state
+    }
+
+    fn rng(&mut self) -> &mut CommandRng {
+        &mut self.rng
+    }
+
+    fn emit(&mut self, _: Event) -> Result<(), Halt> {
+        Err(Halt::reject("a filter cannot emit events"))
+    }
+
+    fn window(&mut self, _: &WindowId) -> Result<(), Halt> {
+        Err(Halt::reject("a filter cannot open a window"))
+    }
+
+    fn choose(&mut self, _: PlayerId, _: Decision) -> Result<Answer, Halt> {
+        Err(Halt::reject("a filter cannot ask a decision"))
+    }
+}

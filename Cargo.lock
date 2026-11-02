@@ -1142,6 +1142,7 @@ dependencies = [
  "insta",
  "mlua",
  "serde",
+ "serde_json",
  "serde_path_to_error",
  "strata_kernel",
  "strata_model",

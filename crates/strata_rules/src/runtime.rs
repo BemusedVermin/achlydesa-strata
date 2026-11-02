@@ -3,7 +3,7 @@
 use std::any::TypeId;
 use std::collections::BTreeMap;
 
-use strata_kernel::{ModuleId, SlotId, WindowId};
+use strata_kernel::{ModuleId, SlotId, Sym, WindowId};
 use strata_model::{ActionDef, ModifierDef, ReactionDef, ReplacementDef, TriggerDef};
 
 use crate::registrar::{Anchor, CommandHandler, LuaApi, PhaseDef, Registrar, Service};
@@ -75,6 +75,11 @@ impl RulesRuntime {
     pub fn service<S: ?Sized + Service>(&self) -> Option<&S> {
         let boxed = self.reg.services.get(&TypeId::of::<S>())?;
         boxed.downcast_ref::<Box<S>>().map(|b| &**b)
+    }
+
+    /// Every exported namespace with its API, in name order.
+    pub fn lua_apis(&self) -> impl Iterator<Item = (&Sym, &LuaApi)> {
+        self.reg.lua_apis.iter()
     }
 
     /// The API exported under `ctx.<namespace>`.

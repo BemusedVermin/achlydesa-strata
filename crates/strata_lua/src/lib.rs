@@ -5,16 +5,20 @@
 #![warn(missing_docs)]
 
 mod convert;
+mod ctx;
 mod data;
 mod error;
 mod freeze;
 mod host;
+mod rules;
 mod runtime;
 pub mod stubs;
 
 pub use convert::{lua_to_value, value_to_lua};
+pub use ctx::RuleHost;
 pub use data::{DataStage, PackSource, Record, Source};
 pub use error::{ConvertError, DataError, HostError, LoadError, RuntimeError};
 pub use freeze::{Def, FrozenDef, FrozenRecord, Reference, Resolver, freeze, freeze_resolved};
 pub use host::{Halt, Limits, LuaHost};
+pub use rules::LuaRules;
 pub use runtime::RuntimeLua;
