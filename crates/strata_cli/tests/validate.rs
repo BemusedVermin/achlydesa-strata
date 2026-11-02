@@ -61,7 +61,7 @@ fn usage_errors_exit_two() {
 
 #[test]
 fn unimplemented_commands_say_so() {
-    let out = strata(&["lint", "x"]).code(1);
+    let out = strata(&["stats", "x"]).code(1);
     assert!(text(&out.get_output().stderr).contains("not implemented"));
     strata(&["pack", "test", "x"]).code(1);
 }

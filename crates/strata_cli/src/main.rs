@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 use miette::{IntoDiagnostic, MietteHandlerOpts, Result, WrapErr};
 
+mod lint;
 mod package;
 mod validate;
 
@@ -30,6 +31,12 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
+    /// Check pack Lua for determinism problems and card-text drift.
+    Lint {
+        /// Pack folders, or directories whose subdirectories are packs.
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+    },
     /// Bundle the client and the public packs into a distributable folder.
     Package {
         /// Directory to write the release into.
@@ -42,8 +49,6 @@ enum Command {
         #[arg(required = true)]
         paths: Vec<PathBuf>,
     },
-    /// Lint a pack (not yet implemented).
-    Lint(Unimplemented),
     /// Report pack statistics (not yet implemented).
     Stats(Unimplemented),
     /// Run AI self-play for balance (not yet implemented).
@@ -80,8 +85,8 @@ fn main() -> ExitCode {
         Command::Pack(PackCommand::Validate { paths }) => validate::run(&paths),
         Command::Pack(PackCommand::Test(_)) => unimplemented_command("pack test"),
         Command::Stubs { out } => finish(write_stubs(&out)),
+        Command::Lint { paths } => lint::run(&paths),
         Command::Package { out, client, paths } => finish(package::run(&paths, &out, client)),
-        Command::Lint(_) => unimplemented_command("lint"),
         Command::Stats(_) => unimplemented_command("stats"),
         Command::Sim(_) => unimplemented_command("sim"),
         Command::Replay(_) => unimplemented_command("replay"),

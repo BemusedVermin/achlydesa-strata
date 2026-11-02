@@ -1,0 +1,13 @@
+---
+source: crates/strata_cli/tests/lint.rs
+expression: text
+---
+error: bad/game/rules/division.lua:2: `/` always produces a float
+  fix: use `//` for integer division
+warning: bad/game/units/drift.lua:2: card text omits the parameter 3
+  fix: mention 3 in `text`, or delete the `text` override to use the generated wording
+error: bad/game/units/hooks.lua:8: hook assigns to the upvalue `count`
+  fix: keep per-instance state in `ctx.vars(self)` and declare its default in `vars = {}`
+error: bad/game/units/syntax.lua:1: syntax error: expected a field
+  fix: fix the syntax error; the other checks need a parsable file
+3 error(s), 1 warning(s)
