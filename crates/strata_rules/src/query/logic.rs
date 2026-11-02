@@ -25,7 +25,9 @@ pub trait LogicEvaluator: Send + Sync {
 }
 
 /// Calls `Logic::Script` functions (implemented in T-027).
-pub trait ScriptCaller: Send + Sync {
+///
+/// Not `Send` or `Sync`: a Lua state belongs to one thread.
+pub trait ScriptCaller {
     /// Calls the script function and returns its result.
     fn call(&self, script: &ScriptRef, cx: &EvalCtx<'_>) -> Result<Value, LogicError>;
 }

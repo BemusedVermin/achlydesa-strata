@@ -43,6 +43,28 @@ pub enum HostError {
     Convert(#[from] ConvertError),
 }
 
+/// A runtime state that could not be built.
+#[derive(Debug, thiserror::Error)]
+pub enum RuntimeError {
+    /// The pack scripts failed to run.
+    #[error(transparent)]
+    Data(#[from] DataError),
+    /// The functions found in the scripts are not the registry's `ScriptRef`s.
+    #[error("harvested script paths hash to {harvested:016x}, the registry's to {expected:016x}")]
+    HashMismatch {
+        /// The hash of the registry's paths.
+        expected: u64,
+        /// The hash of the paths found in the scripts.
+        harvested: u64,
+    },
+    /// A record nests tables too deeply, or contains a cycle.
+    #[error("record `{0}` nests tables too deeply or cyclically")]
+    TooDeep(String),
+    /// Lua failed while walking a record.
+    #[error("lua error: {0}")]
+    Lua(#[from] mlua::Error),
+}
+
 /// A failure while running the data stages.
 #[derive(Debug, thiserror::Error)]
 pub enum DataError {
