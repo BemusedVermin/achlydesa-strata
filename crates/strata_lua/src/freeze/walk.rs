@@ -20,6 +20,8 @@ pub struct Reference {
     pub target: String,
     /// Whether the reference is a map key rather than a value.
     pub key: bool,
+    /// The kind of definition the reference must name.
+    pub kind: String,
 }
 
 /// A value that cannot be frozen, and where it sits.
@@ -50,6 +52,8 @@ pub(super) struct Walk<'a> {
     pack: &'a PackId,
     name: &'a str,
     route: Vec<String>,
+    own: DefId,
+    resolved: Option<&'a [DefId]>,
     pub references: Vec<Reference>,
     pub scripts: Vec<ScriptRef>,
 }
@@ -62,21 +66,39 @@ impl<'a> Walk<'a> {
             pack,
             name,
             route: Vec::new(),
+            own: DefId(0),
+            resolved: None,
             references: Vec::new(),
             scripts: Vec::new(),
         }
     }
 
-    /// Records a reference and returns its placeholder.
-    pub fn reference(&mut self, field_path: String, target: String, key: bool) -> Value {
-        let placeholder = self.references.len() as i64;
+    /// Makes the walk write real `DefId`s instead of placeholders: `own` for the record itself
+    /// and `resolved[i]` for the `i`th reference.
+    pub fn resolved(mut self, own: DefId, resolved: &'a [DefId]) -> Self {
+        self.own = own;
+        self.resolved = Some(resolved);
+        self
+    }
+
+    /// Records a reference and returns its placeholder, or its `DefId` once resolved.
+    pub fn reference(
+        &mut self,
+        field_path: String,
+        target: String,
+        key: bool,
+        kind: &str,
+    ) -> Value {
+        let index = self.references.len();
         let reference = Reference {
             field_path,
             target,
             key,
+            kind: kind.to_owned(),
         };
         self.references.push(reference);
-        Value::Integer(placeholder)
+        let value = self.resolved.map_or(index as u32, |ids| ids[index].0);
+        Value::Integer(i64::from(value))
     }
 
     /// Copies `record`, leaving out the top-level fields in `reserved`.
@@ -118,10 +140,10 @@ impl<'a> Walk<'a> {
     fn key(&mut self, key: Key) -> Result<Value, Fault> {
         Ok(match key {
             Key::Int(i) => Value::Integer(i),
-            Key::Str(s) if schema::reference(self.kind, &self.route) == Some(Site::Key) => {
-                self.reference(self.route.join("/"), s, true)
-            }
-            Key::Str(s) => Value::String(self.lua.create_string(&s)?),
+            Key::Str(s) => match schema::reference(self.kind, &self.route) {
+                Some((Site::Key, target)) => self.reference(self.route.join("/"), s, true, target),
+                _ => Value::String(self.lua.create_string(&s)?),
+            },
         })
     }
 
@@ -129,9 +151,13 @@ impl<'a> Walk<'a> {
         Ok(match value {
             Value::Function(_) => self.script()?,
             Value::Table(table) => Value::Table(self.table(&table, &[], depth + 1)?),
-            Value::String(s) if schema::reference(self.kind, &self.route) == Some(Site::Value) => {
-                self.reference(self.route.join("/"), s.to_str()?.to_owned(), false)
-            }
+            Value::String(s) => match schema::reference(self.kind, &self.route) {
+                Some((Site::Value, target)) => {
+                    let authored = s.to_str()?.to_owned();
+                    self.reference(self.route.join("/"), authored, false, target)
+                }
+                _ => Value::String(s),
+            },
             Value::UserData(_) | Value::Thread(_) | Value::LightUserData(_) => {
                 return Err(self.fault(format!("a {} cannot be frozen", value.type_name())));
             }
@@ -146,7 +172,7 @@ impl<'a> Walk<'a> {
         let path = format!("{}:{}/{route}", self.kind, self.name);
         let script = ScriptRef {
             pack: self.pack.clone(),
-            def: DefId(0),
+            def: self.own,
             path: Sym::new(&path),
         };
         let table = self.lua.create_table()?;

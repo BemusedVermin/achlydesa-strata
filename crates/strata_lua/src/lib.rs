@@ -13,5 +13,5 @@ mod host;
 pub use convert::{lua_to_value, value_to_lua};
 pub use data::{DataStage, PackSource, Record, Source};
 pub use error::{ConvertError, DataError, HostError, LoadError};
-pub use freeze::{FrozenDef, FrozenRecord, Reference, freeze};
+pub use freeze::{Def, FrozenDef, FrozenRecord, Reference, Resolver, freeze, freeze_resolved};
 pub use host::{Halt, Limits, LuaHost};
