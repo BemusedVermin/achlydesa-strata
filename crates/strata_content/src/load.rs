@@ -5,6 +5,7 @@ use std::path::PathBuf;
 
 use strata_lua::{LoadError, freeze_resolved};
 
+use crate::identity::pack_identities;
 use crate::intern::Interner;
 use crate::registry::ContentRegistry;
 use crate::{discover_packs, resolve_load_order, run_data_stages};
@@ -27,7 +28,8 @@ pub fn load(roots: &[PathBuf]) -> Result<ContentRegistry, Vec<LoadError>> {
         .collect();
     let interner = Interner::new(&stage.records(), dependencies);
     let records = freeze_resolved(&stage, &interner)?;
-    Ok(ContentRegistry::new(order, records))
+    let identities = pack_identities(&packs, &order, &records).map_err(|e| vec![unplaced(e)])?;
+    Ok(ContentRegistry::new(order, identities, records))
 }
 
 /// An error whose message already names the file it is about.

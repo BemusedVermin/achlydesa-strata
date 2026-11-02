@@ -10,7 +10,9 @@ publish = false
 strata_kernel = { path = "../strata_kernel" }
 strata_lua = { path = "../strata_lua" }
 strata_model = { path = "../strata_model" }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
 semver = "1"
+sha2 = "0.10"
 thiserror = "2"
 
 [dev-dependencies]
