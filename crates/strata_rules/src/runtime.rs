@@ -4,7 +4,7 @@ use std::any::TypeId;
 use std::collections::BTreeMap;
 
 use strata_kernel::{ModuleId, SlotId, WindowId};
-use strata_model::{ActionDef, ModifierDef, ReplacementDef, TriggerDef};
+use strata_model::{ActionDef, ModifierDef, ReactionDef, ReplacementDef, TriggerDef};
 
 use crate::registrar::{Anchor, CommandHandler, LuaApi, PhaseDef, Registrar, Service};
 
@@ -59,6 +59,11 @@ impl RulesRuntime {
     /// Registered replacements.
     pub fn replacements(&self) -> &[ReplacementDef] {
         &self.reg.replacements
+    }
+
+    /// Registered reactions.
+    pub fn reactions(&self) -> &[ReactionDef] {
+        &self.reg.reactions
     }
 
     /// Declared windows.

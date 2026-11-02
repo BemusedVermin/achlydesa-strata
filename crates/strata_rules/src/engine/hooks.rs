@@ -1,6 +1,6 @@
 //! The bridge from registered replacements and triggers to their logic.
 
-use strata_model::{Event, GameState, ReplacementDef, TriggerDef};
+use strata_model::{Event, GameState, PlayerId, ReactionDef, ReplacementDef, TriggerDef};
 
 use super::ctx::Ctx;
 use super::halt::Halt;
@@ -27,4 +27,8 @@ pub trait HookRunner: Send + Sync {
     fn fires(&self, def: &TriggerDef, event: &Event, state: &GameState) -> Result<bool, Halt>;
     /// Runs the trigger's effect.
     fn fire(&self, def: &TriggerDef, event: &Event, ctx: &mut dyn Ctx) -> Result<(), Halt>;
+    /// The player who may use `def` right now, or `None` if its `when` does not hold.
+    fn reactor(&self, def: &ReactionDef, state: &GameState) -> Result<Option<PlayerId>, Halt>;
+    /// Runs the reaction's effect.
+    fn react(&self, def: &ReactionDef, ctx: &mut dyn Ctx) -> Result<(), Halt>;
 }

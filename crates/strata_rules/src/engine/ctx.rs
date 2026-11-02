@@ -1,6 +1,6 @@
 //! What every rule sees while resolving (design §5.1).
 
-use strata_kernel::CommandRng;
+use strata_kernel::{CommandRng, WindowId};
 use strata_model::{Answer, Decision, Event, GameState, PlayerId};
 
 use super::halt::Halt;
@@ -13,6 +13,11 @@ pub trait Ctx {
     fn rng(&mut self) -> &mut CommandRng;
     /// Passes `e` through replacements, applies it and queues its triggers.
     fn emit(&mut self, e: Event) -> Result<(), Halt>;
+    /// Pauses at window `id`, offering its eligible reactions to their controllers.
+    ///
+    /// A window with no eligible reactions asks nothing. Rejects an undeclared window and a
+    /// window opened while it is already open.
+    fn window(&mut self, id: &WindowId) -> Result<(), Halt>;
     /// Asks `chooser`. Returns the recorded answer, or halts with `NeedsDecision` once the
     /// tape is exhausted.
     fn choose(&mut self, chooser: PlayerId, d: Decision) -> Result<Answer, Halt>;

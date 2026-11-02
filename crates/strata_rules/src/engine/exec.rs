@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use strata_kernel::{CommandRng, ModuleId, Sym, Value};
+use strata_kernel::{CommandRng, ModuleId, Sym, Value, WindowId};
 use strata_model::{
     Answer, Command, Decision, DecisionKind, Event, GameState, PlayerId, SeedSource, TriggerLimit,
     VarKey,
@@ -13,6 +13,8 @@ use super::halt::Halt;
 use super::hooks::HookRunner;
 use super::names::{affected_player, answer_fits, command_kind, event_kind, is_kind};
 use crate::runtime::RulesRuntime;
+
+mod window;
 
 /// Decisions one command may ask before it is rejected as runaway.
 pub const MAX_DECISIONS: usize = 64;
@@ -36,6 +38,7 @@ pub(crate) struct Exec<'a> {
     cursor: usize,
     events: Vec<Event>,
     queue: Vec<Queued>,
+    open_windows: Vec<WindowId>,
 }
 
 impl<'a> Exec<'a> {
@@ -66,6 +69,7 @@ impl<'a> Exec<'a> {
             cursor: 0,
             events: Vec::new(),
             queue: Vec::new(),
+            open_windows: Vec::new(),
         };
         handler.resolve(&mut exec, player, command)?;
         exec.drain_triggers()?;
@@ -232,6 +236,10 @@ impl Ctx for Exec<'_> {
 
     fn emit(&mut self, e: Event) -> Result<(), Halt> {
         self.pipeline(e, &mut BTreeSet::new())
+    }
+
+    fn window(&mut self, id: &WindowId) -> Result<(), Halt> {
+        self.open_window(id)
     }
 
     fn choose(&mut self, chooser: PlayerId, d: Decision) -> Result<Answer, Halt> {

@@ -4,7 +4,9 @@ use std::any::{Any, TypeId};
 use std::collections::BTreeMap;
 
 use strata_kernel::{Sym, WindowId};
-use strata_model::{ActionDef, Command, ModifierDef, PlayerId, ReplacementDef, TriggerDef};
+use strata_model::{
+    ActionDef, Command, ModifierDef, PlayerId, ReactionDef, ReplacementDef, TriggerDef,
+};
 
 use crate::engine::{Ctx, Halt};
 
@@ -56,6 +58,7 @@ pub struct Registrar {
     pub(crate) modifiers: Vec<ModifierDef>,
     pub(crate) triggers: Vec<TriggerDef>,
     pub(crate) replacements: Vec<ReplacementDef>,
+    pub(crate) reactions: Vec<ReactionDef>,
     pub(crate) windows: Vec<WindowId>,
     pub(crate) services: BTreeMap<TypeId, Box<dyn Any + Send + Sync>>,
     pub(crate) lua_apis: BTreeMap<Sym, LuaApi>,
@@ -91,6 +94,11 @@ impl Registrar {
     /// Adds a replacement.
     pub fn replacement(&mut self, r: ReplacementDef) {
         self.replacements.push(r);
+    }
+
+    /// Adds a reaction, offered whenever its window opens.
+    pub fn reaction(&mut self, r: ReactionDef) {
+        self.reactions.push(r);
     }
 
     /// Declares a named window.
