@@ -4,7 +4,9 @@ use std::any::{Any, TypeId};
 use std::collections::BTreeMap;
 
 use strata_kernel::{Sym, WindowId};
-use strata_model::{ActionDef, ModifierDef, ReplacementDef, TriggerDef};
+use strata_model::{ActionDef, Command, ModifierDef, PlayerId, ReplacementDef, TriggerDef};
+
+use crate::engine::{Ctx, Halt};
 
 /// A node in the phase tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -28,6 +30,8 @@ pub enum Anchor {
 pub trait CommandHandler: Send + Sync + 'static {
     /// The command kind handled.
     fn kind(&self) -> &str;
+    /// Resolves `command` for `player` against the working copy, halting for decisions.
+    fn resolve(&self, ctx: &mut dyn Ctx, player: PlayerId, command: &Command) -> Result<(), Halt>;
 }
 
 /// A shared capability a module offers, such as `dyn LineOfSight`.

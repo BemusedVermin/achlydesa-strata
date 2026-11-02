@@ -6,6 +6,7 @@
 
 pub mod catalog;
 pub mod config;
+pub mod engine;
 pub mod module;
 pub mod query;
 pub mod registrar;
@@ -15,6 +16,9 @@ pub mod slots;
 
 pub use catalog::{DuplicateModule, ModuleCatalog};
 pub use config::{ConfigError, ConfigSchema};
+pub use engine::{
+    CommandRecord, Ctx, Engine, Halt, HookRunner, MAX_DECISIONS, Outcome, RuleViolation,
+};
 pub use module::{ModuleError, RuleModule};
 pub use query::{
     EvalCtx, LogicError, LogicEvaluator, Logics, Query, QueryEngine, QueryError, QueryTrace,

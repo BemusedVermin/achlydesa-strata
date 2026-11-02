@@ -119,6 +119,7 @@ fn decisions_and_answers_round_trip_and_hash() {
     state.pending = Some(PendingDecision {
         decision,
         chooser: PlayerId(0),
+        player: PlayerId(0),
         command: Command::EndActivation,
         answers: vec![answer],
     });

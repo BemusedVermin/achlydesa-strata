@@ -1,0 +1,116 @@
+//! The resolver: commands become events through an answer tape (design §5.1 to §5.3, §6.7).
+
+mod ctx;
+mod exec;
+mod halt;
+mod hooks;
+mod names;
+
+pub use ctx::Ctx;
+pub use exec::MAX_DECISIONS;
+pub use halt::{CommandRecord, Halt, Outcome, RuleViolation};
+pub use hooks::HookRunner;
+
+use strata_model::{Answer, Command, GameState, PendingDecision, PlayerId};
+
+use exec::Exec;
+use names::answer_fits;
+
+use crate::runtime::RulesRuntime;
+
+/// Drives a game: owns the committed state and the command log.
+pub struct Engine<'a> {
+    rt: &'a RulesRuntime,
+    hooks: &'a dyn HookRunner,
+    state: GameState,
+    log: Vec<CommandRecord>,
+}
+
+impl<'a> Engine<'a> {
+    /// Starts from `state`, an empty log and the registrations in `rt`.
+    pub fn new(rt: &'a RulesRuntime, hooks: &'a dyn HookRunner, state: GameState) -> Self {
+        Self {
+            rt,
+            hooks,
+            state,
+            log: Vec::new(),
+        }
+    }
+
+    /// The committed state.
+    pub fn state(&self) -> &GameState {
+        &self.state
+    }
+
+    /// The committed commands, oldest first.
+    pub fn log(&self) -> &[CommandRecord] {
+        &self.log
+    }
+
+    /// Submits `command` for `player`. Rejected while a decision is pending.
+    pub fn submit(&mut self, player: PlayerId, command: Command) -> Outcome {
+        if self.state.pending.is_some() {
+            return rejected("a decision is pending");
+        }
+        self.run(player, command, Vec::new())
+    }
+
+    /// Answers the pending decision and re-runs its command with the longer tape.
+    ///
+    /// An answer that does not fit the question is rejected and the question stays pending.
+    pub fn answer(&mut self, answer: Answer) -> Outcome {
+        let Some(pending) = self.state.pending.clone() else {
+            return rejected("no decision is pending");
+        };
+        if !answer_fits(&pending.decision, &answer) {
+            return rejected("answer does not fit the decision");
+        }
+        let mut tape = pending.answers;
+        tape.push(answer);
+        self.run(pending.player, pending.command, tape)
+    }
+
+    /// Commands `player` may legally submit. T-024 fills this in.
+    pub fn legal_commands(&self, _player: PlayerId) -> Vec<Command> {
+        Vec::new()
+    }
+
+    fn run(&mut self, player: PlayerId, command: Command, tape: Vec<Answer>) -> Outcome {
+        match Exec::run(self.rt, self.hooks, &self.state, player, &command, &tape) {
+            Ok((state, events)) => {
+                let index = self.state.command_index;
+                self.state = state;
+                self.state.command_index = index + 1;
+                self.log.push(CommandRecord {
+                    index,
+                    player,
+                    command,
+                    answers: tape,
+                    state_hash: self.state.hash(),
+                });
+                Outcome::Committed(events)
+            }
+            Err(Halt::NeedsDecision { decision, chooser }) => {
+                self.state.pending = Some(PendingDecision {
+                    decision: decision.clone(),
+                    chooser,
+                    player,
+                    command,
+                    answers: tape,
+                });
+                Outcome::NeedsDecision { decision, chooser }
+            }
+            Err(Halt::Rejected(violation)) => {
+                self.state.pending = None;
+                Outcome::Rejected(violation)
+            }
+        }
+    }
+}
+
+fn rejected(reason: &str) -> Outcome {
+    Outcome::Rejected(RuleViolation(reason.into()))
+}
+
+#[cfg(test)]
+mod tests;
