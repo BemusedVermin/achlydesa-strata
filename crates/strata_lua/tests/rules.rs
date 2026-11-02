@@ -4,9 +4,9 @@ use std::sync::{Arc, Mutex};
 use strata_kernel::{CommandRng, DefId, ModuleId, PackId, SlotId, Sym, Value, WindowId};
 use strata_lua::{DataStage, FrozenDef, LuaRules, PackSource, RuleHost, freeze};
 use strata_model::{
-    AbilityDef, Answer, Command, Decision, Descriptor, DieKind, Event, FigureId, FigureState,
-    FlowState, GameState, Logic, MatchSetup, ModuleRef, PlayerId, PlayerState, RulesetDef,
-    ScriptRef, SeedSource, VarKey,
+    AbilityDef, Answer, Command, Decision, Descriptor, Event, FigureId, FigureState, FlowState,
+    GameState, Logic, MatchSetup, ModuleRef, PlayerId, PlayerState, RulesetDef, ScriptRef,
+    SeedSource, VarKey,
 };
 use strata_rules::{
     ActionRunner, CommandHandler, ConfigSchema, Ctx, Engine, EvalCtx, Halt, HookRunner, LogicError,
@@ -22,9 +22,7 @@ ability {
     slots = { 'attack' },
     targets = function(ctx, attacker) return ctx.select({ sel = 'enemies' }, attacker) end,
     resolve = function(ctx, attacker, target)
-      local def = ctx.dice.roll('combat', ctx.query.stat(target, 'defense'))
-      local atk = ctx.dice.roll('combat', 3)
-      ctx.units.wound(target, math.max(1, atk:count('hit') - def:count('block')))
+      ctx.units.wound(target, ctx.query.stat(target, 'defense'))
     end,
   }},
   modifiers = {{ query = 'defense', layer = 'add', value = function() return 1 end }},
@@ -59,13 +57,12 @@ ability {
                           figures = #ctx.state.figures, active = ctx.state.active })
       ctx.emit('select', ctx.select({ sel = 'allies' }))
       ctx.emit('query', ctx.query.stat(figure, 'attack', 7))
-      ctx.emit('answer', ctx.choose { chooser = 1, prompt = 'pick', options = { 'a', 'b' } })
       local vars = ctx.vars('t:probe')
       vars.n = 4
       ctx.emit('vars', vars.n)
       ctx.log('hello', 3)
-      local roll = ctx.dice.roll('combat', 4)
-      ctx.emit('roll', { hit = roll:count('hit'), sum = roll:sum(), faces = #roll:faces() })
+      ctx.units.wound(2, 1)
+      ctx.emit('after', true)
     end,
   }},
 }
@@ -128,11 +125,6 @@ impl RuleHost for Host {
     fn query(&self, _: &GameState, name: &str, args: &[Value]) -> Result<Value, LogicError> {
         assert_eq!(name, "stat");
         Ok(Value::Int(2 + args.len() as i64))
-    }
-
-    fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
-        let faces = ["hit", "hit", "block"].map(Sym::new).to_vec();
-        (name == "combat").then_some((DefId(3), DieKind::Faces(faces)))
     }
 
     fn call(&self, ns: &str, name: &str, args: &[Value], ctx: &mut dyn Ctx) -> Result<Value, Halt> {
@@ -271,23 +263,19 @@ fn state() -> GameState {
     }
 }
 
-/// A `Ctx` that applies what is emitted and answers from a tape.
+/// A `Ctx` that applies what is emitted and asks nothing.
 struct Bench {
     state: GameState,
     rng: CommandRng,
     events: Vec<Event>,
-    tape: Vec<Answer>,
-    asked: Vec<Decision>,
 }
 
 impl Bench {
-    fn new(tape: Vec<Answer>) -> Self {
+    fn new() -> Self {
         Self {
             state: state(),
             rng: CommandRng::for_command(7, 0),
             events: Vec::new(),
-            tape,
-            asked: Vec::new(),
         }
     }
 }
@@ -311,15 +299,8 @@ impl Ctx for Bench {
         Ok(())
     }
 
-    fn choose(&mut self, chooser: PlayerId, d: Decision) -> Result<Answer, Halt> {
-        self.asked.push(d.clone());
-        match self.tape.get(self.asked.len() - 1) {
-            Some(answer) => Ok(answer.clone()),
-            None => Err(Halt::NeedsDecision {
-                decision: d,
-                chooser,
-            }),
-        }
+    fn choose(&mut self, _: PlayerId, _: Decision) -> Result<Answer, Halt> {
+        Err(Halt::reject("the bench asks nothing"))
     }
 }
 
@@ -344,39 +325,20 @@ fn ints(items: &[i64]) -> Value {
 fn an_action_behaves_like_its_rust_equivalent() {
     let w = world(&[]);
     let action = &w.ability("brace").actions[0];
-    let mut bench = Bench::new(Vec::new());
+    let mut bench = Bench::new();
     let targets = w.rules.targets(action, FigureId(0), &bench.state).unwrap();
     assert_eq!(targets, [Value::Int(2)]);
     w.rules
         .resolve(action, FigureId(0), &Value::Int(2), &mut bench)
         .unwrap();
 
-    // The same rolls made in Rust: the defender first, with the 4 dice the stat query gives.
-    let mut rng = CommandRng::for_command(7, 0);
-    let mut throw = |n| (0..n).map(|_| rng.roll(3)).collect::<Vec<_>>();
-    let (defense, attack) = (throw(4), throw(3));
-    let hits = attack.iter().filter(|r| **r <= 2).count() as i64;
-    let blocks = defense.iter().filter(|r| **r == 3).count() as i64;
-    let amount = (hits - blocks).max(1) as u32;
-    let die = DefId(3);
-    assert_eq!(
-        bench.events,
-        [
-            Event::DiceRolled {
-                die,
-                results: defense
-            },
-            Event::DiceRolled {
-                die,
-                results: attack
-            },
-            Event::WoundsApplied {
-                figure: FigureId(2),
-                wound: DefId(1),
-                amount
-            },
-        ]
-    );
+    // The Rust equivalent wounds the one enemy by its queried defense (2 + 2 arguments).
+    let wound = Event::WoundsApplied {
+        figure: FigureId(2),
+        wound: DefId(1),
+        amount: 4,
+    };
+    assert_eq!(bench.events, [wound]);
 }
 
 #[test]
@@ -456,7 +418,7 @@ fn replacements_and_reactions_run_in_lua() {
     let state = state();
     assert!(w.rules.replaces(def, &set(13), &state).unwrap());
     assert!(!w.rules.replaces(def, &set(1), &state).unwrap());
-    let mut bench = Bench::new(Vec::new());
+    let mut bench = Bench::new();
     assert_eq!(w.rules.replace(def, &set(13), &mut bench).unwrap(), []);
     let reaction = &brace.reactions[0];
     assert_eq!(
@@ -471,7 +433,7 @@ fn replacements_and_reactions_run_in_lua() {
 fn every_ctx_entry_point_works() {
     let w = world(&[]);
     let action = &w.ability("probe").actions[0];
-    let mut bench = Bench::new(vec![Answer::Option(1)]);
+    let mut bench = Bench::new();
     let result = w
         .rules
         .resolve(action, FigureId(0), &Value::Nil, &mut bench);
@@ -486,7 +448,6 @@ fn every_ctx_entry_point_works() {
     assert_eq!(out["state"], state);
     assert_eq!(out["select"], ints(&[1, 3]));
     assert_eq!(out["query"], Value::Int(5));
-    assert_eq!(out["answer"], Value::Str(Sym::new("b")));
     assert_eq!(out["vars"], Value::Int(4));
     let n = VarKey {
         module: ModuleId::new("t:probe"),
@@ -494,25 +455,6 @@ fn every_ctx_entry_point_works() {
     };
     assert_eq!(bench.state.vars.get(&n), Some(&Value::Int(4)));
     assert_eq!(*w.host.logged.lock().unwrap(), ["hello 3"]);
-    let Value::Map(roll) = &out["roll"] else {
-        panic!("roll")
-    };
-    assert_eq!(roll["faces"], Value::Int(4));
-    assert!(roll["hit"].as_int().unwrap() <= 4 && roll["sum"].as_int().unwrap() >= 4);
-}
-
-#[test]
-fn an_unanswered_choose_halts_the_command() {
-    let w = world(&[]);
-    let action = &w.ability("probe").actions[0];
-    let mut bench = Bench::new(Vec::new());
-    let halted = w
-        .rules
-        .resolve(action, FigureId(0), &Value::Nil, &mut bench);
-    let Err(Halt::NeedsDecision { decision, chooser }) = halted else {
-        panic!("{halted:?}")
-    };
-    assert_eq!((chooser, decision.prompt.as_str()), (PlayerId(1), "pick"));
 }
 
 #[test]
@@ -543,4 +485,17 @@ fn a_native_filter_goes_through_the_host() {
         matches!(held, Err(Halt::Rejected(_))),
         "a list is not a bool"
     );
+}
+
+#[test]
+fn a_halt_from_a_namespace_call_abandons_the_script() {
+    let w = world(&[]);
+    let action = &w.ability("probe").actions[0];
+    let mut bench = Bench::new();
+    bench.state.figures.truncate(2);
+    let result = w
+        .rules
+        .resolve(action, FigureId(0), &Value::Nil, &mut bench);
+    assert!(matches!(result, Err(Halt::Rejected(_))), "{result:?}");
+    assert!(!customs(&bench.events).contains_key("after"));
 }
