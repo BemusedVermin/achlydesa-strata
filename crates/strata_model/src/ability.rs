@@ -16,6 +16,7 @@ pub struct Descriptor(pub Value);
 
 /// A handle to a Lua function, so the registry holds plain data.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ScriptRef {
     /// The pack that defines the function.
     pub pack: PackId,
@@ -53,6 +54,7 @@ pub enum Scope {
 
 /// The archetype an ability was built from, for the AI and coverage stats.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ArchetypeInfo {
     /// The family, such as `stat_bonus`.
     pub family: Sym,
@@ -77,6 +79,7 @@ pub enum ModifierLayer {
 
 /// Changes the result of a query.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ModifierDef {
     /// The query modified, such as `defense` or `can_enter`.
     pub query: Sym,
@@ -97,6 +100,7 @@ pub struct ModifierDef {
 
 /// Something a figure can do with activation slots.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ActionDef {
     /// The action's name.
     pub id: Sym,
@@ -123,6 +127,7 @@ pub enum TriggerLimit {
 
 /// Reacts after an event applies.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct TriggerDef {
     /// The event kind watched.
     pub event: Sym,
@@ -138,6 +143,7 @@ pub struct TriggerDef {
 
 /// Runs before an event applies and may change or cancel it.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ReplacementDef {
     /// The event kind intercepted.
     pub event: Sym,
@@ -150,6 +156,7 @@ pub struct ReplacementDef {
 
 /// A response offered inside a named window.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ReactionDef {
     /// The window it is offered in.
     pub window: WindowId,
@@ -162,6 +169,7 @@ pub struct ReactionDef {
 
 /// A behavior attached to a figure, unit, army, relic or terrain.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct AbilityDef {
     /// Display name.
     pub name: Text,

@@ -82,3 +82,28 @@ impl From<mlua::Error> for DataError {
         Self::Host(error.into())
     }
 }
+
+/// A record that could not be frozen into its typed definition.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LoadError {
+    /// The script that made the record, as `pack/relative/path.lua`.
+    pub file: String,
+    /// The line of the constructor call; fields are not tracked individually.
+    pub line: u32,
+    /// Route to the offending field (see [`freeze`](crate::freeze)); empty for the record itself.
+    pub field_path: String,
+    /// What is wrong.
+    pub message: String,
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}: ", self.file, self.line)?;
+        if !self.field_path.is_empty() {
+            write!(f, "{}: ", self.field_path)?;
+        }
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for LoadError {}

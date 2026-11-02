@@ -9,8 +9,11 @@ publish = false
 [dependencies]
 strata_rules = { path = "../strata_rules" }
 strata_kernel = { path = "../strata_kernel" }
+strata_model = { path = "../strata_model" }
 mlua = { version = "0.11", features = ["lua54", "vendored", "serde"] }
+serde_path_to_error = "0.1"
 thiserror = "2"
 
 [dev-dependencies]
+insta = "1"
 tempfile = "3"

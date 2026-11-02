@@ -19,6 +19,7 @@ pub enum MoveMode {
 
 /// A base shape.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct FootprintDef {
     /// The footprint's handle.
     pub id: DefId,

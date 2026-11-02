@@ -14,6 +14,7 @@ pub struct AbilityRef(pub DefId);
 
 /// Surface behavior of a tile.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct TerrainDef {
     /// The terrain's handle.
     pub id: DefId,
@@ -37,6 +38,7 @@ pub struct TerrainDef {
 
 /// A physical map piece: a shape of one terrain.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct TileDef {
     /// The tile's handle.
     pub id: DefId,
@@ -61,6 +63,7 @@ pub struct TileDef {
 
 /// A vertical span of a feature cell, in levels above the surface it is placed on.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct Segment {
     /// Bottom of the span, in levels.
     pub from: u8,
@@ -73,6 +76,7 @@ pub struct Segment {
 
 /// One cell of a feature and its solid spans.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct FeatureCell {
     /// Axial offset from the feature's anchor.
     pub at: Hex,
@@ -82,6 +86,7 @@ pub struct FeatureCell {
 
 /// A non-terrain board object.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct FeatureDef {
     /// The feature's handle.
     pub id: DefId,

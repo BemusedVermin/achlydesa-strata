@@ -1,0 +1,9 @@
+---
+source: crates/strata_lua/tests/freeze.rs
+expression: text
+---
+t/data.lua:4: max: invalid type: floating point `1.5`, expected i32
+t/data.lua:2: max: missing field `max`
+t/data.lua:5: colour: unknown field `colour`, expected one of `id`, `name`, `min`, `max`, `abbrev`, `order`, `tags`, `meta`, `source`
+t/data.lua:3: min: invalid type: string "low", expected i32
+t/data.lua:6: stats/hp: invalid type: string "five", expected i32

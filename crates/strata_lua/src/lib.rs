@@ -7,9 +7,11 @@
 mod convert;
 mod data;
 mod error;
+mod freeze;
 mod host;
 
 pub use convert::{lua_to_value, value_to_lua};
 pub use data::{DataStage, PackSource, Record, Source};
-pub use error::{ConvertError, DataError, HostError};
+pub use error::{ConvertError, DataError, HostError, LoadError};
+pub use freeze::{FrozenDef, FrozenRecord, Reference, freeze};
 pub use host::{Halt, Limits, LuaHost};

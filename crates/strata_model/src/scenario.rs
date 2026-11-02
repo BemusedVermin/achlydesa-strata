@@ -14,6 +14,7 @@ use crate::vocab::{SourceLoc, Text};
 
 /// How many players a scenario takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct PlayerRange {
     /// Fewest players.
     pub min: u8,
@@ -23,6 +24,7 @@ pub struct PlayerRange {
 
 /// A player seat and where it deploys.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ScenarioSlot {
     /// The seat's name.
     pub id: Sym,
@@ -34,6 +36,7 @@ pub struct ScenarioSlot {
 
 /// A relic put on a map's relic spot.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct RelicPlacement {
     /// Name of the relic.
     pub relic: Sym,
@@ -43,6 +46,7 @@ pub struct RelicPlacement {
 
 /// A map plus deployment, objectives and scripted events.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ScenarioDef {
     /// The scenario's handle.
     pub id: DefId,
@@ -82,6 +86,7 @@ pub struct ScenarioDef {
 
 /// The scenarios a format allows and how one is chosen.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ScenarioPool {
     /// Names of the allowed scenarios.
     pub pool: Vec<Sym>,
@@ -91,6 +96,7 @@ pub struct ScenarioPool {
 
 /// A competitive envelope: ruleset, army rules and scenarios.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct FormatDef {
     /// The format's handle.
     pub id: DefId,
@@ -127,6 +133,7 @@ pub struct FormatDef {
 
 /// A unit picked for an army, possibly several times.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ArmyEntry {
     /// Name of the unit, possibly qualified by pack.
     pub unit: Sym,
@@ -136,6 +143,7 @@ pub struct ArmyEntry {
 
 /// One player's picks. Point totals are computed, never stored.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ArmyList {
     /// Display name.
     pub name: Text,
@@ -149,6 +157,7 @@ pub struct ArmyList {
 
 /// A pack test; the harness fields arrive with the test runner.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct TestDef {
     /// What the test checks.
     pub name: Text,
