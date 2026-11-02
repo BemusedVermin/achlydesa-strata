@@ -161,6 +161,7 @@ fn every_value_compiles_to_its_typed_form() {
     assert!(matches!(compiled("max", &[("of", numbers)]), Val::Max(_)));
 }
 
+#[test]
 fn unknown_descriptors_fail_to_compile() {
     let err = |v: Value| compile(&Descriptor(v)).unwrap_err();
     assert_eq!(
