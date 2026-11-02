@@ -178,6 +178,18 @@ impl HookRunner for NoHooks {
     fn fire(&self, _: &strata_model::TriggerDef, _: &Event, _: &mut dyn Ctx) -> Result<(), Halt> {
         Ok(())
     }
+
+    fn reactor(
+        &self,
+        _: &strata_model::ReactionDef,
+        _: &GameState,
+    ) -> Result<Option<strata_model::PlayerId>, Halt> {
+        Ok(None)
+    }
+
+    fn react(&self, _: &strata_model::ReactionDef, _: &mut dyn Ctx) -> Result<(), Halt> {
+        Ok(())
+    }
 }
 
 fn rules(ordering: OrderingPolicy) -> ActivationRules {

@@ -1,11 +1,11 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use strata_kernel::{CommandRng, DefId, ModuleId, Sym, Value};
+use strata_kernel::{CommandRng, DefId, ModuleId, Sym, Value, WindowId};
 use strata_model::{
     Answer, Command, Decision, DecisionKind, Descriptor, Event, FigureId, FigureState, GameState,
-    Logic, MatchSetup, PlayerId, PlayerState, ReplacementDef, SeedSource, TriggerDef, TriggerLimit,
-    VarKey,
+    Logic, MatchSetup, PlayerId, PlayerState, ReactionDef, ReplacementDef, SeedSource, TriggerDef,
+    TriggerLimit, VarKey,
 };
 
 use super::*;
@@ -74,6 +74,23 @@ impl HookRunner for ToyHooks {
     }
 
     /// Emits `Custom(fired, n * 100 + figure)`.
+    /// The reaction's `when` names its player.
+    fn reactor(&self, def: &ReactionDef, _: &GameState) -> Result<Option<PlayerId>, Halt> {
+        let who = def.when.as_ref().map(number);
+        Ok(who.map(|p| PlayerId(p as u8)))
+    }
+
+    /// Emits `Custom(reacted, n)`; reaction 9 tries to reopen its own window.
+    fn react(&self, def: &ReactionDef, ctx: &mut dyn Ctx) -> Result<(), Halt> {
+        if number(&def.effect) == 9 {
+            ctx.window(&WindowId::new("w"))?;
+        }
+        ctx.emit(Event::Custom {
+            id: Sym::new("reacted"),
+            payload: Value::Int(number(&def.effect)),
+        })
+    }
+
     fn fire(&self, def: &TriggerDef, e: &Event, ctx: &mut dyn Ctx) -> Result<(), Halt> {
         let payload = Value::Int(number(&def.effect) * 100 + wounded(e));
         ctx.emit(Event::Custom {
@@ -425,4 +442,134 @@ fn legal_commands_start_empty() {
             .legal_commands(PlayerId(0))
             .is_empty()
     );
+}
+
+fn reaction(player: i64, n: i64) -> ReactionDef {
+    ReactionDef {
+        window: WindowId::new("w"),
+        when: Some(logic(player)),
+        effect: logic(n),
+    }
+}
+
+fn open_w(ctx: &mut dyn Ctx, _: PlayerId) -> Result<(), Halt> {
+    ctx.window(&WindowId::new("w"))
+}
+
+fn open_missing(ctx: &mut dyn Ctx, _: PlayerId) -> Result<(), Halt> {
+    ctx.window(&WindowId::new("nope"))
+}
+
+fn window_runtime(reactions: Vec<ReactionDef>) -> RulesRuntime {
+    let mut rt = runtime(
+        vec![Toy("open", open_w), Toy("missing", open_missing)],
+        vec![],
+        vec![],
+    );
+    rt.reg.window(WindowId::new("w"));
+    reactions.into_iter().for_each(|r| rt.reg.reaction(r));
+    rt
+}
+
+fn offered(outcome: &Outcome) -> (PlayerId, usize) {
+    match outcome {
+        Outcome::NeedsDecision {
+            decision:
+                Decision {
+                    kind: DecisionKind::ChooseOption(options),
+                    ..
+                },
+            chooser,
+        } => (*chooser, options.len()),
+        other => panic!("expected an option decision, got {other:?}"),
+    }
+}
+
+fn reacted(events: &[Event]) -> Vec<i64> {
+    let is_reaction =
+        |e: &&Event| matches!(e, Event::Custom { id, .. } if id.as_ref() == "reacted");
+    fired(
+        &events
+            .iter()
+            .filter(is_reaction)
+            .cloned()
+            .collect::<Vec<_>>(),
+    )
+}
+
+#[test]
+fn a_window_with_no_eligible_reactions_costs_no_decision() {
+    let rt = window_runtime(vec![]);
+    let mut engine = Engine::new(&rt, &ToyHooks, state());
+    assert_eq!(committed(engine.submit(PlayerId(0), cmd("open"))), vec![]);
+}
+
+#[test]
+fn reactions_from_two_players_resolve_active_player_first() {
+    let rt = window_runtime(vec![reaction(1, 2), reaction(0, 1)]);
+    let mut engine = Engine::new(&rt, &ToyHooks, state());
+    let first = engine.submit(PlayerId(0), cmd("open"));
+    assert_eq!(offered(&first), (PlayerId(0), 2));
+    let second = engine.answer(Answer::Option(1));
+    assert_eq!(offered(&second), (PlayerId(1), 2));
+    let events = committed(engine.answer(Answer::Option(1)));
+    assert_eq!(reacted(&events), vec![1, 2]);
+}
+
+#[test]
+fn a_declined_reaction_is_not_offered_again() {
+    let rt = window_runtime(vec![reaction(0, 1), reaction(1, 2)]);
+    let mut engine = Engine::new(&rt, &ToyHooks, state());
+    engine.submit(PlayerId(0), cmd("open"));
+    let second = engine.answer(Answer::Option(0));
+    assert_eq!(offered(&second), (PlayerId(1), 2));
+    let events = committed(engine.answer(Answer::Option(1)));
+    assert_eq!(reacted(&events), vec![2]);
+}
+
+#[test]
+fn a_used_reaction_is_not_offered_twice() {
+    let rt = window_runtime(vec![reaction(0, 1)]);
+    let mut engine = Engine::new(&rt, &ToyHooks, state());
+    engine.submit(PlayerId(0), cmd("open"));
+    let events = committed(engine.answer(Answer::Option(1)));
+    assert_eq!(reacted(&events), vec![1]);
+}
+
+#[test]
+fn a_window_cannot_be_opened_inside_itself() {
+    let rt = window_runtime(vec![reaction(0, 9)]);
+    let mut engine = Engine::new(&rt, &ToyHooks, state());
+    engine.submit(PlayerId(0), cmd("open"));
+    let Outcome::Rejected(RuleViolation(why)) = engine.answer(Answer::Option(1)) else {
+        panic!("expected a rejection");
+    };
+    assert!(why.contains("already open"), "{why}");
+}
+
+#[test]
+fn an_undeclared_window_is_rejected() {
+    let rt = window_runtime(vec![]);
+    let mut engine = Engine::new(&rt, &ToyHooks, state());
+    assert!(matches!(
+        engine.submit(PlayerId(0), cmd("missing")),
+        Outcome::Rejected(_)
+    ));
+}
+
+#[test]
+fn window_decisions_replay_identically() {
+    let play = || {
+        let rt = window_runtime(vec![reaction(0, 1), reaction(1, 2)]);
+        let mut engine = Engine::new(&rt, &ToyHooks, state());
+        engine.submit(PlayerId(0), cmd("open"));
+        engine.answer(Answer::Option(1));
+        engine.answer(Answer::Option(1));
+        engine
+            .log()
+            .iter()
+            .map(|r| r.state_hash)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(play(), play());
 }
