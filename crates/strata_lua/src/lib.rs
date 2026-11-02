@@ -9,6 +9,7 @@ mod data;
 mod error;
 mod freeze;
 mod host;
+pub mod stubs;
 
 pub use convert::{lua_to_value, value_to_lua};
 pub use data::{DataStage, PackSource, Record, Source};

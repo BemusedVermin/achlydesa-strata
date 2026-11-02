@@ -14,6 +14,12 @@ use crate::error::{DataError, HostError};
 use crate::host::{Limits, LuaHost};
 use registry::{Registry, Shared, chunk_name};
 
+/// The constructor kinds the data stage registers.
+#[cfg(test)]
+pub(crate) fn registry_kinds() -> Vec<&'static str> {
+    registry::KINDS.to_vec()
+}
+
 const PRELUDE: &str = include_str!("data.lua");
 /// The chunk name of the prelude that adds `data.each`.
 const PRELUDE_CHUNK: &str = "=data_prelude";
