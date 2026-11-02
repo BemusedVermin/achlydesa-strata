@@ -7,6 +7,7 @@
 pub mod catalog;
 pub mod config;
 pub mod module;
+pub mod query;
 pub mod registrar;
 pub mod resolve;
 pub mod runtime;
@@ -15,6 +16,10 @@ pub mod slots;
 pub use catalog::{DuplicateModule, ModuleCatalog};
 pub use config::{ConfigError, ConfigSchema};
 pub use module::{ModuleError, RuleModule};
+pub use query::{
+    EvalCtx, LogicError, LogicEvaluator, Logics, Query, QueryEngine, QueryError, QueryTrace,
+    ScriptCaller, SourcedModifier, StatBounds, StatQuery, TraceStep, VoteQuery,
+};
 pub use registrar::{Anchor, CommandHandler, LuaApi, PhaseDef, Registrar, Service};
 pub use resolve::{ResolveError, RulesetSource, Site, resolve};
 pub use runtime::RulesRuntime;

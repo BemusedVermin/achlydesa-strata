@@ -9,6 +9,7 @@ use clap::{Args, Parser, Subcommand};
 use miette::{IntoDiagnostic, MietteHandlerOpts, Result, WrapErr};
 
 mod lint;
+mod package;
 mod validate;
 
 /// Tools for Strata pack authors.
@@ -33,6 +34,18 @@ enum Command {
     /// Check pack Lua for determinism problems and card-text drift.
     Lint {
         /// Pack folders, or directories whose subdirectories are packs.
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+    },
+    /// Bundle the client and the public packs into a distributable folder.
+    Package {
+        /// Directory to write the release into.
+        #[arg(long)]
+        out: PathBuf,
+        /// The client binary to bundle (default: `strata-client` next to this executable).
+        #[arg(long)]
+        client: Option<PathBuf>,
+        /// Directories whose subdirectories are packs.
         #[arg(required = true)]
         paths: Vec<PathBuf>,
     },
@@ -73,6 +86,7 @@ fn main() -> ExitCode {
         Command::Pack(PackCommand::Test(_)) => unimplemented_command("pack test"),
         Command::Stubs { out } => finish(write_stubs(&out)),
         Command::Lint { paths } => lint::run(&paths),
+        Command::Package { out, client, paths } => finish(package::run(&paths, &out, client)),
         Command::Stats(_) => unimplemented_command("stats"),
         Command::Sim(_) => unimplemented_command("sim"),
         Command::Replay(_) => unimplemented_command("replay"),
