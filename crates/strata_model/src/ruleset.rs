@@ -10,6 +10,7 @@ use crate::vocab::{SourceLoc, Text};
 
 /// A module and the configuration it is registered with.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ModuleRef {
     /// The module, such as `core:combat`.
     pub id: ModuleId,
@@ -29,6 +30,7 @@ pub enum UndoPolicy {
 
 /// A named composition of rule modules.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct RulesetDef {
     /// The ruleset's handle.
     pub id: DefId,
@@ -73,6 +75,7 @@ fn enabled() -> bool {
 
 /// One option in a Lua module's configuration schema.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct ConfigField {
     /// The value type, such as `int`.
     #[serde(rename = "type")]
@@ -84,6 +87,7 @@ pub struct ConfigField {
 
 /// A rule module written in Lua.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct RuleModuleDef {
     /// The module's handle.
     pub id: DefId,

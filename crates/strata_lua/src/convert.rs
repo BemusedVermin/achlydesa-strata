@@ -66,8 +66,9 @@ fn sym(s: &mlua::String) -> Result<Sym, ConvertError> {
     Ok(Sym::new(&s.to_str().map_err(|_| ConvertError::NotUtf8)?))
 }
 
-fn convert_table(lua: &Lua, table: &Table, depth: usize) -> Result<Value, ConvertError> {
-    // A frozen table keeps its contents in a shadow table (see prelude.lua).
+/// The table that really holds `table`'s entries: a frozen table keeps them in a shadow table
+/// (see prelude.lua).
+pub(crate) fn contents(lua: &Lua, table: &Table) -> Table {
     let shadow = lua
         .named_registry_value::<Table>(FROZEN_KEY)
         .ok()
@@ -77,7 +78,11 @@ fn convert_table(lua: &Lua, table: &Table, depth: usize) -> Result<Value, Conver
                 .ok()
                 .flatten()
         });
-    let source = shadow.as_ref().unwrap_or(table);
+    shadow.unwrap_or_else(|| table.clone())
+}
+
+fn convert_table(lua: &Lua, table: &Table, depth: usize) -> Result<Value, ConvertError> {
+    let source = contents(lua, table);
     let mut list = BTreeMap::new();
     let mut map = BTreeMap::new();
     for pair in source.pairs::<mlua::Value, mlua::Value>() {

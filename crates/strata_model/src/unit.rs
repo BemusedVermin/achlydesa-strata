@@ -10,6 +10,7 @@ use crate::vocab::{SourceLoc, Text};
 
 /// How a figure is seen for line of sight, in sub-level units (12 per level).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct LosProfile {
     /// Height of the point other figures aim at.
     pub target: u16,
@@ -21,6 +22,7 @@ pub struct LosProfile {
 
 /// One kind of figure within a unit.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct FigureDef {
     /// Name of the figure within its unit.
     pub id: Sym,
@@ -39,6 +41,7 @@ pub struct FigureDef {
 
 /// Printed card information.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct CardInfo {
     /// Asset name of the card art.
     #[serde(default)]
@@ -50,6 +53,7 @@ pub struct CardInfo {
 
 /// A selectable unit.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct UnitDef {
     /// The unit's handle.
     pub id: DefId,

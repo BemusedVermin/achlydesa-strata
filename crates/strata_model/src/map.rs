@@ -12,6 +12,7 @@ use crate::vocab::{SourceLoc, Text};
 
 /// A tile placed on the board.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct PlacedPiece {
     /// Name of the tile.
     pub piece: Sym,
@@ -25,6 +26,7 @@ pub struct PlacedPiece {
 
 /// A feature placed on the board.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct PlacedFeature {
     /// Name of the feature.
     pub feature: Sym,
@@ -36,6 +38,7 @@ pub struct PlacedFeature {
 
 /// Build rules a map must satisfy.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct MapConstraints {
     /// Name of the inventory capping the pieces used.
     #[serde(default)]
@@ -47,6 +50,7 @@ pub struct MapConstraints {
 
 /// A board: placed pieces plus named zones and relic spots.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct MapDef {
     /// The map's handle.
     pub id: DefId,
@@ -84,6 +88,7 @@ pub struct MapDef {
 
 /// A cap on the pieces a map may use.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct InventoryDef {
     /// The inventory's handle.
     pub id: DefId,

@@ -20,6 +20,7 @@ pub enum RelicMode {
 
 /// Abilities a relic gives its holder.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct RelicGrant {
     /// Who receives the abilities, such as `occupant_army`.
     pub to: Sym,
@@ -29,6 +30,7 @@ pub struct RelicGrant {
 
 /// A claimable board object.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct RelicDef {
     /// The relic's handle.
     pub id: DefId,

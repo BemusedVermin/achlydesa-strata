@@ -12,6 +12,7 @@ pub struct Text(pub String);
 
 /// The file and line a definition was authored at, for every later error.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct SourceLoc {
     /// Path of the source file.
     pub file: String,
@@ -21,6 +22,7 @@ pub struct SourceLoc {
 
 /// A stat with inclusive bounds.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct StatDef {
     /// The stat's handle.
     pub id: DefId,
@@ -80,6 +82,7 @@ pub struct DieDef {
 
 /// A marker such as a wound or a status.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct MarkerDef {
     /// The marker's handle.
     pub id: DefId,
@@ -112,6 +115,7 @@ pub enum TraitKeyDef {
 
 /// The set of trait keys units may carry.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct TraitsDef {
     /// The definition's handle.
     pub id: DefId,
@@ -132,6 +136,7 @@ pub struct TraitsDef {
 
 /// An allegiance.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
 pub struct FactionDef {
     /// The faction's handle.
     pub id: DefId,
