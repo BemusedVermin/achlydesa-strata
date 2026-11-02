@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 use miette::{IntoDiagnostic, MietteHandlerOpts, Result, WrapErr};
 
+mod package;
 mod validate;
 
 /// Tools for Strata pack authors.
@@ -28,6 +29,18 @@ enum Command {
         /// Directory to write the stub files into.
         #[arg(long)]
         out: PathBuf,
+    },
+    /// Bundle the client and the public packs into a distributable folder.
+    Package {
+        /// Directory to write the release into.
+        #[arg(long)]
+        out: PathBuf,
+        /// The client binary to bundle (default: `strata-client` next to this executable).
+        #[arg(long)]
+        client: Option<PathBuf>,
+        /// Directories whose subdirectories are packs.
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
     },
     /// Lint a pack (not yet implemented).
     Lint(Unimplemented),
@@ -67,6 +80,7 @@ fn main() -> ExitCode {
         Command::Pack(PackCommand::Validate { paths }) => validate::run(&paths),
         Command::Pack(PackCommand::Test(_)) => unimplemented_command("pack test"),
         Command::Stubs { out } => finish(write_stubs(&out)),
+        Command::Package { out, client, paths } => finish(package::run(&paths, &out, client)),
         Command::Lint(_) => unimplemented_command("lint"),
         Command::Stats(_) => unimplemented_command("stats"),
         Command::Sim(_) => unimplemented_command("sim"),
