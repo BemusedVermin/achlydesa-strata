@@ -109,6 +109,20 @@ definitions! {
     "test" => Test(TestDef),
 }
 
+/// Freezes what a module registered while running `register`: functions become `ScriptRef`s
+/// named `rule_module:<name>/~registered/<n>/...`, so every state names them the same way.
+pub(crate) fn freeze_registered(
+    lua: &Lua,
+    pack: &PackId,
+    name: &str,
+    own: DefId,
+    root: &Table,
+) -> Result<Table, String> {
+    let mut walk = Walk::new(lua, "rule_module", pack, name).resolved(own, &[]);
+    let fault = |f: Fault| format!("{}: {}", f.field_path, f.message);
+    walk.record(root, &[]).map_err(fault)
+}
+
 /// A record after the freeze, with what the resolve step still has to patch.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FrozenRecord {

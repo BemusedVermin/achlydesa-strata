@@ -163,7 +163,9 @@ fn constructor(lua: &Lua, shared: Shared, kind: &'static str, records: Table) ->
             _ => Err(fail(format!("needs a string `{field}`"))),
         };
         let id = text(ID_FIELD)?;
-        text(NAME_FIELD)?;
+        if kind != "rule_module" {
+            text(NAME_FIELD)?;
+        }
         let full = match id.split_once(PACK_SEPARATOR) {
             None if !id.is_empty() => full_id(pack.as_str(), &id),
             Some((owner, name)) if owner == pack.as_str() && !name.is_empty() => id.clone(),

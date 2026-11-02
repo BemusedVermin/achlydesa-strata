@@ -148,6 +148,9 @@ impl<'a> Walk<'a> {
     }
 
     fn value(&mut self, value: Value, depth: usize) -> Result<Value, Fault> {
+        if schema::is_value(self.kind, &self.route) {
+            return self.tagged(value, depth);
+        }
         Ok(match value {
             Value::Function(_) => self.script()?,
             Value::Table(table) => Value::Table(self.table(&table, &[], depth + 1)?),
@@ -163,6 +166,37 @@ impl<'a> Walk<'a> {
             }
             other => other,
         })
+    }
+
+    /// Rewrites plain Lua data as the externally tagged form `Value` deserializes from.
+    fn tagged(&mut self, value: Value, depth: usize) -> Result<Value, Fault> {
+        let wrap = |tag: &str, inner: Value| -> Result<Value, Fault> {
+            let table = self.lua.create_table()?;
+            table.raw_set(tag, inner)?;
+            Ok(Value::Table(table))
+        };
+        match value {
+            Value::Nil => Ok(Value::String(self.lua.create_string("Nil")?)),
+            Value::Boolean(_) => wrap("Bool", value),
+            Value::Integer(_) => wrap("Int", value),
+            Value::String(_) => wrap("Str", value),
+            Value::Table(table) if depth < MAX_DEPTH => {
+                let items = self.lua.create_table()?;
+                let (mut list, mut map) = (true, false);
+                for pair in contents(self.lua, &table).pairs::<Value, Value>() {
+                    let (key, item) = pair?;
+                    let item = self.tagged(item, depth + 1)?;
+                    map |= matches!(key, Value::String(_));
+                    list &= matches!(key, Value::Integer(_));
+                    items.raw_set(key, item)?;
+                }
+                wrap(
+                    if map && !list { "Map" } else { "List" },
+                    Value::Table(items),
+                )
+            }
+            other => Err(self.fault(format!("a {} is not plain data", other.type_name()))),
+        }
     }
 
     /// Replaces the function at the current route with a `ScriptRef`, wrapped as

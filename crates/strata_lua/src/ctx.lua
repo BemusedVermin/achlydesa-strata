@@ -48,6 +48,38 @@ ctx.query = setmetatable({}, {
   __metatable = false,
 })
 
+function ctx.choose(spec) return call("choose", spec) end
+
+local Roll = {}
+Roll.__index = Roll
+
+function Roll:count(symbol)
+  local n = 0
+  for _, face in ipairs(self._faces) do
+    if face == symbol then n = n + 1 end
+  end
+  return n
+end
+
+function Roll:sum()
+  local total = 0
+  for _, result in ipairs(self._results) do total = total + result end
+  return total
+end
+
+function Roll:faces()
+  local copy = {}
+  for i, face in ipairs(self._faces) do copy[i] = face end
+  return copy
+end
+
+ctx.dice = {
+  roll = function(die, n)
+    local rolled = call("roll", { die = die, n = n })
+    return setmetatable({ _results = rolled.results, _faces = rolled.faces }, Roll)
+  end,
+}
+
 function ctx.vars(owner)
   owner = tostring(owner)
   return setmetatable({}, {
