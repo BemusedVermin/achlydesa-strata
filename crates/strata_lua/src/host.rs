@@ -12,6 +12,8 @@ use crate::error::HostError;
 
 const PRELUDE: &str = include_str!("prelude.lua");
 pub(crate) const FROZEN_KEY: &str = "strata.frozen";
+/// The sandbox global that makes one table read-only.
+pub(crate) const FREEZE_GLOBAL: &str = "freeze";
 /// Instructions between hook invocations; budgets are rounded up to a multiple of this.
 const STEP: u32 = 100;
 
@@ -121,7 +123,7 @@ impl LuaHost {
 
     /// Makes `table` read-only: later writes raise.
     pub fn freeze(&self, table: &Table) -> Result<(), HostError> {
-        let freeze: Function = self.lua.globals().get("freeze")?;
+        let freeze: Function = self.lua.globals().get(FREEZE_GLOBAL)?;
         Ok(freeze.call::<()>(table)?)
     }
 
@@ -154,10 +156,41 @@ impl LuaHost {
             _ if self.tripped.get() => HostError::Budget,
             Some(Value::UserData(ud)) if ud.is::<Halt>() => HostError::Halt,
             Some(Value::String(text)) => HostError::Script(text.to_string_lossy()),
+            Some(Value::Error(error)) => HostError::Script(plain(&error)),
             other => HostError::Script(format!(
                 "error value of type {}",
                 other.as_ref().map_or("nil", Value::type_name)
             )),
         })
     }
+}
+
+/// The message of an error raised by a Rust callback, without mlua's wrapper text.
+fn plain(error: &Error) -> String {
+    match error {
+        Error::RuntimeError(message) => message.clone(),
+        Error::CallbackError { cause, .. } => plain(cause),
+        other => other.to_string(),
+    }
+}
+
+/// Freezes `table` and every table reachable through its values; functions are left alone.
+///
+/// A table is frozen before its children are visited, so cycles end at the first table seen twice.
+pub(crate) fn freeze_deep(lua: &Lua, table: &Table) -> mlua::Result<()> {
+    let frozen: Table = lua.named_registry_value(FROZEN_KEY)?;
+    if frozen.raw_get::<Value>(table)?.is_nil() {
+        let mut children = Vec::new();
+        for pair in table.pairs::<Value, Value>() {
+            if let (_, Value::Table(child)) = pair? {
+                children.push(child);
+            }
+        }
+        let freeze: Function = lua.globals().get(FREEZE_GLOBAL)?;
+        freeze.call::<()>(table)?;
+        for child in &children {
+            freeze_deep(lua, child)?;
+        }
+    }
+    Ok(())
 }

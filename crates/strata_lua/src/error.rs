@@ -42,3 +42,43 @@ pub enum HostError {
     #[error(transparent)]
     Convert(#[from] ConvertError),
 }
+
+/// A failure while running the data stages.
+#[derive(Debug, thiserror::Error)]
+pub enum DataError {
+    /// A stage file could not be read.
+    #[error("{}: {source}", path.display())]
+    Io {
+        /// The file.
+        path: std::path::PathBuf,
+        /// The underlying error.
+        source: std::io::Error,
+    },
+    /// A pack has no `data.lua`.
+    #[error("pack `{pack}` has no data.lua at {}", path.display())]
+    MissingEntry {
+        /// The pack.
+        pack: strata_kernel::PackId,
+        /// Where `data.lua` was expected.
+        path: std::path::PathBuf,
+    },
+    /// A script raised an error; the message names the file and line.
+    #[error("pack `{pack}` failed in stage `{stage}`: {message}")]
+    Script {
+        /// The pack.
+        pack: strata_kernel::PackId,
+        /// The stage: `data`, `data_updates` or `data_final`.
+        stage: &'static str,
+        /// The error text.
+        message: String,
+    },
+    /// The host failed for a reason other than a script error.
+    #[error(transparent)]
+    Host(#[from] HostError),
+}
+
+impl From<mlua::Error> for DataError {
+    fn from(error: mlua::Error) -> Self {
+        Self::Host(error.into())
+    }
+}

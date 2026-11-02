@@ -592,6 +592,7 @@ dependencies = [
  "strata_kernel",
  "strata_lua",
  "strata_model",
+ "tempfile",
  "thiserror",
 ]
 
@@ -633,6 +634,7 @@ dependencies = [
  "mlua",
  "strata_kernel",
  "strata_rules",
+ "tempfile",
  "thiserror",
 ]
 
