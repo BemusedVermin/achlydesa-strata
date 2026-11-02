@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use clap::{Args, Parser, Subcommand};
 use miette::{IntoDiagnostic, MietteHandlerOpts, Result, WrapErr};
 
+mod lint;
 mod validate;
 
 /// Tools for Strata pack authors.
@@ -29,8 +30,12 @@ enum Command {
         #[arg(long)]
         out: PathBuf,
     },
-    /// Lint a pack (not yet implemented).
-    Lint(Unimplemented),
+    /// Check pack Lua for determinism problems and card-text drift.
+    Lint {
+        /// Pack folders, or directories whose subdirectories are packs.
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+    },
     /// Report pack statistics (not yet implemented).
     Stats(Unimplemented),
     /// Run AI self-play for balance (not yet implemented).
@@ -67,7 +72,7 @@ fn main() -> ExitCode {
         Command::Pack(PackCommand::Validate { paths }) => validate::run(&paths),
         Command::Pack(PackCommand::Test(_)) => unimplemented_command("pack test"),
         Command::Stubs { out } => finish(write_stubs(&out)),
-        Command::Lint(_) => unimplemented_command("lint"),
+        Command::Lint { paths } => lint::run(&paths),
         Command::Stats(_) => unimplemented_command("stats"),
         Command::Sim(_) => unimplemented_command("sim"),
         Command::Replay(_) => unimplemented_command("replay"),
