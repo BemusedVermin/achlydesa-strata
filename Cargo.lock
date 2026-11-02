@@ -1110,8 +1110,12 @@ dependencies = [
 name = "strata_editor"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "strata_content",
+ "strata_kernel",
+ "strata_model",
  "strata_modules",
+ "thiserror",
 ]
 
 [[package]]
