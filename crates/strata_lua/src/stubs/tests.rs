@@ -33,3 +33,8 @@ fn terrain_stub() {
 fn ruleset_stub() {
     insta::assert_snapshot!(text("ruleset.lua"));
 }
+
+#[test]
+fn ctx_stub() {
+    insta::assert_snapshot!(text("ctx.lua"));
+}

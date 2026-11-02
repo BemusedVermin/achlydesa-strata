@@ -3,15 +3,17 @@
 
 use std::collections::BTreeMap;
 
-use mlua::{Function, Table, Value};
+use mlua::{Function, Lua, MultiValue, Table, Value};
 use strata_kernel::{StableHash, StableHasher};
 use strata_model::ScriptRef;
 use strata_rules::{EvalCtx, LogicError, ScriptCaller};
 
 use crate::convert::{contents, lua_to_value, value_to_lua};
 use crate::data::{DataStage, PackSource, Record};
-use crate::error::{HostError, RuntimeError};
+use crate::error::{DataError, HostError, RuntimeError};
 use crate::host::Limits;
+
+const CTX_GLUE: &str = include_str!("ctx.lua");
 
 const MAX_DEPTH: usize = 64;
 
@@ -21,6 +23,7 @@ const MAX_DEPTH: usize = 64;
 pub struct RuntimeLua {
     stage: DataStage,
     functions: BTreeMap<(String, String), Function>,
+    ctx: Function,
 }
 
 impl RuntimeLua {
@@ -62,7 +65,26 @@ impl RuntimeLua {
                 harvested,
             });
         }
-        Ok(Self { stage, functions })
+        let host = stage.host();
+        let ctx = host
+            .new_env()
+            .and_then(|env| host.load(&env, "ctx", CTX_GLUE));
+        let ctx = ctx.map_err(DataError::from)?;
+        Ok(Self {
+            stage,
+            functions,
+            ctx,
+        })
+    }
+
+    /// The underlying Lua state.
+    pub fn lua(&self) -> &Lua {
+        self.stage.host().lua()
+    }
+
+    /// The function that builds `ctx` from the host primitives and the module namespaces.
+    pub(crate) fn ctx_builder(&self) -> &Function {
+        &self.ctx
     }
 
     /// Calls the function behind `script` with `args` under the instruction budget.
@@ -72,6 +94,19 @@ impl RuntimeLua {
         script: &ScriptRef,
         args: &[strata_kernel::Value],
     ) -> Result<strata_kernel::Value, HostError> {
+        let lua = self.lua();
+        let args = args.iter().map(|arg| value_to_lua(lua, arg));
+        let mut out = self.call_raw(script, args.collect::<Result<_, _>>()?)?;
+        let first = out.pop_front().unwrap_or(Value::Nil);
+        Ok(lua_to_value(lua, &first)?)
+    }
+
+    /// Like [`RuntimeLua::call_script`], with Lua arguments and results.
+    pub(crate) fn call_raw(
+        &self,
+        script: &ScriptRef,
+        args: MultiValue,
+    ) -> Result<MultiValue, HostError> {
         let key = (
             script.pack.as_str().to_owned(),
             script.path.as_str().to_owned(),
@@ -79,15 +114,7 @@ impl RuntimeLua {
         let function = self.functions.get(&key).ok_or_else(|| {
             HostError::Script(format!("no function bound to `{}`", script.path.as_str()))
         })?;
-        let host = self.stage.host();
-        let lua = host.lua();
-        let args = args
-            .iter()
-            .map(|arg| value_to_lua(lua, arg))
-            .collect::<Result<Vec<_>, _>>()?;
-        let mut out = host.call(function, mlua::MultiValue::from_iter(args))?;
-        let first = out.pop_front().unwrap_or(Value::Nil);
-        Ok(lua_to_value(lua, &first)?)
+        self.stage.host().call(function, args)
     }
 }
 

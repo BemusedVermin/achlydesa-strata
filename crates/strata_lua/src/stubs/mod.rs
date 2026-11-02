@@ -20,13 +20,15 @@ pub struct StubFile {
 
 /// The stub files for every constructor, in kind order.
 pub fn generate() -> Vec<StubFile> {
-    classes::KINDS
-        .iter()
-        .map(|kind| StubFile {
-            name: format!("{}.lua", kind.name),
-            text: render::file(kind),
-        })
-        .collect()
+    let kinds = classes::KINDS.iter().map(|kind| StubFile {
+        name: format!("{}.lua", kind.name),
+        text: render::file(kind),
+    });
+    let ctx = StubFile {
+        name: "ctx.lua".to_owned(),
+        text: include_str!("ctx_stub.lua").to_owned(),
+    };
+    kinds.chain([ctx]).collect()
 }
 
 /// The constructor kinds that have stubs.

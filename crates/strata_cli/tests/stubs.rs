@@ -24,7 +24,7 @@ fn writes_one_file_per_kind_identically() {
     };
     let nested = b.path().join("nested");
     assert_eq!(names(a.path()), names(&nested));
-    assert_eq!(names(a.path()).len(), 20);
+    assert_eq!(names(a.path()).len(), 21);
     let unit = |d: &std::path::Path| std::fs::read_to_string(d.join("unit.lua")).unwrap();
     assert_eq!(unit(a.path()), unit(&nested));
 }
