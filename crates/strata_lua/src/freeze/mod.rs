@@ -58,7 +58,7 @@ pub trait Resolver {
 macro_rules! definitions {
     ($($kind:literal => $variant:ident($def:ty)),* $(,)?) => {
         /// A record converted to its typed definition.
-        #[derive(Clone, Debug, PartialEq, Eq)]
+        #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
         pub enum FrozenDef {
             $(#[doc = concat!("A `", $kind, "` record.")] $variant($def)),*
         }

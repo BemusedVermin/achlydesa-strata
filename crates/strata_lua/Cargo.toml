@@ -11,6 +11,7 @@ strata_rules = { path = "../strata_rules" }
 strata_kernel = { path = "../strata_kernel" }
 strata_model = { path = "../strata_model" }
 mlua = { version = "0.11", features = ["lua54", "vendored", "serde"] }
+serde = { version = "1", features = ["derive"] }
 serde_path_to_error = "0.1"
 thiserror = "2"
 

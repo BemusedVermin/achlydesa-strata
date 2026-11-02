@@ -6,6 +6,8 @@ use std::sync::Arc;
 use strata_kernel::{DefId, PackId};
 use strata_lua::{Def, FrozenRecord};
 
+use crate::identity::{ContentHash, PackIdentity, set_hash};
+
 /// Every frozen definition, indexed by kind and `DefId`.
 ///
 /// Cloning is cheap: clones share one immutable copy. Two registries are equal when they hold
@@ -16,24 +18,46 @@ pub struct ContentRegistry(Arc<Inner>);
 #[derive(Debug, PartialEq, Eq)]
 struct Inner {
     packs: Vec<PackId>,
+    identities: Vec<PackIdentity>,
+    set_hash: ContentHash,
     /// Records per kind in full-ID order, so a record's index is its `DefId`.
     kinds: BTreeMap<String, Vec<FrozenRecord>>,
 }
 
 impl ContentRegistry {
     /// Builds the registry from records in `(kind, ID)` order, as `freeze_resolved` returns them.
-    pub(crate) fn new(packs: Vec<PackId>, records: Vec<FrozenRecord>) -> Self {
+    pub(crate) fn new(
+        packs: Vec<PackId>,
+        identities: Vec<PackIdentity>,
+        records: Vec<FrozenRecord>,
+    ) -> Self {
         let mut kinds: BTreeMap<String, Vec<FrozenRecord>> = BTreeMap::new();
         for record in records {
             let kind = record.record.kind.clone();
             kinds.entry(kind).or_default().push(record);
         }
-        Self(Arc::new(Inner { packs, kinds }))
+        let set_hash = set_hash(&identities);
+        Self(Arc::new(Inner {
+            packs,
+            identities,
+            set_hash,
+            kinds,
+        }))
     }
 
     /// The packs in the order they were loaded: dependencies before their dependents.
     pub fn load_order(&self) -> &[PackId] {
         &self.0.packs
+    }
+
+    /// Each pack's ID, version and content hash, in load order.
+    pub fn pack_identities(&self) -> &[PackIdentity] {
+        &self.0.identities
+    }
+
+    /// A hash of the whole pack set: every pack's identity, in load order.
+    pub fn set_hash(&self) -> ContentHash {
+        self.0.set_hash
     }
 
     /// The `T` with this `DefId`.
