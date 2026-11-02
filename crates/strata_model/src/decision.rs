@@ -61,6 +61,8 @@ pub struct PendingDecision {
     pub decision: Decision,
     /// Who must answer.
     pub chooser: PlayerId,
+    /// Who submitted the command.
+    pub player: PlayerId,
     /// The command being resolved.
     pub command: Command,
     /// Answers given so far, in order.
