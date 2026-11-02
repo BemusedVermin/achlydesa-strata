@@ -8,11 +8,13 @@ mod discover;
 mod error;
 mod manifest;
 mod resolve;
+mod stages;
 
 pub use discover::discover_packs;
 pub use error::PackError;
 pub use manifest::{LoadedPack, PackManifest, Visibility, load_manifest};
 pub use resolve::resolve_load_order;
+pub use stages::run_data_stages;
 
 /// The engine version that pack `engine` ranges are checked against.
 pub const ENGINE_VERSION: &str = "0.1.0";

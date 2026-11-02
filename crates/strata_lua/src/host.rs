@@ -154,10 +154,20 @@ impl LuaHost {
             _ if self.tripped.get() => HostError::Budget,
             Some(Value::UserData(ud)) if ud.is::<Halt>() => HostError::Halt,
             Some(Value::String(text)) => HostError::Script(text.to_string_lossy()),
+            Some(Value::Error(error)) => HostError::Script(plain(&error)),
             other => HostError::Script(format!(
                 "error value of type {}",
                 other.as_ref().map_or("nil", Value::type_name)
             )),
         })
+    }
+}
+
+/// The message of an error raised by a Rust callback, without mlua's wrapper text.
+fn plain(error: &Error) -> String {
+    match error {
+        Error::RuntimeError(message) => message.clone(),
+        Error::CallbackError { cause, .. } => plain(cause),
+        other => other.to_string(),
     }
 }

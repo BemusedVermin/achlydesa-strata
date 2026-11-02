@@ -5,9 +5,11 @@
 #![warn(missing_docs)]
 
 mod convert;
+mod data;
 mod error;
 mod host;
 
 pub use convert::{lua_to_value, value_to_lua};
-pub use error::{ConvertError, HostError};
+pub use data::{DataStage, PackSource, Record, Source};
+pub use error::{ConvertError, DataError, HostError};
 pub use host::{Halt, Limits, LuaHost};

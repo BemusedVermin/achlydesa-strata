@@ -11,3 +11,6 @@ strata_rules = { path = "../strata_rules" }
 strata_kernel = { path = "../strata_kernel" }
 mlua = { version = "0.11", features = ["lua54", "vendored", "serde"] }
 thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
