@@ -1,10 +1,14 @@
 //! The `strata` command line.
 
 use std::fs;
+use std::io::IsTerminal;
 use std::path::PathBuf;
+use std::process::ExitCode;
 
-use clap::{Parser, Subcommand};
-use miette::{IntoDiagnostic, Result, WrapErr};
+use clap::{Args, Parser, Subcommand};
+use miette::{IntoDiagnostic, MietteHandlerOpts, Result, WrapErr};
+
+mod validate;
 
 /// Tools for Strata pack authors.
 #[derive(Parser)]
@@ -16,18 +20,87 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
+    /// Work with packs.
+    #[command(subcommand)]
+    Pack(PackCommand),
     /// Write LuaLS type stubs for editor autocomplete.
     Stubs {
         /// Directory to write the stub files into.
         #[arg(long)]
         out: PathBuf,
     },
+    /// Lint a pack (not yet implemented).
+    Lint(Unimplemented),
+    /// Report pack statistics (not yet implemented).
+    Stats(Unimplemented),
+    /// Run AI self-play for balance (not yet implemented).
+    Sim(Unimplemented),
+    /// Verify, dump or convert replays (not yet implemented).
+    Replay(Unimplemented),
 }
 
-fn main() -> Result<()> {
-    match Cli::parse().command {
-        Command::Stubs { out } => write_stubs(&out),
+#[derive(Subcommand)]
+enum PackCommand {
+    /// Load the pack set and print every error with its file and line.
+    Validate {
+        /// Directories whose subdirectories are packs.
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+    },
+    /// Run a pack's Lua tests (not yet implemented).
+    Test(Unimplemented),
+}
+
+/// Arguments of a subcommand that does not exist yet.
+#[derive(Args)]
+struct Unimplemented {
+    #[arg(trailing_var_arg = true, allow_hyphen_values = true, hide = true)]
+    _args: Vec<String>,
+}
+
+fn main() -> ExitCode {
+    let cli = Cli::parse();
+    if install_report_handler().is_err() {
+        eprintln!("warning: could not configure error output");
     }
+    match cli.command {
+        Command::Pack(PackCommand::Validate { paths }) => validate::run(&paths),
+        Command::Pack(PackCommand::Test(_)) => unimplemented_command("pack test"),
+        Command::Stubs { out } => finish(write_stubs(&out)),
+        Command::Lint(_) => unimplemented_command("lint"),
+        Command::Stats(_) => unimplemented_command("stats"),
+        Command::Sim(_) => unimplemented_command("sim"),
+        Command::Replay(_) => unimplemented_command("replay"),
+    }
+}
+
+fn finish(result: Result<()>) -> ExitCode {
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(report) => {
+            eprintln!("{report:?}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+fn unimplemented_command(name: &str) -> ExitCode {
+    eprintln!("error: `strata {name}` is not implemented yet");
+    ExitCode::from(1)
+}
+
+/// Piped output is plain ASCII at a fixed width, so it is stable in logs and snapshots.
+fn install_report_handler() -> std::result::Result<(), miette::InstallError> {
+    let tty = std::io::stderr().is_terminal();
+    miette::set_hook(Box::new(move |_| {
+        let opts = MietteHandlerOpts::new().terminal_links(false);
+        let opts = if tty {
+            opts
+        } else {
+            opts.unicode(false).width(100)
+        };
+        Box::new(opts.build())
+    }))
 }
 
 fn write_stubs(out: &PathBuf) -> Result<()> {

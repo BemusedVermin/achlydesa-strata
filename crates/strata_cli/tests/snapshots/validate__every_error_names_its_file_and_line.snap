@@ -1,0 +1,31 @@
+---
+source: crates/strata_cli/tests/validate.rs
+expression: err
+---
+  x unknown terrain `moss`
+   ,-[bad/game/data.lua:2:1]
+ 1 | tile { id = 'meadow', name = 'Meadow', terrain = 'grass', thickness = 1, shape = {{ q = 0, r = 0 }} }
+ 2 | tile { id = 'cliff', name = 'Cliff', terrain = 'moss', thickness = 2, shape = {{ q = 0, r = 0 }} }
+   : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   :                                                  `-- at `terrain`
+ 3 | tile { id = 'pit', name = 'Pit', terrain = 'base:lava', thickness = 1, shape = {{ q = 0, r = 0 }} }
+   `----
+
+  x invalid type: string "two", expected u8
+   ,-[bad/game/data.lua:4:1]
+ 3 | tile { id = 'pit', name = 'Pit', terrain = 'base:lava', thickness = 1, shape = {{ q = 0, r = 0 }} }
+ 4 | tile { id = 'flat', name = 'Flat', terrain = 'grass', thickness = 'two', shape = {{ q = 0, r = 0 }} }
+   : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   :                                                   `-- at `thickness`
+   `----
+
+  x unknown terrain `base:lava`
+   ,-[bad/game/data.lua:3:1]
+ 2 | tile { id = 'cliff', name = 'Cliff', terrain = 'moss', thickness = 2, shape = {{ q = 0, r = 0 }} }
+ 3 | tile { id = 'pit', name = 'Pit', terrain = 'base:lava', thickness = 1, shape = {{ q = 0, r = 0 }} }
+   : ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^|^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   :                                                  `-- at `terrain`
+ 4 | tile { id = 'flat', name = 'Flat', terrain = 'grass', thickness = 'two', shape = {{ q = 0, r = 0 }} }
+   `----
+
+error: 3 load error(s)

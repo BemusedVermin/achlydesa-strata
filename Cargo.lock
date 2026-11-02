@@ -945,6 +945,7 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "clap",
+ "insta",
  "miette",
  "strata_ai",
  "strata_content",
