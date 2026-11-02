@@ -12,14 +12,44 @@ use strata_kernel::PackId;
 
 use crate::error::{DataError, HostError};
 use crate::host::{Limits, LuaHost};
-use registry::{Registry, Shared};
+use registry::{Registry, Shared, chunk_name};
 
 const PRELUDE: &str = include_str!("data.lua");
-const STAGES: [(&str, &str); 3] = [
-    ("data", "data.lua"),
-    ("data_updates", "data_updates.lua"),
-    ("data_final", "data_final.lua"),
-];
+/// The chunk name of the prelude that adds `data.each`.
+const PRELUDE_CHUNK: &str = "=data_prelude";
+
+/// One pass over every pack's scripts (design §4.3).
+#[derive(Clone, Copy)]
+enum Stage {
+    Data,
+    Updates,
+    Final,
+}
+
+impl Stage {
+    const ALL: [Self; 3] = [Self::Data, Self::Updates, Self::Final];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Data => "data",
+            Self::Updates => "data_updates",
+            Self::Final => "data_final",
+        }
+    }
+
+    fn file(self) -> &'static str {
+        match self {
+            Self::Data => "data.lua",
+            Self::Updates => "data_updates.lua",
+            Self::Final => "data_final.lua",
+        }
+    }
+
+    /// Only the first stage must exist in every pack.
+    fn required(self) -> bool {
+        matches!(self, Self::Data)
+    }
+}
 
 /// A pack as the data stage sees it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -65,20 +95,26 @@ impl DataStage {
     /// Runs `data.lua`, then `data_updates.lua`, then `data_final.lua` for every pack, with
     /// `packs` already in load order. The first stage is required; the others are optional.
     pub fn run(packs: &[PackSource]) -> Result<Self, DataError> {
-        let host = LuaHost::new(Limits::default())?;
+        Self::run_with(packs, Limits::default())
+    }
+
+    /// Like [`DataStage::run`], with explicit limits for the loader state.
+    /// The instruction budget applies to each stage file separately.
+    pub fn run_with(packs: &[PackSource], limits: Limits) -> Result<Self, DataError> {
+        let host = LuaHost::new(limits)?;
         let registry: Shared = Rc::new(RefCell::new(Registry::new(packs)));
         let data = registry::install(host.lua(), &registry)?;
         require::install(host.lua(), &registry)?;
-        let prelude = host.lua().load(PRELUDE).set_name("=data_prelude");
+        let prelude = host.lua().load(PRELUDE).set_name(PRELUDE_CHUNK);
         prelude.call::<()>((data.clone(), host.lua().globals()))?;
         for pack in packs {
             let env = host.new_env()?;
             let key = require::env_key(pack.id.as_str());
             host.lua().set_named_registry_value(&key, env)?;
         }
-        for (stage, file) in STAGES {
+        for stage in Stage::ALL {
             for pack in packs {
-                run_file(&host, pack, stage, file)?;
+                run_file(&host, pack, stage)?;
             }
         }
         Ok(Self {
@@ -113,15 +149,11 @@ impl DataStage {
     }
 }
 
-fn run_file(
-    host: &LuaHost,
-    pack: &PackSource,
-    stage: &'static str,
-    file: &str,
-) -> Result<(), DataError> {
+fn run_file(host: &LuaHost, pack: &PackSource, stage: Stage) -> Result<(), DataError> {
+    let file = stage.file();
     let path = pack.root.join(file);
     if !path.is_file() {
-        if stage != "data" {
+        if !stage.required() {
             return Ok(());
         }
         return Err(DataError::MissingEntry {
@@ -136,13 +168,13 @@ fn run_file(
     let env: Table = host
         .lua()
         .named_registry_value(&require::env_key(pack.id.as_str()))?;
-    let chunk = host.load(&env, &format!("{}/{file}", pack.id), &source)?;
+    let chunk = host.load(&env, &chunk_name(pack.id.as_str(), file), &source)?;
     host.call(&chunk, ())
         .map(drop)
         .map_err(|error| match error {
             HostError::Script(message) => DataError::Script {
                 pack: pack.id.clone(),
-                stage,
+                stage: stage.name(),
                 message,
             },
             other => DataError::Host(other),

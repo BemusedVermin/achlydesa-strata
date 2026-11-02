@@ -34,6 +34,26 @@ pub(crate) const KINDS: [&str; 20] = [
     "test",
 ];
 
+/// The global holding every record, keyed by kind and full ID.
+pub(crate) const DATA_GLOBAL: &str = "data";
+/// Separates the pack from the name in a full ID, and from the module in a `require`.
+pub(crate) const PACK_SEPARATOR: char = ':';
+/// Separates the pack from the file in a chunk name such as `pack/lib/util.lua`.
+pub(crate) const CHUNK_SEPARATOR: char = '/';
+/// The string fields every constructor requires.
+const ID_FIELD: &str = "id";
+const NAME_FIELD: &str = "name";
+
+/// The chunk name a pack file is loaded under; `caller` reads the pack back from it.
+pub(crate) fn chunk_name(pack: &str, relative: &str) -> String {
+    format!("{pack}{CHUNK_SEPARATOR}{relative}")
+}
+
+/// The full ID of `name` in `pack`.
+fn full_id(pack: &str, name: &str) -> String {
+    format!("{pack}{PACK_SEPARATOR}{name}")
+}
+
 /// What the loader knows about one pack.
 pub(crate) struct PackInfo {
     pub root: PathBuf,
@@ -68,12 +88,12 @@ impl Registry {
     /// The current pack's own definition wins; otherwise exactly one dependency must define it.
     fn resolve(&self, kind: &str, pack: &PackId, bare: &str) -> Result<Option<String>> {
         let defined = |id: &String| self.sources.contains_key(&(kind.to_owned(), id.clone()));
-        let own = format!("{pack}:{bare}");
+        let own = full_id(pack.as_str(), bare);
         if defined(&own) {
             return Ok(Some(own));
         }
         let deps = self.packs.get(pack).map_or(&[][..], |p| &p.dependencies);
-        let mut found: Vec<String> = deps.iter().map(|d| format!("{d}:{bare}")).collect();
+        let mut found: Vec<String> = deps.iter().map(|d| full_id(d.as_str(), bare)).collect();
         found.retain(defined);
         match found.len() {
             0 | 1 => Ok(found.pop()),
@@ -97,7 +117,7 @@ pub(crate) fn caller(lua: &Lua) -> Result<(PackId, String, u32)> {
         })
         .and_then(|(chunk, line)| Some((chunk?, line.unwrap_or(0))))
         .ok_or_else(|| mlua::Error::runtime("must be called from a pack script"))?;
-    let pack = chunk.split('/').next().unwrap_or_default();
+    let pack = chunk.split(CHUNK_SEPARATOR).next().unwrap_or_default();
     Ok((PackId::new(pack), chunk, line as u32))
 }
 
@@ -115,7 +135,7 @@ pub(crate) fn install(lua: &Lua, shared: &Shared) -> Result<Table> {
                     return Ok(Value::Nil);
                 };
                 let key = key.to_str()?;
-                if key.contains(':') {
+                if key.contains(PACK_SEPARATOR) {
                     return Ok(Value::Nil);
                 }
                 let (pack, ..) = caller(lua)?;
@@ -130,7 +150,7 @@ pub(crate) fn install(lua: &Lua, shared: &Shared) -> Result<Table> {
         lua.globals()
             .set(kind, constructor(lua, shared.clone(), kind, records)?)?;
     }
-    lua.globals().set("data", data.clone())?;
+    lua.globals().set(DATA_GLOBAL, data.clone())?;
     Ok(data)
 }
 
@@ -142,12 +162,16 @@ fn constructor(lua: &Lua, shared: Shared, kind: &'static str, records: Table) ->
             Ok(Value::String(s)) => Ok(s.to_str()?.to_owned()),
             _ => Err(fail(format!("needs a string `{field}`"))),
         };
-        let id = text("id")?;
-        text("name")?;
-        let full = match id.split_once(':') {
-            None if !id.is_empty() => format!("{pack}:{id}"),
+        let id = text(ID_FIELD)?;
+        text(NAME_FIELD)?;
+        let full = match id.split_once(PACK_SEPARATOR) {
+            None if !id.is_empty() => full_id(pack.as_str(), &id),
             Some((owner, name)) if owner == pack.as_str() && !name.is_empty() => id.clone(),
-            _ => return Err(fail(format!("`{id}` must be a bare name or `{pack}:name`"))),
+            _ => {
+                return Err(fail(format!(
+                    "`{id}` must be a bare name or `{pack}{PACK_SEPARATOR}name`"
+                )));
+            }
         };
         let mut registry = shared.borrow_mut();
         let key = (kind.to_owned(), full.clone());

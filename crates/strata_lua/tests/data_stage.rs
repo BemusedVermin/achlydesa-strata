@@ -1,6 +1,6 @@
 use mlua::Table;
 use strata_kernel::PackId;
-use strata_lua::{DataError, DataStage, PackSource};
+use strata_lua::{DataError, DataStage, HostError, Limits, PackSource};
 
 type Files<'a> = &'a [(&'a str, &'a str)];
 type Pack<'a> = (&'a str, &'a [&'a str], Files<'a>);
@@ -338,4 +338,40 @@ fn data_stage_is_deterministic() {
         )],
     )];
     assert_eq!(run(packs).unwrap().records(), run(packs).unwrap().records());
+}
+
+#[test]
+fn require_freezes_nested_tables_and_survives_cycles() {
+    let util = "
+        local m = { inner = { list = { 1, 2 } }, run = function() return 1 end }
+        m.self = m
+        m.inner.up = m
+        return m";
+    let main = "
+        local m = require('util')
+        assert(not pcall(function() m.inner.x = 1 end), 'inner frozen')
+        assert(not pcall(function() m.inner.list[1] = 9 end), 'deep frozen')
+        assert(m.self.inner.list[2] == 2 and m.run() == 1)
+        unit { id = 'u', name = 'U' }";
+    run(&[("a", &[], &[("data.lua", main), ("util.lua", util)])]).unwrap();
+}
+
+#[test]
+fn run_with_applies_the_instruction_budget_to_each_stage_file() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("data.lua"), "while true do end").unwrap();
+    let pack = PackSource {
+        id: PackId::new("a"),
+        root: dir.path().to_owned(),
+        dependencies: Vec::new(),
+    };
+    let limits = Limits {
+        instructions: 10_000,
+        ..Limits::default()
+    };
+    let error = DataStage::run_with(&[pack], limits).err().unwrap();
+    assert!(
+        matches!(error, DataError::Host(HostError::Budget)),
+        "{error}"
+    );
 }
