@@ -86,7 +86,7 @@ impl From<mlua::Error> for DataError {
 /// A record that could not be frozen into its typed definition.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LoadError {
-    /// The script that made the record, as `pack/relative/path.lua`.
+    /// The script that made the record, as `pack/relative/path.lua`; empty if no script is to blame.
     pub file: String,
     /// The line of the constructor call; fields are not tracked individually.
     pub line: u32,
@@ -98,7 +98,9 @@ pub struct LoadError {
 
 impl std::fmt::Display for LoadError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}: ", self.file, self.line)?;
+        if !self.file.is_empty() {
+            write!(f, "{}:{}: ", self.file, self.line)?;
+        }
         if !self.field_path.is_empty() {
             write!(f, "{}: ", self.field_path)?;
         }

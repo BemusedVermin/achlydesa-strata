@@ -9,13 +9,14 @@ pub(super) enum Site {
     Key,
 }
 
-/// Reference fields by kind. A route is `/`-separated and `*` stands for any list index or map key.
-const REFERENCES: &[(&str, &str, Site)] = &[
-    ("unit", "faction", Site::Value),
-    ("unit", "stats/*", Site::Key),
-    ("unit", "figures/*/footprint", Site::Value),
-    ("terrain", "abilities/*", Site::Value),
-    ("tile", "terrain", Site::Value),
+/// Reference fields: the record kind, the route, where the reference sits and the kind it must
+/// name. A route is `/`-separated and `*` stands for any list index or map key.
+const REFERENCES: &[(&str, &str, Site, &str)] = &[
+    ("unit", "faction", Site::Value, "faction"),
+    ("unit", "stats/*", Site::Key, "stat"),
+    ("unit", "figures/*/footprint", Site::Value, "footprint"),
+    ("terrain", "abilities/*", Site::Value, "ability"),
+    ("tile", "terrain", Site::Value, "terrain"),
 ];
 
 /// Fields typed as a bare `ScriptRef`. A function anywhere else is a `Logic::Script`.
@@ -43,12 +44,12 @@ fn matches(pattern: &str, route: &[String]) -> bool {
     same && segments.next().is_none()
 }
 
-/// The site of the reference at `route` in a `kind` record, if any.
-pub(super) fn reference(kind: &str, route: &[String]) -> Option<Site> {
+/// The site and target kind of the reference at `route` in a `kind` record, if any.
+pub(super) fn reference(kind: &str, route: &[String]) -> Option<(Site, &'static str)> {
     REFERENCES
         .iter()
-        .find(|(k, pattern, _)| *k == kind && matches(pattern, route))
-        .map(|(.., site)| *site)
+        .find(|(k, pattern, ..)| *k == kind && matches(pattern, route))
+        .map(|(_, _, site, target)| (*site, *target))
 }
 
 /// Whether a function at `route` is a bare `ScriptRef`.
