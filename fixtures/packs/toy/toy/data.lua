@@ -42,9 +42,7 @@ rule_module {
     r.trigger {
       event = 'attack_declared',
       effect = function(ctx, event)
-        -- Events reach scripts in their serialized shape, so a payload is `{ Map = { k = { Int = n } } }`.
-        local fields = event.Custom.payload.Map
-        local attack = { attack = fields.attack.Int, defense = fields.defense.Int, target = fields.target.Int }
+        local attack = event.Custom.payload
         local hits = ctx.dice.roll('combat', attack.attack):count('hit')
         local blocks = ctx.dice.roll('combat', attack.defense):count('block')
         local tally = ctx.vars('toy:combat')

@@ -115,8 +115,27 @@ impl LuaRules {
     }
 }
 
+/// Hands scripts the event as `{ Variant = { ... } }`, except that the free-form `Value` an event
+/// carries (a custom payload, a variable's value) is a plain Lua value.
+fn event_to_lua(lua: &Lua, event: &Event) -> mlua::Result<LuaValue> {
+    let tagged = lua.to_value(event)?;
+    let plain = match event {
+        Event::Custom { payload, .. } => Some(("Custom", "payload", payload)),
+        Event::VarSet { value, .. } => Some(("VarSet", "value", value)),
+        _ => None,
+    };
+    if let (Some((variant, field, value)), LuaValue::Table(outer)) = (plain, &tagged) {
+        let inner: mlua::Table = outer.get(variant)?;
+        inner.set(
+            field,
+            value_to_lua(lua, value).map_err(mlua::Error::external)?,
+        )?;
+    }
+    Ok(tagged)
+}
+
 fn with_event(event: &Event) -> impl Fn(&Lua) -> mlua::Result<Vec<LuaValue>> + '_ {
-    move |lua| Ok(vec![lua.to_value(event)?])
+    move |lua| Ok(vec![event_to_lua(lua, event)?])
 }
 
 impl ActionRunner for LuaRules {
