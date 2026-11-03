@@ -1,6 +1,6 @@
 //! Running the `test {}` records of a pack set against a ruleset (design §16.4).
 
-mod host;
+pub(crate) mod host;
 mod report;
 mod run;
 mod state;
@@ -22,9 +22,9 @@ pub struct PackTestError(pub String);
 
 /// A loaded pack set whose tests can be run.
 pub struct PackTests {
-    registry: ContentRegistry,
-    packs: Vec<PackSource>,
-    catalog: ModuleCatalog,
+    pub(crate) registry: ContentRegistry,
+    pub(crate) packs: Vec<PackSource>,
+    pub(crate) catalog: ModuleCatalog,
 }
 
 impl PackTests {

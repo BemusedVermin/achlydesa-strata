@@ -1,0 +1,166 @@
+//! Saves and replays: the same file (design §12.6, §15.4).
+
+use serde::{Deserialize, Serialize};
+use strata_content::ContentRegistry;
+use strata_model::{Answer, Command, GameState, MatchSetup, PlayerId};
+use strata_rules::{CommandRecord, Engine, Outcome};
+
+use crate::setup::pack_identities;
+
+/// Commands between snapshots.
+pub const SNAPSHOT_EVERY: u32 = 20;
+
+/// One committed command with the hash the state had afterwards.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReplayRecord {
+    /// Who submitted it.
+    pub player: PlayerId,
+    /// What was submitted.
+    pub command: Command,
+    /// The answers it finished with.
+    pub answers: Vec<Answer>,
+    /// The state hash after the command.
+    pub state_hash: u64,
+}
+
+/// The state after `command_index` commands, kept for fast seeking.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Snapshot {
+    /// How many commands had been committed.
+    pub command_index: u32,
+    /// The state at that point.
+    pub state: GameState,
+}
+
+/// Everything needed to play a match again. The setup carries the pack identities.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Replay {
+    /// The engine version that recorded it.
+    pub engine_version: String,
+    /// The inputs fixed before the first command.
+    pub setup: MatchSetup,
+    /// The command log, oldest first.
+    pub commands: Vec<ReplayRecord>,
+    /// Snapshots, every [`SNAPSHOT_EVERY`] commands.
+    pub snapshots: Vec<Snapshot>,
+}
+
+/// A replay could not be saved, loaded or reproduced.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum ReplayError {
+    /// The bytes are not a replay.
+    #[error("not a replay: {0}")]
+    Format(String),
+    /// It was recorded by another engine version.
+    #[error("recorded by engine {recorded}, this is {current}")]
+    Version {
+        /// The recording version.
+        recorded: String,
+        /// This engine's version.
+        current: String,
+    },
+    /// The loaded packs are not the ones it was recorded with.
+    #[error("the loaded packs differ from the recorded ones")]
+    Packs,
+    /// The engine does not start from this replay's setup.
+    #[error("the engine does not start from the replay's setup")]
+    WrongStart,
+    /// A command did not commit as recorded.
+    #[error("command {index} did not commit as recorded")]
+    Diverged {
+        /// Its position in the log.
+        index: usize,
+    },
+    /// A state hash differs from the recorded one.
+    #[error("state hash after command {index} is {got:#x}, recorded {expected:#x}")]
+    HashMismatch {
+        /// Its position in the log.
+        index: usize,
+        /// The recorded hash.
+        expected: u64,
+        /// The replayed hash.
+        got: u64,
+    },
+    /// A snapshot is not the state its command produced.
+    #[error("snapshot at command {index} does not match the replayed state")]
+    SnapshotMismatch {
+        /// How many commands had been committed.
+        index: u32,
+    },
+}
+
+impl Replay {
+    /// A replay of `log` recorded by this engine version.
+    pub fn new(setup: MatchSetup, log: &[CommandRecord], snapshots: Vec<Snapshot>) -> Self {
+        let record = |r: &CommandRecord| ReplayRecord {
+            player: r.player,
+            command: r.command.clone(),
+            answers: r.answers.clone(),
+            state_hash: r.state_hash,
+        };
+        Self {
+            engine_version: env!("CARGO_PKG_VERSION").into(),
+            setup,
+            commands: log.iter().map(record).collect(),
+            snapshots,
+        }
+    }
+
+    /// The compact machine form.
+    pub fn save(&self) -> Result<Vec<u8>, ReplayError> {
+        postcard::to_allocvec(self).map_err(|e| ReplayError::Format(e.to_string()))
+    }
+
+    /// Reads a replay saved by [`Replay::save`].
+    pub fn load(bytes: &[u8]) -> Result<Self, ReplayError> {
+        postcard::from_bytes(bytes).map_err(|e| ReplayError::Format(e.to_string()))
+    }
+
+    /// Checks the engine version and that `registry` holds exactly the recorded packs.
+    pub fn verify(&self, registry: &ContentRegistry) -> Result<(), ReplayError> {
+        let current = env!("CARGO_PKG_VERSION");
+        if self.engine_version != current {
+            return Err(ReplayError::Version {
+                recorded: self.engine_version.clone(),
+                current: current.into(),
+            });
+        }
+        if pack_identities(registry) != self.setup.packs {
+            return Err(ReplayError::Packs);
+        }
+        Ok(())
+    }
+
+    /// Plays the log through `engine`, which must stand at the start of this setup, and checks
+    /// every state hash, including each snapshot's.
+    pub fn play(&self, engine: &mut Engine<'_>) -> Result<(), ReplayError> {
+        let start = engine.state();
+        if start.command_index != 0 || *start.setup != self.setup {
+            return Err(ReplayError::WrongStart);
+        }
+        for (index, record) in self.commands.iter().enumerate() {
+            let mut outcome = engine.submit(record.player, record.command.clone());
+            for answer in &record.answers {
+                outcome = engine.answer(answer.clone());
+            }
+            if !matches!(outcome, Outcome::Committed(_)) {
+                return Err(ReplayError::Diverged { index });
+            }
+            let got = engine.state().hash();
+            if got != record.state_hash {
+                let expected = record.state_hash;
+                return Err(ReplayError::HashMismatch {
+                    index,
+                    expected,
+                    got,
+                });
+            }
+            let done = index as u32 + 1;
+            let mut taken = self.snapshots.iter().filter(|s| s.command_index == done);
+            if taken.any(|s| s.state.hash() != got) {
+                return Err(ReplayError::SnapshotMismatch { index: done });
+            }
+        }
+        Ok(())
+    }
+}

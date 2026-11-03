@@ -16,7 +16,20 @@ for q = 0, 9 do
     pieces[#pieces + 1] = { piece = piece, at = { q = q, r = r }, rot = 0, level = 0 }
   end
 end
-map { id = 'flat', name = 'Flat', orientation = 'pointy', pieces = pieces }
+map {
+  id = 'flat', name = 'Flat', orientation = 'pointy', pieces = pieces,
+  zones = { west = {{ q = 0, r = 0 }}, east = {{ q = 9, r = 9 }} },
+  relic_spots = { centre = { q = 5, r = 5 } },
+}
+relic { id = 'idol', name = 'Idol', mode = 'while_occupied', claim = 'ends_move_on' }
+scenario {
+  id = 'duel', name = 'Duel', map = 'flat', players = { min = 2, max = 2 },
+  slots = {
+    { id = 'a', start = 'west', deploy_order = 1 },
+    { id = 'b', start = 'east', deploy_order = 2 },
+  },
+  relics = {{ relic = 'idol', spot = 'centre' }},
+}
 
 local function figure(id)
   return {
