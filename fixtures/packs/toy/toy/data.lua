@@ -99,4 +99,12 @@ for _, ruleset in ipairs { 'toy_rust', 'toy_lua' } do
     ruleset = ruleset, map = 'flat', place = versus(),
     steps = { attack(0, 1), attack(0, 1), expect.event('var_set') },
   }
+  test {
+    id = 'rigged_' .. ruleset, name = ruleset .. ': rigged dice decide the wounds',
+    ruleset = ruleset, map = 'flat', place = versus(),
+    steps = {
+      act.command(0, 'attack', { attacker = 0, target = 1 }, { rig = {{ 'hit', 'hit', 'hit' }, { 'block' }} }),
+      expect.event('var_set'),
+    },
+  }
 end

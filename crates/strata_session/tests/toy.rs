@@ -25,11 +25,12 @@ fn report<'a>(reports: &'a [TestReport], ruleset: &str, what: &str) -> &'a TestR
 }
 
 /// What each test checks, which both rulesets run.
-const TESTS: [&str; 4] = [
+const TESTS: [&str; 5] = [
     "units carry their stats",
     "the soldier attacks with its attack stat",
     "the archer attacks with its attack stat",
     "wounds accumulate over two attacks",
+    "rigged dice decide the wounds",
 ];
 
 #[test]
@@ -86,4 +87,35 @@ fn running_the_toy_pack_twice_gives_identical_events_and_hashes() {
     assert_eq!(first, second);
     let hashes = &report(&first, "toy_rust", TESTS[3]).outcome;
     assert_eq!(hashes.as_ref().unwrap().len(), 2);
+}
+
+#[test]
+fn rigged_dice_decide_the_wounds_in_both_rulesets() {
+    let reports = run();
+    let what = "rigged dice decide the wounds";
+    let (rust, lua) = (
+        report(&reports, "toy_rust", what),
+        report(&reports, "toy_lua", what),
+    );
+    assert!(
+        rust.outcome.is_ok() && lua.outcome.is_ok(),
+        "{}",
+        summary(&reports)
+    );
+    assert_eq!(rust.events, lua.events);
+    // Three hits against one block: the faces were forced, not drawn.
+    let rolls: Vec<&Vec<u32>> = rust
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            Event::DiceRolled { results, .. } => Some(results),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(rolls, [&vec![1, 1, 1], &vec![4]]);
+    let tally = rust.events.iter().find_map(|e| match e {
+        Event::VarSet { value, .. } => value.as_int().ok(),
+        _ => None,
+    });
+    assert_eq!(tally, Some(2));
 }
