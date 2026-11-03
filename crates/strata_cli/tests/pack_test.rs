@@ -49,7 +49,7 @@ fn the_toy_pack_passes_for_both_combat_implementations() {
         .assert()
         .success();
     let stdout = text(&out.get_output().stdout);
-    assert!(stdout.contains("8 passed, 0 failed"), "{stdout}");
+    assert!(stdout.contains("10 passed, 0 failed"), "{stdout}");
     assert!(
         stdout.contains("toy_rust") && stdout.contains("toy_lua"),
         "{stdout}"

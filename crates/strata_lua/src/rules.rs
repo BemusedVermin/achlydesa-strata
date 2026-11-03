@@ -190,6 +190,10 @@ impl NativeEnv for LuaRules {
     fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
         self.host.die(name)
     }
+
+    fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
+        self.host.forced_roll(die, count)
+    }
 }
 
 impl HookRunner for LuaRules {

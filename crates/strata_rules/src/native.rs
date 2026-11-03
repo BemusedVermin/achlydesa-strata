@@ -26,6 +26,11 @@ pub trait NativeEnv: Send + Sync {
     fn stat(&self, state: &GameState, figure: FigureId, stat: &str) -> Result<i64, LogicError>;
     /// The definition ID and faces of the die called `name`.
     fn die(&self, name: &str) -> Option<(DefId, DieKind)>;
+    /// Results that replace the next roll of `count` dice named `die`, for tests that rig the
+    /// dice, as in the script host. `None` leaves the roll to the command's random stream.
+    fn forced_roll(&self, _die: &str, _count: usize) -> Option<Result<Vec<u32>, String>> {
+        None
+    }
 }
 
 /// The environment of a runner that has no content: every question fails.
@@ -65,9 +70,9 @@ pub fn roll_pool(ctx: &mut dyn Ctx, env: &dyn NativeEnv, name: &str, n: i64) -> 
         .ok_or_else(|| Halt::reject(format!("unknown die `{name}`")))?;
     let count = usize::try_from(n).ok().filter(|_| n <= MAX_POOL);
     let count = count.ok_or_else(|| Halt::reject("dice count must be 0..=1024"))?;
-    let mut results = Vec::with_capacity(count);
+    let mut drawn = Vec::with_capacity(count);
     for _ in 0..count {
-        results.push(match &kind {
+        drawn.push(match &kind {
             DieKind::Faces(faces) => ctx.rng().roll(faces.len().max(1) as u32),
             DieKind::Range(low, high) => {
                 let span = (i64::from(*high) - i64::from(*low) + 1).max(1) as u32;
@@ -75,6 +80,11 @@ pub fn roll_pool(ctx: &mut dyn Ctx, env: &dyn NativeEnv, name: &str, n: i64) -> 
             }
         });
     }
+    // The stream is always drawn from, so a rigged roll leaves later rolls where they were.
+    let results = match env.forced_roll(name, drawn.len()) {
+        Some(forced) => forced.map_err(Halt::reject)?,
+        None => drawn,
+    };
     let faces = match &kind {
         DieKind::Faces(faces) => results
             .iter()

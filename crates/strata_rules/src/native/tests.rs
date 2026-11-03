@@ -301,3 +301,42 @@ fn the_environment_answers_stat_queries_and_a_missing_one_fails() {
     assert!(Fixed.stat(&state, FigureId(0), "move").is_err());
     assert!(NoEnv.stat(&state, FigureId(0), "life").is_err());
 }
+
+/// `Fixed`, with the next roll forced to `forced`.
+struct Rigged(Result<Vec<u32>, String>);
+
+impl NativeEnv for Rigged {
+    fn stat(&self, state: &GameState, figure: FigureId, stat: &str) -> Result<i64, LogicError> {
+        Fixed.stat(state, figure, stat)
+    }
+
+    fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
+        Fixed.die(name)
+    }
+
+    fn forced_roll(&self, _: &str, _: usize) -> Option<Result<Vec<u32>, String>> {
+        Some(self.0.clone())
+    }
+}
+
+#[test]
+fn a_forced_roll_replaces_the_results_but_not_the_stream() {
+    let mut rigged = Bench::new();
+    let roll = roll_pool(&mut rigged, &Rigged(Ok(vec![3, 3])), "d", 2).unwrap();
+    assert_eq!((roll.results.clone(), roll.count("b")), (vec![3, 3], 2));
+    assert!(
+        matches!(&rigged.events[..], [Event::DiceRolled { results, .. }] if *results == [3, 3])
+    );
+    let mut plain = Bench::new();
+    roll_pool(&mut plain, &Fixed, "d", 2).unwrap();
+    // Both streams advanced by two draws, so the next roll agrees.
+    let after = |bench: &mut Bench| roll_pool(bench, &Fixed, "d", 5).unwrap();
+    assert_eq!(after(&mut rigged), after(&mut plain));
+}
+
+#[test]
+fn a_bad_forced_roll_is_rejected() {
+    let bad = Rigged(Err("the rig has no faces left".into()));
+    let error = roll_pool(&mut Bench::new(), &bad, "d", 1).unwrap_err();
+    assert!(matches!(error, Halt::Rejected(v) if v.0.contains("no faces left")));
+}
