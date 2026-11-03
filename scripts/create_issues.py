@@ -2,9 +2,9 @@
 """Render tasks/tasks.yaml to markdown and create the GitHub labels, milestones and issues.
 
 Usage:
-  python3 scripts/create_issues.py --render-only                 # write tasks/T-*.md and tasks/README.md
-  python3 scripts/create_issues.py --repo OWNER/REPO --dry-run   # show what would be created
-  python3 scripts/create_issues.py --repo OWNER/REPO             # create everything (idempotent)
+  python scripts/create_issues.py --render-only                 # write tasks/T-*.md and tasks/README.md
+  python scripts/create_issues.py --repo OWNER/REPO --dry-run   # show what would be created
+  python scripts/create_issues.py --repo OWNER/REPO             # create everything (idempotent)
 
 Requires PyYAML (pip install pyyaml) and, except for --render-only, an authenticated
 GitHub CLI (gh auth login). Created issue numbers are stored in tasks/.issue-map.json, so

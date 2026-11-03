@@ -34,8 +34,8 @@ This kit turns the empty repo into one a Sonnet agent can work through issue by 
    ```
    pip install pyyaml
    gh auth login
-   python3 scripts/create_issues.py --repo BemusedVermin/achlydesa-strata --dry-run
-   python3 scripts/create_issues.py --repo BemusedVermin/achlydesa-strata
+   python scripts/create_issues.py --repo BemusedVermin/achlydesa-strata --dry-run
+   python scripts/create_issues.py --repo BemusedVermin/achlydesa-strata
    git add tasks/.issue-map.json && git commit -m "Record issue numbers" && git push
    ```
 
