@@ -35,7 +35,7 @@ ability {
   }},
   replacements = {{
     event = 'var_set',
-    filter = function(ctx, event) return event.VarSet.value.Int == 13 end,
+    filter = function(ctx, event) return event.VarSet.value == 13 end,
     replace = function() return {} end,
   }},
   reactions = {{
@@ -70,6 +70,20 @@ ability {
 ability {
   id = 'loops', name = 'Loops', text = 'Test.', scope = 'unit',
   triggers = {{ event = 'wounds_applied', effect = function() while true do end end }},
+}
+
+ability {
+  id = 'plain', name = 'Plain', text = 'Test.', scope = 'unit',
+  triggers = {{
+    event = 'seen',
+    effect = function(ctx, event)
+      local p = event.Custom.payload
+      ctx.emit('plain', { target = p.target, first = p.list[1], missing = p.nothing == nil })
+    end,
+  }, {
+    event = 'bare',
+    effect = function(ctx, event) ctx.emit('bare', event.Custom.payload == nil) end,
+  }},
 }
 "#;
 
@@ -503,4 +517,30 @@ fn a_halt_from_a_namespace_call_abandons_the_script() {
         .resolve(action, FigureId(0), &Value::Nil, &mut bench);
     assert!(matches!(result, Err(Halt::Rejected(_))), "{result:?}");
     assert!(!customs(&bench.events).contains_key("after"));
+}
+
+#[test]
+fn scripts_see_event_payloads_as_plain_values() {
+    let w = world(&[]);
+    let plain = w.ability("plain");
+    let custom = |id: &str, payload| Event::Custom {
+        id: Sym::new(id),
+        payload,
+    };
+    let seen = custom(
+        "seen",
+        map(&[("target", Value::Int(1)), ("list", ints(&[5, 6]))]),
+    );
+    let mut bench = Bench::new();
+    w.rules.fire(&plain.triggers[0], &seen, &mut bench).unwrap();
+    let expected = map(&[
+        ("target", Value::Int(1)),
+        ("first", Value::Int(5)),
+        ("missing", Value::Bool(true)),
+    ]);
+    assert_eq!(customs(&bench.events)["plain"], expected);
+
+    let bare = custom("bare", Value::Nil);
+    w.rules.fire(&plain.triggers[1], &bare, &mut bench).unwrap();
+    assert_eq!(customs(&bench.events)["bare"], Value::Bool(true));
 }
