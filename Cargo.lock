@@ -1182,6 +1182,7 @@ name = "strata_modules"
 version = "0.1.0"
 dependencies = [
  "proptest",
+ "serde_json",
  "strata_kernel",
  "strata_model",
  "strata_rules",
