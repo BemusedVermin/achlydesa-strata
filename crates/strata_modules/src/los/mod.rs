@@ -67,7 +67,12 @@ impl LineOfSight for Service {
         // The endpoint columns never block: each figure stands in its own.
         let ends: Vec<Hex> = seer.cells.iter().chain(&seen.cells).copied().collect();
         let figures = geometry::figure_columns(world, [from, to]);
-        let blockers = |hex: Hex| figures.get(&hex).map_or_else(|| world.blockers(hex), |v| v);
+        let blockers = |hex: Hex| {
+            figures
+                .get(&hex)
+                .map(Vec::as_slice)
+                .unwrap_or_else(|| world.blockers(hex))
+        };
         let cast = clear_count(origin, &targets, blockers, &ends);
         let (clear, total) = (cast.clear, targets.len());
         let visible = match self.threshold {
