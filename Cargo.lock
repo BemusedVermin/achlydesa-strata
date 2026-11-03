@@ -1166,6 +1166,7 @@ dependencies = [
 name = "strata_modules"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "strata_kernel",
  "strata_model",
  "strata_rules",

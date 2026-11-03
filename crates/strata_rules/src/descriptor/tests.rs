@@ -146,6 +146,10 @@ impl World for TestWorld {
     fn phase(&self) -> Sym {
         Sym::new("turns")
     }
+    /// Everyone sees everyone except figure 3.
+    fn in_los(&self, from: FigureId, to: FigureId) -> Result<bool, LogicError> {
+        Ok(from.0 != 3 && to.0 != 3)
+    }
 }
 
 fn s(text: &str) -> Value {
@@ -651,4 +655,29 @@ fn card_text_for_values() {
     assert_eq!(text(val("sum", &of)), "the sum of 1, 2");
     assert_eq!(text(val("min", &of)), "the lowest of 1, 2");
     assert_eq!(text(val("max", &of)), "the highest of 1, 2");
+}
+
+#[test]
+fn sel_in_los_filter_asks_the_world() {
+    assert_eq!(eval(0, sel("enemies", &[])), ids(&[2, 3]));
+    let seen = [("in_los", s("self"))];
+    assert_eq!(eval(0, sel("enemies", &seen)), ids(&[2]));
+    // Ally 1 is the only seer, and it cannot see figure 3.
+    let by_allies = [("in_los", sel("allies", &[]))];
+    assert_eq!(eval(0, sel("enemies", &by_allies)), ids(&[2]));
+    // A figure is never its own seer.
+    assert_eq!(eval(0, sel("my_units", &seen)), ids(&[1]));
+}
+
+#[test]
+fn sel_in_los_has_a_phrase_and_rejects_bad_selectors() {
+    let seen = sel("enemies", &[("in_los", s("self"))]);
+    assert_eq!(text(seen), "enemy figures in line of sight");
+    let of_allies = sel("enemies", &[("in_los", sel("allies", &[]))]);
+    assert_eq!(
+        text(of_allies),
+        "enemy figures in line of sight of friendly figures"
+    );
+    let bad = sel("enemies", &[("in_los", s("nobody"))]);
+    assert!(compile(&Descriptor(bad)).is_err());
 }
