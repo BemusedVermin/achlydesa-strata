@@ -18,7 +18,7 @@ use strata_rules::{
 };
 
 /// The definition called `name`: as written, then in `pack`, then in any pack.
-pub(super) fn find<'a, T: Def>(
+pub(crate) fn find<'a, T: Def>(
     registry: &'a ContentRegistry,
     pack: &str,
     name: &str,
@@ -36,9 +36,9 @@ pub(super) fn find<'a, T: Def>(
 }
 
 /// Resolves the tile and feature names of a map against the registry.
-pub(super) struct RegistryDefs<'a> {
-    pub registry: &'a ContentRegistry,
-    pub pack: &'a str,
+pub(crate) struct RegistryDefs<'a> {
+    pub(crate) registry: &'a ContentRegistry,
+    pub(crate) pack: &'a str,
 }
 
 impl BoardDefs for RegistryDefs<'_> {
@@ -58,7 +58,7 @@ struct Rig {
     next: usize,
 }
 
-pub(super) struct Host {
+pub(crate) struct Host {
     registry: ContentRegistry,
     pack: String,
     modifiers: Vec<SourcedModifier>,
@@ -66,11 +66,11 @@ pub(super) struct Host {
     board: Option<CompiledBoard>,
     rig: Mutex<Rig>,
     /// Set once the rules exist, because the rules hold this host.
-    pub(super) rules: OnceLock<Weak<LuaRules>>,
+    pub(crate) rules: OnceLock<Weak<LuaRules>>,
 }
 
 impl Host {
-    pub(super) fn new(
+    pub(crate) fn new(
         registry: &ContentRegistry,
         pack: &str,
         modifiers: Vec<SourcedModifier>,

@@ -13,6 +13,8 @@ strata_rules = { path = "../strata_rules" }
 strata_lua = { path = "../strata_lua" }
 strata_content = { path = "../strata_content" }
 strata_modules = { path = "../strata_modules" }
+serde = { version = "1", features = ["derive"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
 thiserror = "2"
 
 [dev-dependencies]

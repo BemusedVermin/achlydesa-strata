@@ -75,7 +75,7 @@ pub struct Token {
 }
 
 /// Per-player state.
-#[derive(Clone, Debug, Default, PartialEq, Eq, StableHash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct PlayerState {
     /// Their team.
     pub team: u8,
@@ -84,7 +84,7 @@ pub struct PlayerState {
 }
 
 /// A unit's runtime state.
-#[derive(Clone, Debug, Default, PartialEq, Eq, StableHash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct UnitState {
     /// The unit definition.
     pub def: DefId,
@@ -99,7 +99,7 @@ pub struct UnitState {
 }
 
 /// Which figure entry of which unit definition a figure is.
-#[derive(Clone, Debug, Default, PartialEq, Eq, StableHash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct FigureDefRef {
     /// The unit definition.
     pub unit: DefId,
@@ -108,7 +108,7 @@ pub struct FigureDefRef {
 }
 
 /// Where a figure is in its life.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, StableHash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub enum FigureStatus {
     /// Waiting off the board.
     #[default]
@@ -122,7 +122,7 @@ pub enum FigureStatus {
 }
 
 /// A wound or status on a figure.
-#[derive(Clone, Debug, PartialEq, Eq, StableHash)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct Marker {
     /// The marker definition.
     pub def: DefId,
@@ -135,7 +135,7 @@ pub struct Marker {
 }
 
 /// A figure's runtime state.
-#[derive(Clone, Debug, Default, PartialEq, Eq, StableHash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct FigureState {
     /// The owning unit.
     pub unit: UnitId,
@@ -154,7 +154,7 @@ pub struct FigureState {
 }
 
 /// A relic's runtime state.
-#[derive(Clone, Debug, Default, PartialEq, Eq, StableHash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct RelicState {
     /// The relic definition.
     pub def: DefId,
@@ -167,7 +167,7 @@ pub struct RelicState {
 }
 
 /// What an ability instance is attached to.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, StableHash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub enum AbilityOwner {
     /// A unit.
     Unit(UnitId),
@@ -178,7 +178,7 @@ pub enum AbilityOwner {
 }
 
 /// An ability attached to something, with its resolved parameters.
-#[derive(Clone, Debug, PartialEq, Eq, StableHash)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct AbilityInstance {
     /// The ability definition.
     pub def: DefId,
@@ -189,7 +189,7 @@ pub struct AbilityInstance {
 }
 
 /// One phase on the phase stack.
-#[derive(Clone, Debug, Default, PartialEq, Eq, StableHash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct PhaseFrame {
     /// The phase.
     pub phase: DefId,
@@ -198,7 +198,7 @@ pub struct PhaseFrame {
 }
 
 /// A unit's current activation.
-#[derive(Clone, Debug, Default, PartialEq, Eq, StableHash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct Activation {
     /// The activating unit.
     pub unit: UnitId,
@@ -209,7 +209,7 @@ pub struct Activation {
 }
 
 /// Where the game is in its turn structure.
-#[derive(Clone, Debug, Default, PartialEq, Eq, StableHash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct FlowState {
     /// Active phases, outermost first.
     pub phases: Vec<PhaseFrame>,
@@ -224,7 +224,7 @@ pub struct FlowState {
 }
 
 /// Changes to the static board during play.
-#[derive(Clone, Debug, Default, PartialEq, Eq, StableHash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct BoardChanges {
     /// Indices into the map's placed features that have been removed.
     pub removed_features: BTreeSet<u32>,
@@ -233,7 +233,7 @@ pub struct BoardChanges {
 }
 
 /// Everything that changes during a match.
-#[derive(Clone, Debug, Default, PartialEq, Eq, StableHash)]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct GameState {
     /// The immutable inputs.
     pub setup: Arc<MatchSetup>,
