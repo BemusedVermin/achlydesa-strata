@@ -2,23 +2,22 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use strata_kernel::{DefId, ModuleId, SlotId, Space, Sym, Value};
-use strata_lua::{LuaRules, ModuleBinding};
 use strata_model::{
     Answer, ArmyEntry, ArmyList, Command, Decision, DecisionKind, Event, GameState, MatchSetup,
-    ModuleRef, PlayerId, PlayerSetup, ReactionDef, ReplacementDef, RuleModuleDef, RulesetDef,
-    ScenarioDef, SeedSource, SourceLoc, Text, Token, TriggerDef, UndoPolicy, UnitId, Visibility,
+    ModuleRef, PlayerId, PlayerSetup, ReactionDef, ReplacementDef, RulesetDef, ScenarioDef,
+    SeedSource, SourceLoc, Text, Token, TriggerDef, UndoPolicy, UnitId, Visibility,
 };
 use strata_modules::native_modules;
 use strata_rules::{
     CommandHandler, ConfigSchema, Ctx, Engine, Halt, HookRunner, ModuleCatalog, ModuleError,
-    Registrar, RuleModule, RulesRuntime, RulesetSource, SourcedModifier, resolve,
+    Registrar, RuleModule, RulesetSource, resolve,
 };
 
 use crate::pack_test::PackTests;
-use crate::pack_test::host::{Host, find};
+use crate::pack_test::host::find;
 use crate::*;
 
 pub(crate) fn pack_tests() -> PackTests {
@@ -64,56 +63,7 @@ pub(crate) fn setup(tests: &PackTests) -> MatchSetup {
     }
 }
 
-struct Rulesets<'a>(&'a PackTests);
-
-impl RulesetSource for Rulesets<'_> {
-    fn ruleset(&self, name: &str) -> Option<&RulesetDef> {
-        find::<RulesetDef>(&self.0.registry, "toy", name).map(|(_, def)| def)
-    }
-}
-
-/// The rules of the toy ruleset, running against a built match.
-pub(crate) struct Rig {
-    rt: RulesRuntime,
-    rules: Arc<LuaRules>,
-    start: GameState,
-}
-
-impl Rig {
-    pub(crate) fn new(tests: &PackTests, setup: MatchSetup) -> Self {
-        let built = build_match(&tests.registry, setup).unwrap();
-        let rt = resolve("toy_rust", &Rulesets(tests), &tests.catalog).unwrap();
-        let modifiers = rt.modifiers().iter().map(|m| SourcedModifier {
-            source: Sym::new("toy_rust"),
-            priority: 0,
-            def: m.clone(),
-        });
-        let board = Some(built.board);
-        let host = Host::new(&tests.registry, "toy", modifiers.collect(), board);
-        let host = Arc::new(host);
-        let lua = rt
-            .configs()
-            .iter()
-            .filter(|(id, _)| tests.registry.find::<RuleModuleDef>(id.as_str()).is_some())
-            .map(|(id, config)| ModuleBinding {
-                id: id.as_str().to_owned(),
-                config: config.clone(),
-            });
-        let (scripts, packs) = (tests.registry.scripts(), tests.packs.clone());
-        let rules = LuaRules::new(&rt, scripts, packs, lua.collect(), host.clone());
-        let rules = Arc::new(rules);
-        let _ = host.rules.set(Arc::downgrade(&rules));
-        Self {
-            rt,
-            rules,
-            start: built.state,
-        }
-    }
-
-    pub(crate) fn engine(&self) -> Engine<'_> {
-        Engine::new(&self.rt, &*self.rules, self.start.clone())
-    }
-}
+pub(crate) use crate::pack_test::MatchRig as Rig;
 
 /// Plays its commands in a loop and answers every question with the first option.
 struct Script {
@@ -156,15 +106,15 @@ fn controllers() -> Vec<Box<dyn Controller>> {
 }
 
 /// Plays `commands` commands and returns the replay and the final state hash.
-fn play(tests: &PackTests, commands: u32) -> (Replay, u64) {
-    let rig = Rig::new(tests, setup(tests));
+pub(crate) fn play(tests: &PackTests, commands: u32) -> (Replay, u64) {
+    let rig = Rig::new(tests, setup(tests)).unwrap();
     let mut session = Session::new(rig.engine(), controllers());
     session.run(commands).unwrap();
     (session.replay(), session.state().hash())
 }
 
 fn replay_on_fresh_engine(tests: &PackTests, replay: &Replay) -> Result<(), ReplayError> {
-    let rig = Rig::new(tests, replay.setup.clone());
+    let rig = Rig::new(tests, replay.setup.clone()).unwrap();
     replay.play(&mut rig.engine())
 }
 
@@ -256,7 +206,7 @@ fn a_replay_that_no_longer_matches_is_refused() {
 
     let mut wrong_seed = replay.clone();
     wrong_seed.setup.seed = SeedSource::Plain(8);
-    let rig = Rig::new(&tests, setup(&tests));
+    let rig = Rig::new(&tests, setup(&tests)).unwrap();
     let got = wrong_seed.play(&mut rig.engine());
     assert_eq!(got, Err(ReplayError::WrongStart));
 

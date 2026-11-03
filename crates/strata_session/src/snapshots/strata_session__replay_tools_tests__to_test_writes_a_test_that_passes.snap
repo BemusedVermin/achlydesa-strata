@@ -1,0 +1,24 @@
+---
+source: crates/strata_session/src/replay_tools_tests.rs
+expression: text
+---
+test {
+  id = 'replay_at_0', name = 'replay command 0',
+  ruleset = 'toy:toy_rust', map = 'toy:flat',
+  place = {
+    { unit = 'toy:test_soldier', player = 0, at = {} },
+    { unit = 'toy:test_soldier', player = 0, at = {} },
+    { unit = 'toy:test_archer', player = 1, at = {} },
+    { unit = 'toy:test_archer', player = 1, at = {} },
+  },
+  steps = {
+    act.command(0, 'attack', { ['attacker'] = 0, ['target'] = 2 }, { rig = { { 'block', 'hit', 'block' }, { 'hit' } } }),
+    expect.event('attack_declared'),
+    expect.event('dice_rolled'),
+    expect.event('var_set'),
+    expect.figure('p0.toy:test_soldier.s#1', 'reserve'),
+    expect.figure('p0.toy:test_soldier.s#2', 'reserve'),
+    expect.figure('p1.toy:test_archer.a#1', 'reserve'),
+    expect.figure('p1.toy:test_archer.a#2', 'reserve'),
+  },
+}

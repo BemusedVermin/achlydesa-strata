@@ -7,7 +7,7 @@ use strata_modules::native_modules;
 use strata_session::pack_test::{PackTestError, PackTests, summary};
 
 /// Loads the packs under `roots` with every native module the engine ships.
-fn load(roots: &[PathBuf]) -> Result<PackTests, PackTestError> {
+pub(crate) fn load(roots: &[PathBuf]) -> Result<PackTests, PackTestError> {
     let tests = PackTests::load(roots)?;
     native_modules()
         .into_iter()
