@@ -133,6 +133,7 @@ fn runtime(
     RulesRuntime {
         slots: BTreeMap::new(),
         addons: Vec::new(),
+        configs: Vec::new(),
         reg,
     }
 }

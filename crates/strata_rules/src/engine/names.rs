@@ -15,7 +15,7 @@ pub(crate) fn command_kind(command: &Command) -> &str {
 }
 
 /// The name that `ReplacementDef::event` and `TriggerDef::event` refer to.
-pub(crate) fn event_kind(event: &Event) -> &str {
+pub fn event_kind(event: &Event) -> &str {
     match event {
         Event::FigureMoved { .. } => "figure_moved",
         Event::DiceRolled { .. } => "dice_rolled",

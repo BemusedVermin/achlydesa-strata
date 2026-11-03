@@ -1,0 +1,17 @@
+---
+source: crates/strata_session/tests/pack_test.rs
+expression: summary(&reports)
+---
+FAIL bad handle (step 1): `p0.dummy` is not a figure handle like `p0.unit.figure#1`
+PASS a handle may leave out the figure name
+FAIL missing figure (step 1): no figure matches `p1.dummy#1`
+FAIL no ruleset (setup): the test names no ruleset
+PASS a modifier raises a stat and a script reacts to an event
+FAIL unknown command (step 1): `nope` was rejected: no handler for `nope`
+FAIL unknown map (setup): unknown map `nope`
+FAIL unknown ruleset (setup): ruleset `nope` does not exist
+FAIL unknown unit (setup): place: unknown unit `ghost`
+FAIL wrong figure count (setup): place: `soldier` has 2 figures, but `at` has 1
+FAIL wrong event (step 2): event `figure_destroyed`: expected it, got ["wounds_applied", "reacted"]
+FAIL wrong stat (step 2): p0.soldier.f#1 defense: expected 9, got 5
+2 passed, 10 failed

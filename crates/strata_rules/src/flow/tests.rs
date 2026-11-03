@@ -234,6 +234,7 @@ fn runtime(rules: &ActivationRules) -> RulesRuntime {
     RulesRuntime {
         slots: BTreeMap::new(),
         addons: Vec::new(),
+        configs: Vec::new(),
         reg,
     }
 }

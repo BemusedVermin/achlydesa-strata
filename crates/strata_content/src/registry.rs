@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 use strata_kernel::{DefId, PackId};
 use strata_lua::{Def, FrozenRecord};
+use strata_model::ScriptRef;
 
 use crate::identity::{ContentHash, PackIdentity, set_hash};
 
@@ -58,6 +59,17 @@ impl ContentRegistry {
     /// A hash of the whole pack set: every pack's identity, in load order.
     pub fn set_hash(&self) -> ContentHash {
         self.0.set_hash
+    }
+
+    /// Every function that became a `ScriptRef`, across all records.
+    pub fn scripts(&self) -> Vec<ScriptRef> {
+        let records = self.0.kinds.values().flatten();
+        records.flat_map(|r| r.scripts.iter().cloned()).collect()
+    }
+
+    /// The frozen records of the definitions whose kind is `kind`, in ID order.
+    pub fn records_of(&self, kind: &str) -> &[FrozenRecord] {
+        self.0.kinds.get(kind).map_or(&[], Vec::as_slice)
     }
 
     /// The `T` with this `DefId`.

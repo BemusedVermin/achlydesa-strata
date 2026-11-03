@@ -53,7 +53,10 @@ pub(super) fn reference(kind: &str, route: &[String]) -> Option<(Site, &'static 
 }
 
 /// Fields typed as a `Value`, which Lua authors write as plain data.
-const VALUES: &[(&str, &str)] = &[("rule_module", "config/*/default")];
+const VALUES: &[(&str, &str)] = &[
+    ("rule_module", "config/*/default"),
+    ("test", "steps/*/Custom/payload"),
+];
 
 pub(super) fn is_value(kind: &str, route: &[String]) -> bool {
     VALUES

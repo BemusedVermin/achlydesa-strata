@@ -20,7 +20,7 @@ pub use catalog::{DuplicateModule, ModuleCatalog};
 pub use config::{ConfigError, ConfigSchema};
 pub use descriptor::{DescriptorError, NativeEvaluator, Node, World, check_ability, compile};
 pub use engine::{
-    CommandRecord, Ctx, Engine, Halt, HookRunner, MAX_DECISIONS, Outcome, RuleViolation,
+    CommandRecord, Ctx, Engine, Halt, HookRunner, MAX_DECISIONS, Outcome, RuleViolation, event_kind,
 };
 pub use flow::{
     ActionRunner, ActivationRules, Flow, FlowError, OrderingPolicy, PhaseTree, ROOT, take_action,

@@ -1183,8 +1183,15 @@ dependencies = [
 name = "strata_session"
 version = "0.1.0"
 dependencies = [
+ "insta",
  "strata_content",
+ "strata_kernel",
+ "strata_lua",
+ "strata_model",
  "strata_modules",
+ "strata_rules",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

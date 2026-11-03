@@ -394,6 +394,12 @@ pub(super) const KINDS: [Kind; 20] = [
     bare(
         "test",
         "Test",
-        &[NAME, opt("ruleset", Ty::Str), opt("map", Ty::Str)],
+        &[
+            NAME,
+            opt("ruleset", Ty::Str),
+            opt("map", Ty::Str),
+            opt("place", Ty::Any),
+            opt("steps", Ty::Any),
+        ],
     ),
 ];
