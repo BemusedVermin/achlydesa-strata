@@ -177,6 +177,7 @@ impl Sel {
             adjacent_to: None,
             within: None,
             of: None,
+            in_los: None,
         }
     }
 }
@@ -219,6 +220,7 @@ fn sel(value: &Value) -> Result<Sel, DescriptorError> {
         adjacent_to: args.opt("adjacent_to").map(sel).transpose()?.map(Box::new),
         within,
         of: args.opt("of").map(sel).transpose()?.map(Box::new),
+        in_los: args.opt("in_los").map(sel).transpose()?.map(Box::new),
     };
     if out.of.is_some() && within.is_none() {
         return invalid("`of` only goes with `within`");

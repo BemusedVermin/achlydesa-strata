@@ -16,6 +16,9 @@ pub enum SessionError {
     /// A controller offered a command or answer the rules refused.
     #[error("rejected: {0}")]
     Rejected(RuleViolation),
+    /// A controller gave up because the match was shut down.
+    #[error("the match was stopped")]
+    Stopped,
 }
 
 /// A match in progress: the engine plus one controller per seat.
@@ -51,13 +54,20 @@ impl<'a> Session<'a> {
                 let view = PlayerView::of(state, pending.chooser);
                 let seat = self.seat(pending.chooser)?;
                 let answer = seat.answer(&view, &pending.decision);
+                if seat.abandoned() {
+                    return Err(SessionError::Stopped);
+                }
                 self.engine.answer(answer)
             }
             None => {
                 let active = state.flow.active;
                 let view = PlayerView::of(state, active);
                 let legal = self.engine.legal_commands(active);
-                let command = self.seat(active)?.choose_command(&view, &legal);
+                let seat = self.seat(active)?;
+                let command = seat.choose_command(&view, &legal);
+                if seat.abandoned() {
+                    return Err(SessionError::Stopped);
+                }
                 self.engine.submit(active, command)
             }
         };

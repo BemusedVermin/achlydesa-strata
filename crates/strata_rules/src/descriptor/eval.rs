@@ -28,6 +28,10 @@ pub trait World: Send + Sync {
     fn terrain_at(&self, space: Space) -> Option<Sym>;
     /// The figure standing on `space`.
     fn occupant(&self, space: Space) -> Option<FigureId>;
+    /// Whether `from` has line of sight to `to`. Worlds without a line-of-sight service fail.
+    fn in_los(&self, _from: FigureId, _to: FigureId) -> Result<bool, LogicError> {
+        Err(LogicError("no line-of-sight service is running".into()))
+    }
     /// The name of the innermost active phase.
     fn phase(&self) -> Sym;
 }
@@ -149,7 +153,26 @@ impl Run<'_> {
             let of = s.of.as_deref().cloned().unwrap_or_else(Sel::own);
             self.near(&mut out, &of, 0, n)?;
         }
+        if let Some(from) = &s.in_los {
+            self.seen(&mut out, from)?;
+        }
         Ok(out)
+    }
+
+    /// Keeps the figures that some figure of `from` has line of sight to.
+    fn seen(&self, out: &mut BTreeSet<FigureId>, from: &Sel) -> Result<(), LogicError> {
+        let seers = self.select(from)?;
+        let mut kept = BTreeSet::new();
+        for &target in out.iter() {
+            for &seer in seers.iter().filter(|s| **s != target) {
+                if self.world.in_los(seer, target)? {
+                    kept.insert(target);
+                    break;
+                }
+            }
+        }
+        *out = kept;
+        Ok(())
     }
 
     /// Keeps the figures whose distance to some figure of `to` lies in `[lo, hi]`.

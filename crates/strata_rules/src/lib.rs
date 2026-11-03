@@ -9,6 +9,7 @@ pub mod config;
 pub mod descriptor;
 pub mod engine;
 pub mod flow;
+pub mod los;
 pub mod module;
 pub mod native;
 pub mod query;
@@ -26,6 +27,7 @@ pub use engine::{
 pub use flow::{
     ActionRunner, ActivationRules, Flow, FlowError, OrderingPolicy, PhaseTree, ROOT, take_action,
 };
+pub use los::{FigureVolume, LineOfSight, LosResult, LosWorld};
 pub use module::{ModuleError, RuleModule};
 pub use native::{
     DicePool, MAX_POOL, NativeEnv, NativeLogic, NoEnv, Roll, native_name, reroll, roll_pool,

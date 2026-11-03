@@ -30,6 +30,11 @@ pub(super) fn sel(s: &Sel) -> String {
         let of = s.of.as_deref().map_or("this figure".to_owned(), sel);
         out = format!("{out} within {n} of {of}");
     }
+    match s.in_los.as_deref() {
+        Some(from) if from.base == Base::Own => out = format!("{out} in line of sight"),
+        Some(from) => out = format!("{out} in line of sight of {}", sel(from)),
+        None => {}
+    }
     out
 }
 

@@ -8,7 +8,9 @@ use strata_model::board::compile;
 use strata_model::{
     Command, Event, FigureId, FigureStatus, MapDef, RuleModuleDef, RulesetDef, Step, TestDef,
 };
-use strata_rules::{Engine, Outcome, RulesetSource, SourcedModifier, event_kind, resolve};
+use strata_rules::{
+    Engine, LineOfSight, Outcome, RulesetSource, SourcedModifier, event_kind, resolve,
+};
 
 use super::host::{Host, RegistryDefs, find};
 use super::report::Failure;
@@ -100,7 +102,8 @@ impl PackTests {
             priority: 0,
             def: m.clone(),
         });
-        let host = Host::new(&self.registry, pack, modifiers.collect(), board);
+        let los = rt.service::<Arc<dyn LineOfSight>>().cloned();
+        let host = Host::new(&self.registry, pack, modifiers.collect(), board).with_los(los);
         let host = Arc::new(host);
         let lua_modules = rt
             .configs()

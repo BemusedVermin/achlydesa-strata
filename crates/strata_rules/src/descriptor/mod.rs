@@ -49,6 +49,8 @@ pub struct Sel {
     pub within: Option<u32>,
     /// The reference for `within`; `None` means `self`.
     pub of: Option<Box<Sel>>,
+    /// Keeps figures that any figure of this selector has line of sight to.
+    pub in_los: Option<Box<Sel>>,
 }
 
 /// A comparison operator.
