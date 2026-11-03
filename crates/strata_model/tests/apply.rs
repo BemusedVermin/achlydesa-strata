@@ -400,3 +400,33 @@ fn activations_start_spend_slots_change_step_and_end() {
     applied(&mut s, &Event::ActivationEnded);
     assert!(s.flow.activation.is_none());
 }
+
+#[test]
+fn rounds_and_turns_set_the_flow_counters_and_the_active_player() {
+    let mut state = base();
+    applied(&mut state, &Event::RoundStarted(2));
+    assert_eq!((state.flow.round, state.flow.turn), (2, 0));
+    let turn = |turn, player| Event::TurnStarted {
+        turn,
+        active: PlayerId(player),
+    };
+    applied(&mut state, &turn(1, 1));
+    assert_eq!((state.flow.turn, state.flow.active), (1, PlayerId(1)));
+    applied(&mut state, &turn(2, 0));
+    assert_eq!((state.flow.turn, state.flow.active), (2, PlayerId(0)));
+    // A new round restarts the turn counter but leaves the active player until a turn starts.
+    applied(&mut state, &Event::RoundStarted(3));
+    assert_eq!((state.flow.round, state.flow.turn), (3, 0));
+}
+
+#[test]
+fn a_turn_for_a_missing_player_is_refused_and_changes_nothing() {
+    let mut state = base();
+    let before = state.hash();
+    let event = Event::TurnStarted {
+        turn: 1,
+        active: PlayerId(9),
+    };
+    assert_eq!(state.apply(&event), Err(ApplyError::NoPlayer(PlayerId(9))));
+    assert_eq!(state.hash(), before);
+}
