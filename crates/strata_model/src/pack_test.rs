@@ -48,13 +48,6 @@ pub enum Step {
         #[serde(default)]
         rig: Vec<Vec<Sym>>,
     },
-    /// A player secretly puts tokens from their hand on unit cards.
-    PlaceTokens {
-        /// The player placing them.
-        player: PlayerId,
-        /// Which token goes on which unit.
-        placements: Vec<TokenAt>,
-    },
     /// A figure takes an action, submitted by the player who controls it.
     Action {
         /// The figure's handle.
@@ -98,5 +91,12 @@ pub enum Step {
     ExpectDecision {
         /// The decision's prompt.
         prompt: Sym,
+    },
+    /// A player secretly puts tokens from their hand on unit cards.
+    PlaceTokens {
+        /// The player placing them.
+        player: PlayerId,
+        /// Which token goes on which unit.
+        placements: Vec<TokenAt>,
     },
 }
