@@ -466,3 +466,44 @@ fn the_same_commands_twice_give_identical_hashes() {
     };
     assert_eq!(play(), play());
 }
+
+/// Allows only the units in the list.
+struct Only(Vec<UnitId>);
+
+impl ActivationGate for Only {
+    fn may_activate(&self, _: &GameState, _: PlayerId, unit: UnitId) -> bool {
+        self.0.contains(&unit)
+    }
+}
+
+#[test]
+fn a_gate_service_limits_which_units_may_be_activated() {
+    let rules = rules(OrderingPolicy::AllFiguresPerStep);
+    let runner = Runner(rules.clone());
+    let mut rt = runtime(&rules);
+    rt.reg
+        .service::<dyn ActivationGate>(Box::new(Only(vec![UnitId(1)])));
+    let engine = into_turns(&rt, &runner, &rules);
+    // Player 0 owns only unit 0, which the gate refuses; player 1's unit passes but is not active.
+    assert!(engine.legal_commands(PlayerId(0)).is_empty());
+    let mut rt = runtime(&rules);
+    rt.reg
+        .service::<dyn ActivationGate>(Box::new(Only(vec![UnitId(0)])));
+    let engine = into_turns(&rt, &runner, &rules);
+    assert_eq!(
+        engine.legal_commands(PlayerId(0)),
+        [Command::ActivateUnit(UnitId(0))]
+    );
+}
+
+#[test]
+fn without_a_gate_every_unit_of_the_player_may_be_activated() {
+    let rules = rules(OrderingPolicy::AllFiguresPerStep);
+    let runner = Runner(rules.clone());
+    let rt = runtime(&rules);
+    let engine = into_turns(&rt, &runner, &rules);
+    assert_eq!(
+        engine.legal_commands(PlayerId(0)),
+        [Command::ActivateUnit(UnitId(0))]
+    );
+}

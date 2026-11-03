@@ -24,6 +24,8 @@ pub fn event_kind(event: &Event) -> &str {
         Event::MarkerChanged { .. } => "marker_changed",
         Event::TokenPlaced { .. } => "token_placed",
         Event::TokenRevealed { .. } => "token_revealed",
+        Event::TokensDealt { .. } => "tokens_dealt",
+        Event::TokensDiscarded(_) => "tokens_discarded",
         Event::PhaseEntered(_) => "phase_entered",
         Event::PhaseExited(_) => "phase_exited",
         Event::ActivationStarted { .. } => "activation_started",

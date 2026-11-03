@@ -18,6 +18,16 @@ pub struct Placement {
     pub at: Vec<Space>,
 }
 
+/// A token placed on the unit that a figure belongs to.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(deny_unknown_fields)]
+pub struct TokenAt {
+    /// The handle of any figure of the unit.
+    pub figure: String,
+    /// The token's kind, as the module that deals it numbers them.
+    pub kind: u32,
+}
+
 /// One step of a test: a command to submit or a check to make.
 ///
 /// Figures are named by handle, such as `p0.soldier.trooper#2`: the player, the unit, the figure
@@ -81,5 +91,12 @@ pub enum Step {
     ExpectDecision {
         /// The decision's prompt.
         prompt: Sym,
+    },
+    /// A player secretly puts tokens from their hand on unit cards.
+    PlaceTokens {
+        /// The player placing them.
+        player: PlayerId,
+        /// Which token goes on which unit.
+        placements: Vec<TokenAt>,
     },
 }

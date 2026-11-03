@@ -29,6 +29,12 @@ pub const TURNS: &str = "turns";
 pub const ROUND_END: &str = "round_end";
 /// The custom event emitted when a round ends, carrying `{ round }`.
 pub const ROUND_ENDED: &str = "round_ended";
+/// The custom event a module emits when the player to move has nothing to do this turn, so the
+/// turn passes to the next player.
+pub const TURN_SKIPPED: &str = "turn_skipped";
+/// The custom event emitted when the round moves into a phase `core:rounds` does not own,
+/// carrying `{ phase }`.
+pub const PHASE_OPENED: &str = "phase_opened";
 
 /// The event the `start_round` command emits for the module's native logic to act on.
 const REQUESTED: &str = "round_requested";
@@ -111,7 +117,7 @@ impl RuleModule for Rounds {
         };
         r.native(DRIVE, Box::new(drive));
         let call = [(Sym::new("native"), Value::Str(Sym::new(DRIVE)))];
-        for event in [REQUESTED, "activation_ended"] {
+        for event in [REQUESTED, TURN_SKIPPED, "activation_ended"] {
             r.trigger(TriggerDef {
                 event: Sym::new(event),
                 filter: None,
@@ -168,7 +174,8 @@ impl NativeLogic for Drive {
             .phases()
             .ok_or_else(|| Halt::reject("core:rounds needs the phase tree"))?;
         match event {
-            Event::Custom { .. } => self.begin(ctx, env, tree),
+            Event::Custom { id, .. } if id.as_str() == REQUESTED => self.begin(ctx, env, tree),
+            Event::Custom { id, .. } if id.as_str() == TURN_SKIPPED => self.next_turn(ctx, tree),
             Event::ActivationEnded => self.next_turn(ctx, tree),
             _ => Ok(()),
         }
@@ -268,7 +275,7 @@ fn end_round(ctx: &mut dyn Ctx, tree: &PhaseTree) -> Result<(), Halt> {
 
 /// Moves to the phase after the current one and does what that phase calls for: the first turn
 /// starts when `turns` opens, and the round ends when `round_end` does.
-fn advance(ctx: &mut dyn Ctx, tree: &PhaseTree) -> Result<(), Halt> {
+pub(crate) fn advance(ctx: &mut dyn Ctx, tree: &PhaseTree) -> Result<(), Halt> {
     tree.advance(ctx)?;
     let top = ctx.state().flow.phases.last();
     let top = top
@@ -277,6 +284,10 @@ fn advance(ctx: &mut dyn Ctx, tree: &PhaseTree) -> Result<(), Halt> {
     match top.as_deref() {
         Some(TURNS) => start_turn(ctx, 1),
         Some(ROUND_END) => end_round(ctx, tree),
-        _ => Ok(()),
+        Some(other) => ctx.emit(Event::Custom {
+            id: Sym::new(PHASE_OPENED),
+            payload: Value::Map([(Sym::new("phase"), Value::Str(Sym::new(other)))].into()),
+        }),
+        None => Ok(()),
     }
 }

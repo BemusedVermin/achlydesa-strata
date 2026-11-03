@@ -7,6 +7,7 @@ use strata_lua::{LuaRules, ModuleBinding};
 use strata_model::board::compile;
 use strata_model::{
     Command, Event, FigureId, FigureStatus, MapDef, RuleModuleDef, RulesetDef, Step, TestDef,
+    TokenAt, TokenPlacement,
 };
 use strata_rules::{
     Engine, LineOfSight, Outcome, RulesetSource, SourcedModifier, event_kind, resolve,
@@ -140,6 +141,25 @@ impl PackTests {
                         payload: payload.clone(),
                     };
                     events = settle(engine.submit(*player, command), id.as_str()).map_err(at)?;
+                    log.extend(events.iter().cloned());
+                }
+                Step::PlaceTokens { player, placements } => {
+                    let mut put = Vec::new();
+                    for TokenAt {
+                        figure: handle,
+                        kind,
+                    } in placements
+                    {
+                        let found = figure(handle).map_err(at)?;
+                        let unit = engine.state().figures[found.index()].unit;
+                        put.push(TokenPlacement {
+                            unit,
+                            token: DefId(*kind),
+                        });
+                    }
+                    host.set_rig(Vec::new());
+                    let outcome = engine.submit(*player, Command::PlaceTokens(put));
+                    events = settle(outcome, "place_tokens").map_err(at)?;
                     log.extend(events.iter().cloned());
                 }
                 Step::Action {

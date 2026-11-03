@@ -24,6 +24,9 @@ globals.act = {
   command = function(player, id, payload, opts)
     return { Custom = { player = player, id = id, payload = payload, rig = opts and opts.rig } }
   end,
+  place_tokens = function(player, placements)
+    return { PlaceTokens = { player = player, placements = placements } }
+  end,
   action = function(figure, action, args, opts)
     return { Action = { figure = figure, action = action, args = args, rig = opts and opts.rig } }
   end,

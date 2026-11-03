@@ -124,6 +124,15 @@ pub enum Event {
         /// Its new controller.
         controller: PlayerId,
     },
+    /// A player's hand of tokens was set, replacing what they held.
+    TokensDealt {
+        /// The player.
+        player: PlayerId,
+        /// The token kinds now in hand.
+        tokens: Vec<DefId>,
+    },
+    /// Every token on a unit's card was taken off it.
+    TokensDiscarded(UnitId),
     /// A round began: the round counter is set and the turn counter restarts.
     RoundStarted(u32),
     /// A turn began, and its player became the active player.

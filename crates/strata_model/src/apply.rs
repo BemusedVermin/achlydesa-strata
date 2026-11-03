@@ -186,6 +186,14 @@ impl GameState {
                 self.figure(*figure)?;
                 self.figures[figure.index()].controller = *controller;
             }
+            Event::TokensDealt { player, tokens } => {
+                self.player(*player)?;
+                self.players[player.index()].hand.clone_from(tokens);
+            }
+            Event::TokensDiscarded(unit) => {
+                self.unit(*unit)?;
+                self.units[unit.index()].tokens.clear();
+            }
             Event::RoundStarted(round) => {
                 self.flow.round = *round;
                 self.flow.turn = 0;
