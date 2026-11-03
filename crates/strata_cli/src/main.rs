@@ -107,9 +107,6 @@ enum ReplayCommand {
         /// How many commands have been played; the test runs the command after them (from 0).
         #[arg(long)]
         at: usize,
-        /// Write the test here instead of printing it.
-        #[arg(long)]
-        out: Option<PathBuf>,
     },
 }
 
@@ -185,11 +182,6 @@ fn run_replay(command: ReplayCommand) -> Result<()> {
     match command {
         ReplayCommand::Verify { file, packs } => replay::verify(&file, &packs),
         ReplayCommand::Dump { file, packs } => replay::dump(&file, &packs),
-        ReplayCommand::ToTest {
-            file,
-            packs,
-            at,
-            out,
-        } => replay::to_test(&file, &packs, at, out.as_deref()),
+        ReplayCommand::ToTest { file, packs, at } => replay::to_test(&file, &packs, at),
     }
 }

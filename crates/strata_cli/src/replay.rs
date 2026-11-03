@@ -43,19 +43,10 @@ pub fn dump(file: &Path, packs: &[PathBuf]) -> Result<()> {
     Ok(())
 }
 
-/// Prints a pack test that starts after `at` commands and expects the next command's outcome,
-/// or writes it to `out`.
-pub fn to_test(file: &Path, packs: &[PathBuf], at: usize, out: Option<&Path>) -> Result<()> {
+/// Prints a pack test that starts after `at` commands and expects the next command's outcome.
+pub fn to_test(file: &Path, packs: &[PathBuf], at: usize) -> Result<()> {
     let replay = read(file)?;
     let tests = load(packs).into_diagnostic()?;
-    let text = tests.to_test(&replay, at).into_diagnostic()?;
-    match out {
-        Some(path) => fs::write(path, text)
-            .into_diagnostic()
-            .wrap_err_with(|| format!("cannot write {}", path.display())),
-        None => {
-            print!("{text}");
-            Ok(())
-        }
-    }
+    print!("{}", tests.to_test(&replay, at).into_diagnostic()?);
+    Ok(())
 }

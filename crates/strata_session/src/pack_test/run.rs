@@ -15,7 +15,8 @@ use strata_rules::{
 use super::host::{Host, RegistryDefs, find};
 use super::report::Failure;
 use super::{PackTests, state};
-n/// Finds a test's rulesets by name, preferring its own pack.
+
+/// Finds a test's rulesets by name, preferring its own pack.
 pub(super) struct Rulesets<'a> {
     pub(super) tests: &'a PackTests,
     pub(super) pack: &'a str,
