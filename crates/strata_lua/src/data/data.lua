@@ -27,6 +27,12 @@ globals.act = {
   place_tokens = function(player, placements)
     return { PlaceTokens = { player = player, placements = placements } }
   end,
+  activate = function(player, figure)
+    return { Activate = { player = player, figure = figure } }
+  end,
+  end_activation = function(player)
+    return { EndActivation = { player = player } }
+  end,
   action = function(figure, action, args, opts)
     return { Action = { figure = figure, action = action, args = args, rig = opts and opts.rig } }
   end,

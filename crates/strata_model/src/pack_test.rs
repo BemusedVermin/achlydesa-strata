@@ -99,4 +99,16 @@ pub enum Step {
         /// Which token goes on which unit.
         placements: Vec<TokenAt>,
     },
+    /// A player starts activating the unit that a figure belongs to.
+    Activate {
+        /// The player activating.
+        player: PlayerId,
+        /// The handle of any figure of the unit.
+        figure: String,
+    },
+    /// A player ends their current activation, whatever slots are left.
+    EndActivation {
+        /// The player ending it.
+        player: PlayerId,
+    },
 }
