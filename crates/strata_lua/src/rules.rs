@@ -11,7 +11,9 @@ use strata_model::{
     ActionDef, Answer, Decision, DieKind, Event, FigureId, GameState, Logic, PlayerId, ReactionDef,
     ReplacementDef, ScriptRef, TriggerDef,
 };
-use strata_rules::{ActionRunner, Ctx, Halt, HookRunner, LogicError, NativeEnv, RulesRuntime};
+use strata_rules::{
+    ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, RulesRuntime,
+};
 
 use crate::convert::{lua_to_value, value_to_lua};
 use crate::ctx::{Args, Frame, Namespaces, RuleHost};
@@ -34,8 +36,10 @@ pub struct LuaRules {
     scripts: Vec<ScriptRef>,
     packs: Vec<PackSource>,
     modules: Vec<ModuleBinding>,
-    host: Arc<dyn RuleHost>,
-    namespaces: Namespaces,
+    pub(crate) host: Arc<dyn RuleHost>,
+    pub(crate) namespaces: Namespaces,
+    /// The Rust behind the namespaces that modules exported with `lua_api_native`.
+    pub(crate) handlers: BTreeMap<String, Arc<dyn ApiHandler>>,
 }
 
 impl LuaRules {
@@ -58,7 +62,12 @@ impl LuaRules {
         let namespaces = rt
             .lua_apis()
             .map(|(ns, api)| (ns.as_str().to_owned(), names(api)));
+        let handlers = rt.lua_apis().filter_map(|(ns, _)| {
+            let handler = rt.api_handler(ns.as_str())?;
+            Some((ns.as_str().to_owned(), handler))
+        });
         Self {
+            handlers: handlers.collect(),
             token: NEXT.fetch_add(1, Ordering::Relaxed),
             scripts,
             packs,
@@ -92,7 +101,7 @@ impl LuaRules {
             }
             Logic::Script(script) => {
                 let finish = |lua: &Lua, v: LuaValue| Ok(lua_to_value(lua, &v));
-                let frame = Frame::new(ctx, &self.host, &self.namespaces);
+                let frame = Frame::new(ctx, self);
                 let run = self.with_state(|rt| frame.invoke(rt, script, args, finish))?;
                 run?.map_err(|e| Halt::reject(e.to_string()))
             }
@@ -191,6 +200,10 @@ impl NativeEnv for LuaRules {
         self.host.die(name)
     }
 
+    fn marker(&self, name: &str) -> Option<DefId> {
+        self.host.marker(name)
+    }
+
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
         self.host.forced_roll(die, count)
     }
@@ -220,7 +233,7 @@ impl HookRunner for LuaRules {
         let Logic::Script(script) = &def.replace else {
             return Err(Halt::reject("native replacements need the native runner"));
         };
-        let frame = Frame::new(ctx, &self.host, &self.namespaces);
+        let frame = Frame::new(ctx, self);
         let finish = |lua: &Lua, v: LuaValue| lua.from_value::<Vec<Event>>(v);
         self.with_state(|rt| frame.invoke(rt, script, &with_event(event), finish))?
     }

@@ -9,8 +9,8 @@ use strata_kernel::{DefId, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::{BoardDefs, CompiledBoard};
 use strata_model::{
-    Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus, GameState, PlayerId, StatDef,
-    TerrainDef, TileDef, UnitDef,
+    Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus, GameState, MarkerDef,
+    PlayerId, StatDef, TerrainDef, TileDef, UnitDef,
 };
 use strata_rules::{
     Ctx, EvalCtx, Halt, LogicError, LogicEvaluator, Logics, NativeEvaluator, QueryEngine,
@@ -169,6 +169,10 @@ impl RuleHost for Host {
     fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
         let (id, def) = find::<DieDef>(&self.registry, &self.pack, name)?;
         Some((id, def.kind.clone()))
+    }
+
+    fn marker(&self, name: &str) -> Option<DefId> {
+        find::<MarkerDef>(&self.registry, &self.pack, name).map(|(id, _)| id)
     }
 
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {

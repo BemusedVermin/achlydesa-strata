@@ -14,6 +14,7 @@ use strata_rules::{Ctx, Halt, LogicError};
 
 use crate::convert::{lua_to_value, value_to_lua};
 use crate::error::HostError;
+use crate::rules::LuaRules;
 use crate::runtime::RuntimeLua;
 
 /// The most dice one `ctx.dice.roll` may throw.
@@ -32,6 +33,10 @@ pub trait RuleHost: Send + Sync {
     fn query(&self, state: &GameState, name: &str, args: &[Value]) -> Result<Value, LogicError>;
     /// The definition and faces of the die with this name.
     fn die(&self, name: &str) -> Option<(strata_kernel::DefId, DieKind)>;
+    /// The definition of the marker with this name, such as `wound`.
+    fn marker(&self, _name: &str) -> Option<strata_kernel::DefId> {
+        None
+    }
     /// Calls `name` of the namespace a module exported with `Registrar::lua_api`.
     fn call(
         &self,
@@ -57,7 +62,7 @@ pub(crate) type Namespaces = BTreeMap<String, Vec<String>>;
 pub(crate) struct Frame<'a> {
     ctx: RefCell<&'a mut dyn Ctx>,
     host: &'a Arc<dyn RuleHost>,
-    namespaces: &'a Namespaces,
+    rules: &'a LuaRules,
     halt: RefCell<Option<Halt>>,
 }
 
@@ -65,15 +70,11 @@ pub(crate) struct Frame<'a> {
 pub(crate) type Args<'a> = &'a dyn Fn(&Lua) -> mlua::Result<Vec<LuaValue>>;
 
 impl<'a> Frame<'a> {
-    pub(crate) fn new(
-        ctx: &'a mut dyn Ctx,
-        host: &'a Arc<dyn RuleHost>,
-        namespaces: &'a Namespaces,
-    ) -> Self {
+    pub(crate) fn new(ctx: &'a mut dyn Ctx, rules: &'a LuaRules) -> Self {
         Self {
             ctx: RefCell::new(ctx),
-            host,
-            namespaces,
+            host: &rules.host,
+            rules,
             halt: RefCell::new(None),
         }
     }
@@ -93,7 +94,7 @@ impl<'a> Frame<'a> {
             let op = scope
                 .create_function(|lua, (name, a): (String, LuaValue)| self.op(lua, &name, &a))?;
             let namespaces = lua.create_table()?;
-            for (name, functions) in self.namespaces {
+            for (name, functions) in &self.rules.namespaces {
                 namespaces.raw_set(name.as_str(), functions.clone())?;
             }
             let ctx: LuaValue = rt.ctx_builder().call((op, namespaces))?;
@@ -176,7 +177,10 @@ impl<'a> Frame<'a> {
                 let namespace = field("namespace")?.as_str().map_err(bad)?;
                 let name = field("name")?.as_str().map_err(bad)?;
                 let list = field("args")?.as_list().map_err(bad)?;
-                self.host.call(namespace, name, list, ctx)
+                match self.rules.handlers.get(namespace) {
+                    Some(handler) => handler.call(ctx, self.rules, name, list),
+                    None => self.host.call(namespace, name, list, ctx),
+                }
             }
             "log" => {
                 self.host.log(args.as_str().map_err(bad)?);

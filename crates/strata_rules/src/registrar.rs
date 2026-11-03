@@ -2,14 +2,15 @@
 
 use std::any::{Any, TypeId};
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use strata_kernel::{Sym, WindowId};
+use strata_kernel::{Sym, Value, WindowId};
 use strata_model::{
     ActionDef, Command, ModifierDef, PlayerId, ReactionDef, ReplacementDef, TriggerDef,
 };
 
 use crate::engine::{Ctx, Halt};
-use crate::native::NativeLogic;
+use crate::native::{NativeEnv, NativeLogic};
 
 /// A node in the phase tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -50,6 +51,19 @@ pub struct LuaApi {
     pub functions: Vec<Sym>,
 }
 
+/// Rust behind a namespace exported with [`Registrar::lua_api_native`].
+pub trait ApiHandler: Send + Sync + 'static {
+    /// Runs the function `name` for a script, emitting events through `ctx`. `env` answers
+    /// questions about the loaded content.
+    fn call(
+        &self,
+        ctx: &mut dyn Ctx,
+        env: &dyn NativeEnv,
+        name: &str,
+        args: &[Value],
+    ) -> Result<Value, Halt>;
+}
+
 /// Collects every registration from the active modules.
 #[derive(Default)]
 pub struct Registrar {
@@ -63,6 +77,7 @@ pub struct Registrar {
     pub(crate) windows: Vec<WindowId>,
     pub(crate) services: BTreeMap<TypeId, Box<dyn Any + Send + Sync>>,
     pub(crate) lua_apis: BTreeMap<Sym, LuaApi>,
+    pub(crate) api_handlers: BTreeMap<Sym, Arc<dyn ApiHandler>>,
     pub(crate) natives: BTreeMap<Sym, Box<dyn NativeLogic>>,
     conflicts: Vec<String>,
 }
@@ -133,6 +148,14 @@ impl Registrar {
             self.conflicts
                 .push(format!("Lua namespace `{namespace}` is already exported"));
         }
+    }
+
+    /// Exports `api` as `ctx.<namespace>` and runs its calls through `handler`, so no host needs
+    /// to know the module.
+    pub fn lua_api_native(&mut self, namespace: &str, api: LuaApi, handler: Box<dyn ApiHandler>) {
+        self.lua_api(namespace, api);
+        self.api_handlers
+            .insert(Sym::new(namespace), handler.into());
     }
 
     /// Provides Rust logic that triggers run through `{ native = "<name>" }`. Names are unique.

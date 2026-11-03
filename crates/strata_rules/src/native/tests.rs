@@ -219,6 +219,8 @@ struct Bench {
     state: GameState,
     rng: strata_kernel::CommandRng,
     events: Vec<Event>,
+    /// What `choose` answers; `None` means the bench asks nothing.
+    answer: Option<Answer>,
 }
 
 impl Bench {
@@ -227,6 +229,7 @@ impl Bench {
             state: GameState::default(),
             rng: strata_kernel::CommandRng::for_command(3, 0),
             events: Vec::new(),
+            answer: None,
         }
     }
 }
@@ -250,7 +253,9 @@ impl Ctx for Bench {
     }
 
     fn choose(&mut self, _: PlayerId, _: Decision) -> Result<Answer, Halt> {
-        Err(Halt::reject("the bench asks nothing"))
+        self.answer
+            .clone()
+            .ok_or_else(|| Halt::reject("the bench asks nothing"))
     }
 }
 
@@ -339,4 +344,61 @@ fn a_bad_forced_roll_is_rejected() {
     let bad = Rigged(Err("the rig has no faces left".into()));
     let error = roll_pool(&mut Bench::new(), &bad, "d", 1).unwrap_err();
     assert!(matches!(error, Halt::Rejected(v) if v.0.contains("no faces left")));
+}
+
+#[test]
+fn a_pool_is_as_large_as_the_stat_and_rolls_through_the_stream() {
+    let state = GameState::default();
+    let pool = DicePool::for_stat(&Fixed, &state, "d", FigureId(0), "life").unwrap();
+    assert_eq!(pool.count, 4);
+    let roll = pool.roll(&mut Bench::new(), &Fixed).unwrap();
+    assert_eq!(roll, roll_pool(&mut Bench::new(), &Fixed, "d", 4).unwrap());
+    assert!(DicePool::for_stat(&Fixed, &state, "d", FigureId(0), "move").is_err());
+}
+
+#[test]
+fn a_reroll_replaces_one_result_and_emits_one_roll() {
+    let mut bench = Bench::new();
+    bench.answer = Some(Answer::YesNo(true));
+    let first = Roll {
+        results: vec![1, 3],
+        faces: ["a", "b"].map(Sym::new).to_vec(),
+    };
+    let again = reroll(
+        &mut bench,
+        &Rigged(Ok(vec![2])),
+        PlayerId(0),
+        "d",
+        &first,
+        1,
+    )
+    .unwrap();
+    assert_eq!((again.results.clone(), again.count("a")), (vec![1, 2], 2));
+    assert!(matches!(&bench.events[..], [Event::DiceRolled { results, .. }] if *results == [2]));
+}
+
+#[test]
+fn declining_a_reroll_changes_nothing_and_rolls_nothing() {
+    let mut bench = Bench::new();
+    bench.answer = Some(Answer::YesNo(false));
+    let first = Roll {
+        results: vec![3],
+        faces: vec![Sym::new("b")],
+    };
+    let kept = reroll(&mut bench, &Fixed, PlayerId(0), "d", &first, 0).unwrap();
+    assert_eq!(kept, first);
+    assert!(bench.events.is_empty());
+}
+
+#[test]
+fn a_reroll_needs_a_die_at_the_index_and_an_answer() {
+    let first = Roll {
+        results: vec![3],
+        faces: vec![Sym::new("b")],
+    };
+    let mut bench = Bench::new();
+    bench.answer = Some(Answer::YesNo(true));
+    assert!(reroll(&mut bench, &Fixed, PlayerId(0), "d", &first, 1).is_err());
+    // Without an answer the decision halts the command, as it would for a player.
+    assert!(reroll(&mut Bench::new(), &Fixed, PlayerId(0), "d", &first, 0).is_err());
 }
