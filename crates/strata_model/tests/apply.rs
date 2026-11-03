@@ -430,3 +430,40 @@ fn a_turn_for_a_missing_player_is_refused_and_changes_nothing() {
     assert_eq!(state.apply(&event), Err(ApplyError::NoPlayer(PlayerId(9))));
     assert_eq!(state.hash(), before);
 }
+
+#[test]
+fn dealing_replaces_a_hand_and_discarding_empties_a_card() {
+    let mut state = base();
+    let deal = |player: u8, kinds: &[u32]| Event::TokensDealt {
+        player: PlayerId(player),
+        tokens: kinds.iter().map(|k| DefId(*k)).collect(),
+    };
+    applied(&mut state, &deal(1, &[1, 2, 0]));
+    assert_eq!(state.players[1].hand, [DefId(1), DefId(2), DefId(0)]);
+    applied(&mut state, &deal(1, &[7]));
+    assert_eq!(
+        state.players[1].hand,
+        [DefId(7)],
+        "a new deal replaces the hand"
+    );
+    state.units[0].tokens.push(Token {
+        kind: DefId(1),
+        visibility: Visibility::Hidden,
+    });
+    applied(&mut state, &Event::TokensDiscarded(UnitId(0)));
+    assert!(state.units[0].tokens.is_empty());
+}
+
+#[test]
+fn dealing_to_a_missing_player_or_discarding_a_missing_unit_is_refused() {
+    let mut state = base();
+    let before = state.hash();
+    let deal = Event::TokensDealt {
+        player: PlayerId(9),
+        tokens: Vec::new(),
+    };
+    assert_eq!(state.apply(&deal), Err(ApplyError::NoPlayer(PlayerId(9))));
+    let discard = Event::TokensDiscarded(UnitId(9));
+    assert_eq!(state.apply(&discard), Err(ApplyError::NoUnit(UnitId(9))));
+    assert_eq!(state.hash(), before);
+}

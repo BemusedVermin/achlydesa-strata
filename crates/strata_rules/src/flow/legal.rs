@@ -8,6 +8,13 @@ use super::activation::ActivationRules;
 use super::tree::PhaseTree;
 use crate::runtime::RulesRuntime;
 
+/// Decides which units a player may activate now. A module provides it as a service; without one,
+/// players may activate any of their units.
+pub trait ActivationGate: Send + Sync {
+    /// Whether `player` may activate `unit` in the current turn.
+    fn may_activate(&self, state: &GameState, player: PlayerId, unit: UnitId) -> bool;
+}
+
 /// Everything `legal_commands` needs beyond the registrations.
 pub struct Flow<'a> {
     /// The phase tree.
@@ -32,7 +39,7 @@ impl Flow<'_> {
             return Vec::new();
         }
         match &s.flow.activation {
-            None => self.activations(s, player),
+            None => self.activations(rt, s, player),
             Some(act) => {
                 let mut out = Vec::new();
                 for &figure in &s.units[act.unit.index()].figures {
@@ -62,7 +69,8 @@ impl Flow<'_> {
     }
 
     /// Units `player` may activate, which is only possible inside the turn phase.
-    fn activations(&self, s: &GameState, player: PlayerId) -> Vec<Command> {
+    fn activations(&self, rt: &RulesRuntime, s: &GameState, player: PlayerId) -> Vec<Command> {
+        let gate = rt.service::<dyn ActivationGate>();
         let top = s.flow.phases.last().and_then(|f| self.tree.name(f.phase));
         if top != Some(&self.turn_phase) {
             return Vec::new();
@@ -75,6 +83,7 @@ impl Flow<'_> {
         let units = s.units.iter().enumerate();
         units
             .filter(|(_, u)| u.owner == player && u.figures.iter().any(on_board))
+            .filter(|(i, _)| gate.is_none_or(|g| g.may_activate(s, player, UnitId(*i as u32))))
             .map(|(i, _)| Command::ActivateUnit(UnitId(i as u32)))
             .collect()
     }

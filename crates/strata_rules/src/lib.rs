@@ -25,7 +25,8 @@ pub use engine::{
     CommandRecord, Ctx, Engine, Halt, HookRunner, MAX_DECISIONS, Outcome, RuleViolation, event_kind,
 };
 pub use flow::{
-    ActionRunner, ActivationRules, Flow, FlowError, OrderingPolicy, PhaseTree, ROOT, take_action,
+    ActionRunner, ActivationGate, ActivationRules, Flow, FlowError, OrderingPolicy, PhaseTree,
+    ROOT, take_action,
 };
 pub use los::{FigureVolume, LineOfSight, LosResult, LosWorld};
 pub use module::{ModuleError, RuleModule};

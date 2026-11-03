@@ -6,6 +6,7 @@
 
 pub mod los;
 pub mod rounds;
+pub mod tokens;
 pub mod toy;
 pub mod units;
 
@@ -18,6 +19,7 @@ pub fn native_modules() -> Vec<Box<dyn RuleModule>> {
         Box::new(toy::Combat),
         Box::new(units::Units),
         Box::new(rounds::Rounds),
+        Box::new(tokens::CommandTokens),
         Box::new(los::Los),
     ]
 }
