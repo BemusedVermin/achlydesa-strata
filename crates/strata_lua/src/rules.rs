@@ -6,12 +6,12 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
-use strata_kernel::{CommandRng, Value, WindowId};
+use strata_kernel::{CommandRng, DefId, Sym, Value, WindowId};
 use strata_model::{
-    ActionDef, Answer, Decision, Event, FigureId, GameState, Logic, PlayerId, ReactionDef,
+    ActionDef, Answer, Decision, DieKind, Event, FigureId, GameState, Logic, PlayerId, ReactionDef,
     ReplacementDef, ScriptRef, TriggerDef,
 };
-use strata_rules::{ActionRunner, Ctx, Halt, HookRunner, RulesRuntime};
+use strata_rules::{ActionRunner, Ctx, Halt, HookRunner, LogicError, NativeEnv, RulesRuntime};
 
 use crate::convert::{lua_to_value, value_to_lua};
 use crate::ctx::{Args, Frame, Namespaces, RuleHost};
@@ -180,7 +180,23 @@ impl ActionRunner for LuaRules {
     }
 }
 
+impl NativeEnv for LuaRules {
+    fn stat(&self, state: &GameState, figure: FigureId, stat: &str) -> Result<i64, LogicError> {
+        let args = [Value::Int(i64::from(figure.0)), Value::Str(Sym::new(stat))];
+        let found = self.host.query(state, "stat", &args)?;
+        found.as_int().map_err(|e| LogicError(e.to_string()))
+    }
+
+    fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
+        self.host.die(name)
+    }
+}
+
 impl HookRunner for LuaRules {
+    fn env(&self) -> &dyn NativeEnv {
+        self
+    }
+
     fn replaces(
         &self,
         def: &ReplacementDef,

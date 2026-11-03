@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde_json::json;
-use strata_kernel::{ModuleId, SlotId, Sym, Value};
+use strata_kernel::{DefId, ModuleId, SlotId, Sym, Value};
 use strata_model::{
-    Command, Descriptor, Event, GameState, Logic, MatchSetup, PlayerId, ReactionDef,
-    ReplacementDef, RulesetDef, SeedSource, TriggerDef,
+    Answer, Command, Decision, Descriptor, DieKind, Event, FigureId, GameState, Logic, MatchSetup,
+    PlayerId, ReactionDef, ReplacementDef, RulesetDef, SeedSource, TriggerDef,
 };
 
 use crate::*;
@@ -14,7 +14,7 @@ use crate::*;
 struct Echo;
 
 impl NativeLogic for Echo {
-    fn run(&self, ctx: &mut dyn Ctx, _: &Event) -> Result<(), Halt> {
+    fn run(&self, ctx: &mut dyn Ctx, _: &dyn NativeEnv, _: &Event) -> Result<(), Halt> {
         ctx.emit(Event::Custom {
             id: Sym::new("echoed"),
             payload: Value::Int(7),
@@ -196,4 +196,108 @@ fn only_a_lone_native_descriptor_names_native_logic() {
     assert_eq!(native_name(&map(&[("native", "echo")])), Some("echo"));
     assert_eq!(native_name(&map(&[("sel", "self")])), None);
     assert_eq!(native_name(&Logic::Native(Descriptor(Value::Int(1)))), None);
+}
+
+/// A fixed environment: one die `d` with faces `a a b`, and every stat is 4.
+struct Fixed;
+
+impl NativeEnv for Fixed {
+    fn stat(&self, _: &GameState, _: FigureId, stat: &str) -> Result<i64, LogicError> {
+        (stat == "life")
+            .then_some(4)
+            .ok_or_else(|| LogicError(format!("unknown stat `{stat}`")))
+    }
+
+    fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
+        let faces = ["a", "a", "b"].map(Sym::new).to_vec();
+        (name == "d").then_some((DefId(5), DieKind::Faces(faces)))
+    }
+}
+
+/// A `Ctx` that applies what is emitted, with a fixed seed.
+struct Bench {
+    state: GameState,
+    rng: strata_kernel::CommandRng,
+    events: Vec<Event>,
+}
+
+impl Bench {
+    fn new() -> Self {
+        Self {
+            state: GameState::default(),
+            rng: strata_kernel::CommandRng::for_command(3, 0),
+            events: Vec::new(),
+        }
+    }
+}
+
+impl Ctx for Bench {
+    fn state(&self) -> &GameState {
+        &self.state
+    }
+
+    fn rng(&mut self) -> &mut strata_kernel::CommandRng {
+        &mut self.rng
+    }
+
+    fn emit(&mut self, e: Event) -> Result<(), Halt> {
+        self.events.push(e);
+        Ok(())
+    }
+
+    fn window(&mut self, _: &strata_kernel::WindowId) -> Result<(), Halt> {
+        Ok(())
+    }
+
+    fn choose(&mut self, _: PlayerId, _: Decision) -> Result<Answer, Halt> {
+        Err(Halt::reject("the bench asks nothing"))
+    }
+}
+
+#[test]
+fn a_pool_rolls_the_named_die_and_reports_its_faces() {
+    let mut bench = Bench::new();
+    let roll = roll_pool(&mut bench, &Fixed, "d", 40).unwrap();
+    assert_eq!(roll.results.len(), 40);
+    assert!(roll.results.iter().all(|r| (1..=3).contains(r)));
+    let (a, b) = (roll.count("a"), roll.count("b"));
+    assert_eq!((a + b, roll.count("c")), (40, 0));
+    assert_eq!(b, roll.results.iter().filter(|r| **r == 3).count());
+    let rolled = Event::DiceRolled {
+        die: DefId(5),
+        results: roll.results.clone(),
+    };
+    assert_eq!(bench.events, [rolled]);
+}
+
+#[test]
+fn a_pool_repeats_for_the_same_seed() {
+    let first = roll_pool(&mut Bench::new(), &Fixed, "d", 16).unwrap();
+    assert_eq!(
+        first,
+        roll_pool(&mut Bench::new(), &Fixed, "d", 16).unwrap()
+    );
+}
+
+#[test]
+fn a_pool_rejects_an_unknown_die_and_a_bad_size() {
+    let mut bench = Bench::new();
+    assert!(roll_pool(&mut bench, &Fixed, "nope", 1).is_err());
+    assert!(roll_pool(&mut bench, &Fixed, "d", -1).is_err());
+    assert!(roll_pool(&mut bench, &Fixed, "d", MAX_POOL + 1).is_err());
+    assert!(
+        roll_pool(&mut bench, &Fixed, "d", 0)
+            .unwrap()
+            .results
+            .is_empty()
+    );
+    assert!(roll_pool(&mut bench, &NoEnv, "d", 1).is_err());
+}
+
+#[test]
+fn the_environment_answers_stat_queries_and_a_missing_one_fails() {
+    let state = GameState::default();
+    assert_eq!(Fixed.stat(&state, FigureId(0), "life"), Ok(4));
+    assert!(Fixed.stat(&state, FigureId(0), "move").is_err());
+    assert!(NoEnv.stat(&state, FigureId(0), "life").is_err());
 }

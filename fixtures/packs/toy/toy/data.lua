@@ -42,11 +42,12 @@ rule_module {
     r.trigger {
       event = 'attack_declared',
       effect = function(ctx, event)
-        local attack = event.Custom.payload
-        local hits = ctx.dice.roll('combat', attack.attack):count('hit')
-        local blocks = ctx.dice.roll('combat', attack.defense):count('block')
+        local fields = event.Custom.payload
+        local attacker, target = fields.attacker, fields.target
+        local hits = ctx.dice.roll('combat', ctx.query.stat(attacker, 'attack')):count('hit')
+        local blocks = ctx.dice.roll('combat', ctx.query.stat(target, 'defense')):count('block')
         local tally = ctx.vars('toy:combat')
-        local name = 'wounds_' .. attack.target
+        local name = 'wounds_' .. target
         tally[name] = (tally[name] or 0) + math.max(0, hits - blocks)
       end,
     }
@@ -70,8 +71,8 @@ local function versus()
     { unit = 'test_archer', player = 1, at = {{ q = 1, r = 0, z = 1 }} },
   }
 end
-local function attack(attacker, target, pool, guard)
-  return act.command(0, 'attack', { attacker = attacker, target = target, attack = pool, defense = guard })
+local function attack(attacker, target)
+  return act.command(0, 'attack', { attacker = attacker, target = target })
 end
 
 for _, ruleset in ipairs { 'toy_rust', 'toy_lua' } do
@@ -84,18 +85,18 @@ for _, ruleset in ipairs { 'toy_rust', 'toy_lua' } do
     },
   }
   test {
-    id = 'rolls_' .. ruleset, name = ruleset .. ': an attack rolls both pools and tallies wounds',
+    id = 'soldier_' .. ruleset, name = ruleset .. ': the soldier attacks with its attack stat',
     ruleset = ruleset, map = 'flat', place = versus(),
-    steps = { attack(0, 1, 12, 0), expect.event('dice_rolled'), expect.event('var_set') },
+    steps = { attack(0, 1), expect.event('dice_rolled'), expect.event('var_set') },
   }
   test {
-    id = 'empty_' .. ruleset, name = ruleset .. ': an empty pool still rolls and records zero',
+    id = 'archer_' .. ruleset, name = ruleset .. ': the archer attacks with its attack stat',
     ruleset = ruleset, map = 'flat', place = versus(),
-    steps = { attack(1, 0, 0, 3), expect.event('dice_rolled'), expect.event('var_set') },
+    steps = { attack(1, 0), expect.event('dice_rolled'), expect.event('var_set') },
   }
   test {
     id = 'repeat_' .. ruleset, name = ruleset .. ': wounds accumulate over two attacks',
     ruleset = ruleset, map = 'flat', place = versus(),
-    steps = { attack(0, 1, 12, 0), attack(0, 1, 12, 0), expect.event('var_set') },
+    steps = { attack(0, 1), attack(0, 1), expect.event('var_set') },
   }
 end

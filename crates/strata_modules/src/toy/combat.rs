@@ -1,19 +1,19 @@
 //! `toy:combat`: the Rust implementation of the toy combat slot.
 //!
-//! The attacker and the defender each roll a pool of the toy pack's one die. The faces are,
-//! in order, three hits, two blocks and a blank. Hits beyond the blocks are wounds, added to
-//! the target's tally in the variable `wounds_<target>`.
+//! The attacker rolls a pool of the `combat` die as large as its `attack` stat, then the target
+//! rolls one as large as its `defense` stat. Hits beyond the blocks are wounds, added to the
+//! target's tally in the variable `wounds_<target>`.
 
-use strata_kernel::{DefId, ModuleId, SlotId, Sym, Value};
-use strata_model::{Descriptor, Event, Logic, TriggerDef, VarKey};
-use strata_rules::{ConfigSchema, Ctx, Halt, ModuleError, NativeLogic, Registrar, RuleModule};
+use strata_kernel::{ModuleId, SlotId, Sym, Value};
+use strata_model::{Descriptor, Event, FigureId, Logic, TriggerDef, VarKey};
+use strata_rules::{
+    ConfigSchema, Ctx, Halt, ModuleError, NativeEnv, NativeLogic, Registrar, RuleModule, roll_pool,
+};
 
 use super::{ATTACK_DECLARED, no_config};
 
-/// The toy pack has one die, so it is the first of its kind.
-const DIE: DefId = DefId(0);
-/// The most dice one pool may hold.
-const MAX_POOL: usize = 1024;
+/// The die both pools roll.
+const DIE: &str = "combat";
 /// The name the resolver is registered under.
 const RESOLVE: &str = "toy:combat.resolve";
 /// The module the wound tally belongs to. The Lua module writes under the same name.
@@ -52,44 +52,35 @@ impl RuleModule for Combat {
     }
 }
 
-/// Resolves a declared attack: attacker's pool first, then the defender's.
+/// Resolves a declared attack: attacker's pool first, then the target's.
 struct Resolve;
 
 impl NativeLogic for Resolve {
-    fn run(&self, ctx: &mut dyn Ctx, event: &Event) -> Result<(), Halt> {
+    fn run(&self, ctx: &mut dyn Ctx, env: &dyn NativeEnv, event: &Event) -> Result<(), Halt> {
         let Event::Custom { payload, .. } = event else {
             return Err(Halt::reject("combat resolves an attack declaration"));
         };
-        let field = |name: &str| {
+        let figure = |name: &str| {
             let found = payload.get(name).and_then(Value::as_int);
-            found.map_err(|e| Halt::reject(format!("attack `{name}`: {e}")))
+            let found = found.map_err(|e| Halt::reject(format!("attack `{name}`: {e}")))?;
+            Ok::<_, Halt>(FigureId(found as u32))
         };
-        let (target, attack, defense) = (field("target")?, field("attack")?, field("defense")?);
-        let hits = roll(ctx, attack)?.into_iter().filter(|r| *r <= 3).count();
-        let blocks = roll(ctx, defense)?
-            .into_iter()
-            .filter(|r| (4..=5).contains(r))
-            .count();
+        let (attacker, target) = (figure("attacker")?, figure("target")?);
+        let stat = |ctx: &dyn Ctx, who, name| {
+            let found = env.stat(ctx.state(), who, name);
+            found.map_err(|e| Halt::reject(e.to_string()))
+        };
+        let pool = stat(ctx, attacker, "attack")?;
+        let hits = roll_pool(ctx, env, DIE, pool)?.count("hit");
+        let pool = stat(ctx, target, "defense")?;
+        let blocks = roll_pool(ctx, env, DIE, pool)?.count("block");
         let key = VarKey {
             module: ModuleId::new(TALLY_OWNER),
-            name: Sym::new(&format!("wounds_{target}")),
+            name: Sym::new(&format!("wounds_{}", target.0)),
         };
         let before = ctx.state().vars.get(&key).and_then(|v| v.as_int().ok());
         let wounds = hits.saturating_sub(blocks) as i64;
         let value = Value::Int(before.unwrap_or(0) + wounds);
         ctx.emit(Event::VarSet { key, value })
     }
-}
-
-/// Rolls `n` dice from the command's stream and emits `DiceRolled`.
-fn roll(ctx: &mut dyn Ctx, n: i64) -> Result<Vec<u32>, Halt> {
-    let count = usize::try_from(n).ok().filter(|n| *n <= MAX_POOL);
-    let count = count.ok_or_else(|| Halt::reject("a dice pool holds 0 to 1024 dice"))?;
-    let results: Vec<u32> = (0..count).map(|_| ctx.rng().roll(6)).collect();
-    let die = DIE;
-    ctx.emit(Event::DiceRolled {
-        die,
-        results: results.clone(),
-    })?;
-    Ok(results)
 }
