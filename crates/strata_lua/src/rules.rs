@@ -12,7 +12,7 @@ use strata_model::{
     ReplacementDef, ScriptRef, TriggerDef,
 };
 use strata_rules::{
-    ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, RulesRuntime,
+    ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, PhaseTree, RulesRuntime,
 };
 
 use crate::convert::{lua_to_value, value_to_lua};
@@ -40,6 +40,8 @@ pub struct LuaRules {
     pub(crate) namespaces: Namespaces,
     /// The Rust behind the namespaces that modules exported with `lua_api_native`.
     pub(crate) handlers: BTreeMap<String, Arc<dyn ApiHandler>>,
+    /// The phases of the ruleset, for native logic that moves between them.
+    phases: PhaseTree,
 }
 
 impl LuaRules {
@@ -68,6 +70,7 @@ impl LuaRules {
         });
         Self {
             handlers: handlers.collect(),
+            phases: PhaseTree::build(rt.phases()).unwrap_or_default(),
             token: NEXT.fetch_add(1, Ordering::Relaxed),
             scripts,
             packs,
@@ -198,6 +201,10 @@ impl NativeEnv for LuaRules {
 
     fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
         self.host.die(name)
+    }
+
+    fn phases(&self) -> Option<&PhaseTree> {
+        Some(&self.phases)
     }
 
     fn marker(&self, name: &str) -> Option<DefId> {

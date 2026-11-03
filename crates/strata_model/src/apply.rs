@@ -186,6 +186,15 @@ impl GameState {
                 self.figure(*figure)?;
                 self.figures[figure.index()].controller = *controller;
             }
+            Event::RoundStarted(round) => {
+                self.flow.round = *round;
+                self.flow.turn = 0;
+            }
+            Event::TurnStarted { turn, active } => {
+                self.player(*active)?;
+                self.flow.turn = *turn;
+                self.flow.active = *active;
+            }
             Event::DiceRolled { .. } | Event::Custom { .. } => {}
         }
         Ok(())
