@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use strata_content::ContentRegistry;
-use strata_model::{Answer, Command, GameState, MatchSetup, PlayerId};
+use strata_model::{Answer, Command, Event, GameState, MatchSetup, PlayerId};
 use strata_rules::{CommandRecord, Engine, Outcome};
 
 use crate::setup::pack_identities;
@@ -134,33 +134,55 @@ impl Replay {
     /// Plays the log through `engine`, which must stand at the start of this setup, and checks
     /// every state hash, including each snapshot's.
     pub fn play(&self, engine: &mut Engine<'_>) -> Result<(), ReplayError> {
-        let start = engine.state();
-        if start.command_index != 0 || *start.setup != self.setup {
-            return Err(ReplayError::WrongStart);
-        }
+        self.play_events(engine).map(drop)
+    }
+
+    /// Like [`Replay::play`], and returns the events each command committed.
+    pub fn play_events(&self, engine: &mut Engine<'_>) -> Result<Vec<Vec<Event>>, ReplayError> {
+        self.check_start(engine)?;
+        let mut all = Vec::new();
         for (index, record) in self.commands.iter().enumerate() {
-            let mut outcome = engine.submit(record.player, record.command.clone());
-            for answer in &record.answers {
-                outcome = engine.answer(answer.clone());
-            }
-            if !matches!(outcome, Outcome::Committed(_)) {
-                return Err(ReplayError::Diverged { index });
-            }
-            let got = engine.state().hash();
-            if got != record.state_hash {
-                let expected = record.state_hash;
-                return Err(ReplayError::HashMismatch {
-                    index,
-                    expected,
-                    got,
-                });
-            }
+            all.push(record.apply(engine, index)?);
             let done = index as u32 + 1;
+            let got = record.state_hash;
             let mut taken = self.snapshots.iter().filter(|s| s.command_index == done);
             if taken.any(|s| s.state.hash() != got) {
                 return Err(ReplayError::SnapshotMismatch { index: done });
             }
         }
+        Ok(all)
+    }
+
+    /// Checks that `engine` stands at the start of this setup.
+    pub fn check_start(&self, engine: &Engine<'_>) -> Result<(), ReplayError> {
+        let start = engine.state();
+        if start.command_index != 0 || *start.setup != self.setup {
+            return Err(ReplayError::WrongStart);
+        }
         Ok(())
+    }
+}
+
+impl ReplayRecord {
+    /// Submits this command and its answers to `engine`, which has committed `index` commands,
+    /// and checks the state hash. Returns the events it committed.
+    pub fn apply(&self, engine: &mut Engine<'_>, index: usize) -> Result<Vec<Event>, ReplayError> {
+        let mut outcome = engine.submit(self.player, self.command.clone());
+        for answer in &self.answers {
+            outcome = engine.answer(answer.clone());
+        }
+        let Outcome::Committed(events) = outcome else {
+            return Err(ReplayError::Diverged { index });
+        };
+        let got = engine.state().hash();
+        let expected = self.state_hash;
+        if got != expected {
+            return Err(ReplayError::HashMismatch {
+                index,
+                expected,
+                got,
+            });
+        }
+        Ok(events)
     }
 }

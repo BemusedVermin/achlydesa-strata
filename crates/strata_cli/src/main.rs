@@ -11,6 +11,7 @@ use miette::{IntoDiagnostic, MietteHandlerOpts, Result, WrapErr};
 mod lint;
 mod pack_test;
 mod package;
+mod replay;
 mod validate;
 
 /// Tools for Strata pack authors.
@@ -54,8 +55,9 @@ enum Command {
     Stats(Unimplemented),
     /// Run AI self-play for balance (not yet implemented).
     Sim(Unimplemented),
-    /// Verify, dump or convert replays (not yet implemented).
-    Replay(Unimplemented),
+    /// Verify, dump or turn a saved match into a test.
+    #[command(subcommand)]
+    Replay(ReplayCommand),
 }
 
 #[derive(Subcommand)]
@@ -74,6 +76,40 @@ enum PackCommand {
         /// Only run tests whose name contains this text.
         #[arg(long)]
         filter: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum ReplayCommand {
+    /// Replay every command and report the first state hash that differs.
+    Verify {
+        /// The replay file.
+        file: PathBuf,
+        /// Directories whose subdirectories are the packs the match used.
+        #[arg(long, required = true, num_args = 1..)]
+        packs: Vec<PathBuf>,
+    },
+    /// Print the setup, commands, answers and events as text.
+    Dump {
+        /// The replay file.
+        file: PathBuf,
+        /// Pack directories; with them, the events are included.
+        #[arg(long, num_args = 1..)]
+        packs: Vec<PathBuf>,
+    },
+    /// Write a pack test that starts after `--at` commands and expects the next one's outcome.
+    ToTest {
+        /// The replay file.
+        file: PathBuf,
+        /// Directories whose subdirectories are the packs the match used.
+        #[arg(long, required = true, num_args = 1..)]
+        packs: Vec<PathBuf>,
+        /// How many commands have been played; the test runs the command after them (from 0).
+        #[arg(long)]
+        at: usize,
+        /// Write the test here instead of printing it.
+        #[arg(long)]
+        out: Option<PathBuf>,
     },
 }
 
@@ -99,7 +135,7 @@ fn main() -> ExitCode {
         Command::Package { out, client, paths } => finish(package::run(&paths, &out, client)),
         Command::Stats(_) => unimplemented_command("stats"),
         Command::Sim(_) => unimplemented_command("sim"),
-        Command::Replay(_) => unimplemented_command("replay"),
+        Command::Replay(command) => finish(run_replay(command)),
     }
 }
 
@@ -143,4 +179,17 @@ fn write_stubs(out: &PathBuf) -> Result<()> {
             .wrap_err_with(|| format!("cannot write {}", path.display()))?;
     }
     Ok(())
+}
+
+fn run_replay(command: ReplayCommand) -> Result<()> {
+    match command {
+        ReplayCommand::Verify { file, packs } => replay::verify(&file, &packs),
+        ReplayCommand::Dump { file, packs } => replay::dump(&file, &packs),
+        ReplayCommand::ToTest {
+            file,
+            packs,
+            at,
+            out,
+        } => replay::to_test(&file, &packs, at, out.as_deref()),
+    }
 }

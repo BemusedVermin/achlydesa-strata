@@ -11,7 +11,8 @@ use strata_model::{
 
 use super::host::find;
 
-/// Builds the state a test starts from, for the ruleset `ruleset`.
+/// Builds the state a test starts from, for the ruleset `ruleset`. A placement with no spaces
+/// leaves its unit in reserve.
 pub(super) fn build(
     registry: &ContentRegistry,
     pack: &str,
@@ -37,7 +38,7 @@ pub(super) fn build(
         let (def_id, def) = find::<UnitDef>(registry, pack, name)
             .ok_or_else(|| format!("place: unknown unit `{name}`"))?;
         let wanted: usize = def.figures.iter().map(|f| usize::from(f.count)).sum();
-        if placement.at.len() != wanted {
+        if !placement.at.is_empty() && placement.at.len() != wanted {
             let got = placement.at.len();
             return Err(format!(
                 "place: `{name}` has {wanted} figures, but `at` has {got}"
@@ -57,20 +58,28 @@ pub(super) fn build(
         };
         let entries = def.figures.iter();
         let kinds = entries.flat_map(|f| std::iter::repeat_n(&f.id, usize::from(f.count)));
-        for (figure_name, space) in kinds.zip(&placement.at) {
+        for (nth, figure_name) in kinds.enumerate() {
+            let space = placement.at.get(nth).copied();
             let id = FigureId(state.figures.len() as u32);
-            if state.board_changes.occupancy.insert(*space, id).is_some() {
+            if let Some(space) = space
+                && state.board_changes.occupancy.insert(space, id).is_some()
+            {
                 return Err(format!("place: two figures share space {space:?}"));
             }
             unit_state.figures.push(id);
+            let status = if space.is_some() {
+                FigureStatus::OnBoard
+            } else {
+                FigureStatus::Reserve
+            };
             state.figures.push(FigureState {
                 unit,
                 def: FigureDefRef {
                     unit: def_id,
                     figure: figure_name.clone(),
                 },
-                location: Some(*space),
-                status: FigureStatus::OnBoard,
+                location: space,
+                status,
                 controller: placement.player,
                 ..FigureState::default()
             });

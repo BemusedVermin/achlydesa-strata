@@ -30,7 +30,7 @@ impl RulesetSource for Rulesets<'_> {
 }
 
 /// The figure an event is about, if it is about one.
-fn event_figure(event: &Event) -> Option<FigureId> {
+pub(super) fn event_figure(event: &Event) -> Option<FigureId> {
     match event {
         Event::FigureMoved { figure, .. }
         | Event::WoundsApplied { figure, .. }
@@ -50,7 +50,7 @@ fn settle(outcome: Outcome, what: &str) -> Result<Vec<Event>, String> {
     }
 }
 
-fn status_name(status: FigureStatus) -> &'static str {
+pub(super) fn status_name(status: FigureStatus) -> &'static str {
     match status {
         FigureStatus::Reserve => "reserve",
         FigureStatus::OnBoard => "on_board",
