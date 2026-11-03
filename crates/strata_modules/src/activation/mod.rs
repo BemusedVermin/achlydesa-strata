@@ -130,6 +130,9 @@ impl CommandHandler for Activate {
         if ctx.state().flow.active != player {
             return Err(Halt::reject("it is not your turn"));
         }
+        if !ctx.may_activate(player, *unit) {
+            return Err(Halt::reject("that unit may not be activated now"));
+        }
         self.0.begin(ctx, player, *unit)
     }
 }

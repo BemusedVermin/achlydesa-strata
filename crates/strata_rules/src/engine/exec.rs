@@ -5,13 +5,14 @@ use std::collections::BTreeSet;
 use strata_kernel::{CommandRng, ModuleId, Sym, Value, WindowId};
 use strata_model::{
     Answer, Command, Decision, DecisionKind, Event, GameState, PlayerId, SeedSource, TriggerLimit,
-    VarKey,
+    UnitId, VarKey,
 };
 
 use super::ctx::Ctx;
 use super::halt::Halt;
 use super::hooks::HookRunner;
 use super::names::{affected_player, answer_fits, command_kind, event_kind, is_kind};
+use crate::flow::ActivationGate;
 use crate::native::native_name;
 use crate::runtime::RulesRuntime;
 
@@ -234,6 +235,11 @@ fn limit_key(index: usize) -> VarKey {
 impl Ctx for Exec<'_> {
     fn state(&self) -> &GameState {
         &self.state
+    }
+
+    fn may_activate(&self, player: PlayerId, unit: UnitId) -> bool {
+        let gate = self.rt.service::<dyn ActivationGate>();
+        gate.is_none_or(|g| g.may_activate(&self.state, player, unit))
     }
 
     fn rng(&mut self) -> &mut CommandRng {
