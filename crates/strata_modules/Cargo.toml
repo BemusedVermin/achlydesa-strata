@@ -10,3 +10,6 @@ publish = false
 strata_kernel = { path = "../strata_kernel" }
 strata_model = { path = "../strata_model" }
 strata_rules = { path = "../strata_rules" }
+
+[dev-dependencies]
+proptest = "1"

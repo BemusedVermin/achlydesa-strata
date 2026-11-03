@@ -2,19 +2,19 @@
 //! and rigged dice.
 
 use std::collections::BTreeMap;
-use std::sync::{Mutex, OnceLock, Weak};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use strata_content::ContentRegistry;
-use strata_kernel::{DefId, Space, Sym, Value};
+use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::{BoardDefs, CompiledBoard};
 use strata_model::{
-    Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus, GameState, MarkerDef,
-    PlayerId, StatDef, TerrainDef, TileDef, UnitDef,
+    Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus, FootprintDef, GameState,
+    MarkerDef, PlayerId, StatDef, TerrainDef, TileDef, UnitDef,
 };
 use strata_rules::{
-    Ctx, EvalCtx, Halt, LogicError, LogicEvaluator, Logics, NativeEvaluator, QueryEngine,
-    SourcedModifier, StatBounds, StatQuery, World,
+    Ctx, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics, LosWorld,
+    NativeEvaluator, QueryEngine, SourcedModifier, StatBounds, StatQuery, World,
 };
 
 /// The definition called `name`: as written, then in `pack`, then in any pack.
@@ -64,6 +64,7 @@ pub(crate) struct Host {
     modifiers: Vec<SourcedModifier>,
     bounds: BTreeMap<Sym, StatBounds>,
     board: Option<CompiledBoard>,
+    los: Option<Arc<dyn LineOfSight>>,
     rig: Mutex<Rig>,
     /// Set once the rules exist, because the rules hold this host.
     pub(crate) rules: OnceLock<Weak<LuaRules>>,
@@ -87,9 +88,16 @@ impl Host {
             modifiers,
             bounds: bounds.collect(),
             board,
+            los: None,
             rig: Mutex::default(),
             rules: OnceLock::new(),
         }
+    }
+
+    /// Answers `in_los` selectors with the ruleset's line-of-sight service.
+    pub(crate) fn with_los(mut self, los: Option<Arc<dyn LineOfSight>>) -> Self {
+        self.los = los;
+        self
     }
 
     /// Forces the dice of the next command and counts its rolls from the first.
@@ -275,5 +283,56 @@ impl World for StateWorld<'_> {
 
     fn phase(&self) -> Sym {
         Sym::default()
+    }
+
+    fn in_los(&self, from: FigureId, to: FigureId) -> Result<bool, LogicError> {
+        let service = self.host.los.as_ref();
+        let service =
+            service.ok_or_else(|| LogicError("the ruleset has no `los` module".into()))?;
+        let world = StateLos {
+            host: self.host,
+            state: self.state,
+        };
+        service.query(&world, from, to).map(|seen| seen.visible)
+    }
+}
+
+/// The board and figure volumes line of sight reads: the state, with footprints and profiles
+/// from the registry.
+struct StateLos<'a> {
+    host: &'a Host,
+    state: &'a GameState,
+}
+
+impl LosWorld for StateLos<'_> {
+    fn blockers(&self, hex: Hex) -> &[Blocker] {
+        self.host.board.as_ref().map_or(&[], |b| b.blockers(hex))
+    }
+
+    fn figures(&self) -> Vec<FigureId> {
+        let all = (0u32..).zip(&self.state.figures);
+        let on_board = all.filter(|(_, f)| f.status == FigureStatus::OnBoard);
+        on_board.map(|(id, _)| FigureId(id)).collect()
+    }
+
+    fn volume(&self, figure: FigureId) -> Option<FigureVolume> {
+        let fig = self.state.figures.get(figure.index())?;
+        let at = fig
+            .location
+            .filter(|_| fig.status == FigureStatus::OnBoard)?;
+        let registry = &self.host.registry;
+        let unit = registry.get::<UnitDef>(fig.def.unit)?;
+        let entry = unit.figures.iter().find(|f| f.id == fig.def.figure)?;
+        let footprint = registry.get::<FootprintDef>(entry.footprint)?;
+        let shape = footprint.cells.rotated(fig.rotation).translated(at.hex());
+        let floor = i64::from(at.z) * SUB_LEVELS;
+        let height = |sub: u16| floor + i64::from(sub);
+        Some(FigureVolume {
+            anchor: at.hex(),
+            cells: shape.cells().to_vec(),
+            target: height(entry.los.target),
+            bottom: height(entry.los.hit_zone.0),
+            top: height(entry.los.hit_zone.1),
+        })
     }
 }
