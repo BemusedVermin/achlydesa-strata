@@ -43,6 +43,12 @@ function Roll:sum() end
 --- The face each die landed on.
 ---@return (string|integer)[]
 function Roll:faces() end
+--- Asks `chooser` whether to replace the die at `index` (one-based). If they agree, one new die
+--- is rolled and takes its place. Returns the resulting roll, or this one if they decline.
+---@param chooser integer
+---@param index integer
+---@return strata.Roll
+function Roll:reroll(chooser, index) end
 
 ---@class strata.Dice
 local Dice = {}
@@ -51,6 +57,12 @@ local Dice = {}
 ---@param n integer
 ---@return strata.Roll
 function Dice.roll(die, n) end
+--- Rolls `die` as many times as `figure`'s `stat` says, modifiers included.
+---@param die string
+---@param figure integer
+---@param stat string
+---@return strata.Roll
+function Dice.pool(die, figure, stat) end
 
 ---@class strata.Choice
 ---@field chooser integer The player who answers.
