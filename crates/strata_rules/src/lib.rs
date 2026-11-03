@@ -27,7 +27,7 @@ pub use flow::{
     ActionRunner, ActivationRules, Flow, FlowError, OrderingPolicy, PhaseTree, ROOT, take_action,
 };
 pub use module::{ModuleError, RuleModule};
-pub use native::{NativeLogic, native_name};
+pub use native::{MAX_POOL, NativeEnv, NativeLogic, NoEnv, Roll, native_name, roll_pool};
 pub use query::{
     EvalCtx, LogicError, LogicEvaluator, Logics, Query, QueryEngine, QueryError, QueryTrace,
     ScriptCaller, SourcedModifier, StatBounds, StatQuery, TraceStep, VoteQuery,

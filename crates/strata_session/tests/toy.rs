@@ -27,8 +27,8 @@ fn report<'a>(reports: &'a [TestReport], ruleset: &str, what: &str) -> &'a TestR
 /// What each test checks, which both rulesets run.
 const TESTS: [&str; 4] = [
     "units carry their stats",
-    "an attack rolls both pools and tallies wounds",
-    "an empty pool still rolls and records zero",
+    "the soldier attacks with its attack stat",
+    "the archer attacks with its attack stat",
     "wounds accumulate over two attacks",
 ];
 
@@ -56,16 +56,27 @@ fn both_rulesets_commit_identical_event_logs() {
 }
 
 #[test]
-fn the_event_logs_show_the_combat_slot_ran() {
+fn pool_sizes_come_from_stats_and_the_tally_from_the_dice() {
     let reports = run();
     for ruleset in ["toy_rust", "toy_lua"] {
         let log = &report(&reports, ruleset, TESTS[1]).events;
-        let rolled = log.iter().filter(|e| matches!(e, Event::DiceRolled { .. }));
-        assert_eq!(rolled.count(), 2, "{ruleset}: one roll per pool");
-        let wounded = log.iter().any(
-            |e| matches!(e, Event::VarSet { value, .. } if value.as_int().is_ok_and(|n| n > 0)),
-        );
-        assert!(wounded, "{ruleset}: twelve dice against none must wound");
+        let pools: Vec<&Vec<u32>> = log
+            .iter()
+            .filter_map(|e| match e {
+                Event::DiceRolled { results, .. } => Some(results),
+                _ => None,
+            })
+            .collect();
+        // The soldier attacks (3) and the archer defends (1).
+        let sizes: Vec<usize> = pools.iter().map(|p| p.len()).collect();
+        assert_eq!(sizes, [3, 1], "{ruleset}");
+        let hits = pools[0].iter().filter(|r| **r <= 3).count();
+        let blocks = pools[1].iter().filter(|r| (4..=5).contains(*r)).count();
+        let tally = log.iter().find_map(|e| match e {
+            Event::VarSet { value, .. } => value.as_int().ok(),
+            _ => None,
+        });
+        assert_eq!(tally, Some(hits.saturating_sub(blocks) as i64), "{ruleset}");
     }
 }
 

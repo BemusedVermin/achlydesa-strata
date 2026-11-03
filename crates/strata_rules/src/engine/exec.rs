@@ -180,7 +180,7 @@ impl<'a> Exec<'a> {
         if let Some(name) = native_name(&def.effect) {
             let logic = rt.native(name);
             let logic = logic.ok_or_else(|| Halt::reject(format!("no native logic `{name}`")))?;
-            return logic.run(self, &queued.event);
+            return logic.run(self, hooks.env(), &queued.event);
         }
         hooks.fire(def, &queued.event, self)
     }
