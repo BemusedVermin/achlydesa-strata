@@ -16,6 +16,9 @@ pub enum SessionError {
     /// A controller offered a command or answer the rules refused.
     #[error("rejected: {0}")]
     Rejected(RuleViolation),
+    /// The match could not be started.
+    #[error("cannot start the match: {0}")]
+    Launch(String),
     /// A controller gave up because the match was shut down.
     #[error("the match was stopped")]
     Stopped,
