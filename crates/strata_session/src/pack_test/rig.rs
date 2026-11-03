@@ -5,24 +5,12 @@ use std::sync::Arc;
 use strata_kernel::Sym;
 use strata_lua::{LuaRules, ModuleBinding};
 use strata_model::{GameState, MatchSetup, RuleModuleDef, RulesetDef, ScenarioDef};
-use strata_rules::{Engine, LineOfSight, RulesRuntime, RulesetSource, SourcedModifier, resolve};
+use strata_rules::{Engine, LineOfSight, RulesRuntime, SourcedModifier, resolve};
 
 use super::PackTests;
-use super::host::{Host, find};
+use super::host::Host;
+use super::run::Rulesets;
 use crate::setup::{SetupError, build_match};
-
-/// Finds rulesets by name, preferring one pack.
-struct Rulesets<'a> {
-    tests: &'a PackTests,
-    pack: &'a str,
-}
-
-impl RulesetSource for Rulesets<'_> {
-    fn ruleset(&self, name: &str) -> Option<&RulesetDef> {
-        let found = find::<RulesetDef>(&self.tests.registry, self.pack, name);
-        found.map(|(_, def)| def)
-    }
-}
 
 /// The rules of a setup's ruleset, running against the match it builds.
 pub struct MatchRig {

@@ -15,11 +15,10 @@ use strata_rules::{
 use super::host::{Host, RegistryDefs, find};
 use super::report::Failure;
 use super::{PackTests, state};
-
-/// Finds a test's rulesets by name, preferring its own pack.
-struct Rulesets<'a> {
-    tests: &'a PackTests,
-    pack: &'a str,
+n/// Finds a test's rulesets by name, preferring its own pack.
+pub(super) struct Rulesets<'a> {
+    pub(super) tests: &'a PackTests,
+    pub(super) pack: &'a str,
 }
 
 impl RulesetSource for Rulesets<'_> {
