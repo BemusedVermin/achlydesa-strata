@@ -21,7 +21,7 @@ Closes #<!-- issue number -->
 ## Checklist
 
 - [ ] `cargo fmt`, `cargo clippy -D warnings` and `cargo test --workspace` pass locally
-- [ ] `python3 scripts/line_budget.py --base origin/master` passes (core logic ≤ 500 added lines)
+- [ ] `python scripts/line_budget.py --base origin/master` passes (core logic ≤ 500 added lines)
 - [ ] Unit tests live in separate `tests.rs` files, not inline modules
 - [ ] No floats, `HashMap`/`HashSet`, clocks or `rand` in core crates
 - [ ] Public items documented

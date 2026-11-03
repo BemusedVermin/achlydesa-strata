@@ -25,7 +25,7 @@ If something is ambiguous, do not guess on design decisions. Comment on the issu
    cargo fmt --all
    cargo clippy --workspace --all-targets --locked -- -D warnings
    cargo test --workspace --locked
-   python3 scripts/line_budget.py --base origin/master
+   python scripts/line_budget.py --base origin/master
    ```
 6. Open a PR to `master` titled `T-NNN: <issue title>`, fill in the PR template, and include `Closes #<issue number>`.
 7. Address every comment from the automated review: fix it, or reply explaining why not. Then leave the PR for Liam.
