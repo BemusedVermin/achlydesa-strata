@@ -4,6 +4,7 @@
 #![deny(clippy::float_arithmetic)]
 #![warn(missing_docs)]
 
+pub mod activation;
 pub mod los;
 pub mod rounds;
 pub mod tokens;
@@ -21,5 +22,6 @@ pub fn native_modules() -> Vec<Box<dyn RuleModule>> {
         Box::new(rounds::Rounds),
         Box::new(tokens::CommandTokens),
         Box::new(los::Los),
+        Box::new(activation::Activation),
     ]
 }

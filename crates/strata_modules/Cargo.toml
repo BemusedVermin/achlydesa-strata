@@ -13,3 +13,4 @@ strata_rules = { path = "../strata_rules" }
 
 [dev-dependencies]
 proptest = "1"
+serde_json = "1"
