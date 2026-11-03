@@ -9,6 +9,7 @@ use strata_model::{ModuleRef, RulesetDef};
 use crate::catalog::ModuleCatalog;
 use crate::config::ConfigError;
 use crate::module::{ModuleError, RuleModule};
+use crate::native::native_name;
 use crate::registrar::Registrar;
 use crate::runtime::RulesRuntime;
 use crate::slots;
@@ -106,6 +107,16 @@ pub enum ResolveError {
         site: Box<Site>,
         /// The module's error.
         source: ModuleError,
+    },
+    /// A trigger's effect names native logic that no module provides.
+    #[error(
+        "ruleset `{ruleset}`: a trigger runs native logic `{native}`, which no module provides"
+    )]
+    UnknownNative {
+        /// The ruleset being resolved.
+        ruleset: String,
+        /// The missing native logic.
+        native: String,
     },
     /// The module registered something another module already provides.
     #[error("{site}: {what}")]
@@ -223,6 +234,16 @@ pub fn resolve(
             });
         }
         configs.push((e.mref.id.clone(), cfg));
+    }
+
+    let wanted = reg.triggers.iter().filter_map(|t| native_name(&t.effect));
+    for native in wanted {
+        if !reg.natives.contains_key(native) {
+            return Err(ResolveError::UnknownNative {
+                ruleset: name.to_owned(),
+                native: native.to_owned(),
+            });
+        }
     }
 
     Ok(RulesRuntime {

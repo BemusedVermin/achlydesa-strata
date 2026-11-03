@@ -10,6 +10,7 @@ pub mod descriptor;
 pub mod engine;
 pub mod flow;
 pub mod module;
+pub mod native;
 pub mod query;
 pub mod registrar;
 pub mod resolve;
@@ -26,6 +27,7 @@ pub use flow::{
     ActionRunner, ActivationRules, Flow, FlowError, OrderingPolicy, PhaseTree, ROOT, take_action,
 };
 pub use module::{ModuleError, RuleModule};
+pub use native::{NativeLogic, native_name};
 pub use query::{
     EvalCtx, LogicError, LogicEvaluator, Logics, Query, QueryEngine, QueryError, QueryTrace,
     ScriptCaller, SourcedModifier, StatBounds, StatQuery, TraceStep, VoteQuery,

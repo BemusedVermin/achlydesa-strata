@@ -9,6 +9,7 @@ use strata_model::{
 };
 
 use crate::engine::{Ctx, Halt};
+use crate::native::NativeLogic;
 
 /// A node in the phase tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -62,6 +63,7 @@ pub struct Registrar {
     pub(crate) windows: Vec<WindowId>,
     pub(crate) services: BTreeMap<TypeId, Box<dyn Any + Send + Sync>>,
     pub(crate) lua_apis: BTreeMap<Sym, LuaApi>,
+    pub(crate) natives: BTreeMap<Sym, Box<dyn NativeLogic>>,
     conflicts: Vec<String>,
 }
 
@@ -130,6 +132,14 @@ impl Registrar {
         if self.lua_apis.insert(Sym::new(namespace), api).is_some() {
             self.conflicts
                 .push(format!("Lua namespace `{namespace}` is already exported"));
+        }
+    }
+
+    /// Provides Rust logic that triggers run through `{ native = "<name>" }`. Names are unique.
+    pub fn native(&mut self, name: &str, logic: Box<dyn NativeLogic>) {
+        if self.natives.insert(Sym::new(name), logic).is_some() {
+            self.conflicts
+                .push(format!("native logic `{name}` is already provided"));
         }
     }
 
