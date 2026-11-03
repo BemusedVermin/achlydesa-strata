@@ -200,6 +200,7 @@ pub fn resolve(
     }
 
     let mut reg = Registrar::default();
+    let mut configs = Vec::new();
     for e in &entries {
         let cfg = e
             .module
@@ -221,6 +222,7 @@ pub fn resolve(
                 what,
             });
         }
+        configs.push((e.mref.id.clone(), cfg));
     }
 
     Ok(RulesRuntime {
@@ -233,6 +235,7 @@ pub fn resolve(
             .filter(|e| e.slot.is_none())
             .map(|e| e.mref.id.clone())
             .collect(),
+        configs,
         reg,
     })
 }

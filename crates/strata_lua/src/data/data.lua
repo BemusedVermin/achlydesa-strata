@@ -19,6 +19,21 @@ function data.each(kind, filter)
   end
 end
 
+-- Step constructors for `test { steps = { ... } }` (design 16.4). They return plain data.
+globals.act = {
+  command = function(player, id, payload)
+    return { Custom = { player = player, id = id, payload = payload } }
+  end,
+}
+globals.expect = {
+  stat = function(figure, stat, value)
+    return { ExpectStat = { figure = figure, stat = stat, value = value } }
+  end,
+  event = function(kind)
+    return { ExpectEvent = { kind = kind } }
+  end,
+}
+
 function globals.pairs(t)
   if t == data then
     error("cannot iterate `data` with pairs; use data.each(kind, filter)", 2)

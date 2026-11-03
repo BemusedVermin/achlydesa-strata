@@ -3,7 +3,7 @@
 use std::any::TypeId;
 use std::collections::BTreeMap;
 
-use strata_kernel::{ModuleId, SlotId, Sym, WindowId};
+use strata_kernel::{ModuleId, SlotId, Sym, Value, WindowId};
 use strata_model::{ActionDef, ModifierDef, ReactionDef, ReplacementDef, TriggerDef};
 
 use crate::registrar::{Anchor, CommandHandler, LuaApi, PhaseDef, Registrar, Service};
@@ -12,6 +12,7 @@ use crate::registrar::{Anchor, CommandHandler, LuaApi, PhaseDef, Registrar, Serv
 pub struct RulesRuntime {
     pub(crate) slots: BTreeMap<SlotId, ModuleId>,
     pub(crate) addons: Vec<ModuleId>,
+    pub(crate) configs: Vec<(ModuleId, Value)>,
     pub(crate) reg: Registrar,
 }
 
@@ -24,6 +25,11 @@ impl RulesRuntime {
     /// Active slot modules in slot order.
     pub fn slot_modules(&self) -> impl Iterator<Item = (&SlotId, &ModuleId)> {
         self.slots.iter()
+    }
+
+    /// Each active module with the configuration it was registered with, in registration order.
+    pub fn configs(&self) -> &[(ModuleId, Value)] {
+        &self.configs
     }
 
     /// Active add-on modules in registration order.

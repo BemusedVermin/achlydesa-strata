@@ -15,6 +15,7 @@ pub mod event;
 pub mod footprint;
 pub mod ids;
 pub mod map;
+pub mod pack_test;
 pub mod relic;
 pub mod ruleset;
 pub mod scenario;
@@ -34,6 +35,7 @@ pub use event::{Event, Visibility};
 pub use footprint::{FootprintDef, MoveMode};
 pub use ids::{FigureId, PlayerId, RelicId, UnitId, VarKey};
 pub use map::{InventoryDef, MapConstraints, MapDef, PlacedFeature, PlacedPiece};
+pub use pack_test::{Placement, Step};
 pub use relic::{RelicDef, RelicGrant, RelicMode};
 pub use ruleset::{ConfigField, ModuleRef, RuleModuleDef, RulesetDef, UndoPolicy};
 pub use scenario::{

@@ -7,5 +7,14 @@ license.workspace = true
 publish = false
 
 [dependencies]
+strata_kernel = { path = "../strata_kernel" }
+strata_model = { path = "../strata_model" }
+strata_rules = { path = "../strata_rules" }
+strata_lua = { path = "../strata_lua" }
 strata_content = { path = "../strata_content" }
 strata_modules = { path = "../strata_modules" }
+thiserror = "2"
+
+[dev-dependencies]
+insta = "1"
+tempfile = "3"

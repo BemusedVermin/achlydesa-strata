@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use strata_kernel::{DefId, PackId, StableHash, Sym, Value};
 
 use crate::ability::{Logic, ScriptRef};
+use crate::pack_test::{Placement, Step};
 use crate::ruleset::ModuleRef;
 use crate::vocab::{SourceLoc, Text};
 
@@ -155,7 +156,7 @@ pub struct ArmyList {
     pub units: Vec<ArmyEntry>,
 }
 
-/// A pack test; the harness fields arrive with the test runner.
+/// A pack test: a ruleset and map, figures placed on it, and the steps that check the rules.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 #[serde(deny_unknown_fields)]
 pub struct TestDef {
@@ -167,6 +168,12 @@ pub struct TestDef {
     /// Name of the map.
     #[serde(default)]
     pub map: Option<Sym>,
+    /// Figures put on the board before the first step.
+    #[serde(default)]
+    pub place: Vec<Placement>,
+    /// What the test does and checks, in order.
+    #[serde(default)]
+    pub steps: Vec<Step>,
     /// Where the definition was authored.
     #[serde(default)]
     pub source: SourceLoc,

@@ -3,3 +3,5 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::float_arithmetic)]
 #![warn(missing_docs)]
+
+pub mod pack_test;
