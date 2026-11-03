@@ -11,8 +11,9 @@ use strata_model::{
 };
 use strata_modules::activation::{Activation, GRANT_SLOT};
 use strata_rules::{
-    ActivationRules, CommandHandler, ConfigSchema, Ctx, Engine, Halt, HookRunner, ModuleCatalog,
-    ModuleError, OrderingPolicy, Outcome, Registrar, RuleModule, RulesRuntime, resolve,
+    ActivationGate, ActivationRules, CommandHandler, ConfigSchema, Ctx, Engine, Halt, HookRunner,
+    ModuleCatalog, ModuleError, OrderingPolicy, Outcome, Registrar, RuleModule, RulesRuntime,
+    resolve,
 };
 
 fn sym(s: &str) -> Sym {
@@ -70,7 +71,16 @@ impl CommandHandler for Grant {
     }
 }
 
-struct Harness(ActivationRules);
+/// Refuses to activate unit 0, as a token gate would for a unit without the turn's token.
+struct Deny;
+
+impl ActivationGate for Deny {
+    fn may_activate(&self, _: &GameState, _: PlayerId, unit: UnitId) -> bool {
+        unit != UnitId(0)
+    }
+}
+
+struct Harness(ActivationRules, bool);
 
 impl RuleModule for Harness {
     fn id(&self) -> ModuleId {
@@ -93,6 +103,9 @@ impl RuleModule for Harness {
     fn register(&self, r: &mut Registrar, _: &Value) -> Result<(), ModuleError> {
         r.command(Spend(self.0.clone()));
         r.command(Grant);
+        if self.1 {
+            r.service::<dyn ActivationGate>(Box::new(Deny));
+        }
         Ok(())
     }
 }
@@ -126,6 +139,10 @@ impl HookRunner for NoHooks {
 }
 
 fn runtime(all_figures: bool) -> RulesRuntime {
+    build(all_figures, false)
+}
+
+fn build(all_figures: bool, gated: bool) -> RulesRuntime {
     let config = json!({ "all_figures_per_step": { "Bool": all_figures } });
     let body = json!({
         "id": 0,
@@ -136,7 +153,7 @@ fn runtime(all_figures: bool) -> RulesRuntime {
         [(sym("rs"), serde_json::from_value(body).unwrap())].into();
     let mut catalog = ModuleCatalog::default();
     catalog.register(Box::new(Activation)).unwrap();
-    let harness = Harness(rules(all_figures));
+    let harness = Harness(rules(all_figures), gated);
     catalog.register(Box::new(harness)).unwrap();
     resolve("rs", &sets, &catalog).unwrap()
 }
@@ -309,4 +326,30 @@ fn the_same_commands_twice_give_the_same_hashes() {
         hashes.collect::<Vec<_>>()
     };
     assert_eq!(play(), play());
+}
+
+fn two_units_for_player_zero() -> GameState {
+    let mut state = state();
+    state.units[1].owner = PlayerId(0);
+    state.figures[2].controller = PlayerId(0);
+    state
+}
+
+#[test]
+fn a_gate_refuses_a_submitted_activation_not_only_a_listed_one() {
+    let rt = build(true, true);
+    let mut engine = Engine::new(&rt, &NoHooks, two_units_for_player_zero());
+    let p0 = PlayerId(0);
+    // Unit 0 is gated off; the command is refused and nothing changes.
+    refused(engine.submit(p0, Command::ActivateUnit(UnitId(0))));
+    assert!(engine.state().flow.activation.is_none());
+    assert!(engine.log().is_empty());
+    ok(engine.submit(p0, Command::ActivateUnit(UnitId(1))));
+}
+
+#[test]
+fn without_a_gate_every_own_unit_may_be_activated() {
+    let rt = build(true, false);
+    let mut engine = Engine::new(&rt, &NoHooks, two_units_for_player_zero());
+    ok(engine.submit(PlayerId(0), Command::ActivateUnit(UnitId(0))));
 }
