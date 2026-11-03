@@ -7,4 +7,6 @@ license.workspace = true
 publish = false
 
 [dependencies]
+strata_kernel = { path = "../strata_kernel" }
+strata_model = { path = "../strata_model" }
 strata_rules = { path = "../strata_rules" }

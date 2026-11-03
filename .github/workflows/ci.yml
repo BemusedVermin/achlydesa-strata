@@ -81,6 +81,10 @@ jobs:
         if: steps.ws.outputs.present == 'true'
         run: cargo test --workspace --locked
 
+      - name: toy pack tests (Rust and Lua combat)
+        if: steps.ws.outputs.present == 'true'
+        run: cargo run --locked -p strata_cli -- pack test fixtures/packs/toy
+
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest

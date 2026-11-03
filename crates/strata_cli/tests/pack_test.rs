@@ -38,3 +38,20 @@ fn packs_that_do_not_load_exit_nonzero_with_a_message() {
     let err = text(&out.get_output().stderr);
     assert!(err.contains("no tests ran"), "{err}");
 }
+
+#[test]
+fn the_toy_pack_passes_for_both_combat_implementations() {
+    let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../fixtures/packs");
+    let out = Command::cargo_bin("strata")
+        .unwrap()
+        .current_dir(dir)
+        .args(["pack", "test", "toy"])
+        .assert()
+        .success();
+    let stdout = text(&out.get_output().stdout);
+    assert!(stdout.contains("8 passed, 0 failed"), "{stdout}");
+    assert!(
+        stdout.contains("toy_rust") && stdout.contains("toy_lua"),
+        "{stdout}"
+    );
+}

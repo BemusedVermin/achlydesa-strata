@@ -2,6 +2,8 @@
 
 use std::fmt;
 
+use strata_model::Event;
+
 /// Why a test failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Failure {
@@ -18,6 +20,8 @@ pub struct TestReport {
     pub name: String,
     /// `Ok` with the state hash after each committed command when every step passed.
     pub outcome: Result<Vec<u64>, Failure>,
+    /// Every event the test's commands committed, in order, up to the step that failed.
+    pub events: Vec<Event>,
 }
 
 impl fmt::Display for TestReport {

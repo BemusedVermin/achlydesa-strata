@@ -73,9 +73,14 @@ impl PackTests {
         let tests = self.registry.iter::<TestDef>();
         let wanted = |def: &TestDef| filter.is_none_or(|f| def.name.0.contains(f));
         let tests = tests.filter(|(_, _, def)| wanted(def));
-        let run = |(_, id, def): (_, &str, &TestDef)| TestReport {
-            name: def.name.0.clone(),
-            outcome: self.run_one(id, def),
+        let run = |(_, id, def): (_, &str, &TestDef)| {
+            let mut events = Vec::new();
+            let outcome = self.run_one(id, def, &mut events);
+            TestReport {
+                name: def.name.0.clone(),
+                outcome,
+                events,
+            }
         };
         tests.map(run).collect()
     }

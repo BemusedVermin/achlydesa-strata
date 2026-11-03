@@ -58,9 +58,15 @@ fn status_name(status: FigureStatus) -> &'static str {
 }
 
 impl PackTests {
-    /// Runs the test `id`, stopping at the first step that fails. On success, returns the state
+    /// Runs the test `id`, stopping at the first step that fails. Every committed command's
+    /// events are appended to `log`. On success, returns the state
     /// hash after each committed command.
-    pub(super) fn run_one(&self, id: &str, def: &TestDef) -> Result<Vec<u64>, Failure> {
+    pub(super) fn run_one(
+        &self,
+        id: &str,
+        def: &TestDef,
+        log: &mut Vec<Event>,
+    ) -> Result<Vec<u64>, Failure> {
         let setup = |message: String| Failure {
             step: None,
             message,
@@ -131,6 +137,7 @@ impl PackTests {
                         payload: payload.clone(),
                     };
                     events = settle(engine.submit(*player, command), id.as_str()).map_err(at)?;
+                    log.extend(events.iter().cloned());
                 }
                 Step::Action {
                     figure: handle,
@@ -150,10 +157,12 @@ impl PackTests {
                     };
                     let player = engine.state().figures[found.index()].controller;
                     events = settle(engine.submit(player, command), action.as_str()).map_err(at)?;
+                    log.extend(events.iter().cloned());
                 }
                 Step::Answer(answer) => {
                     host.rewind();
                     events = settle(engine.answer(answer.clone()), "answer").map_err(at)?;
+                    log.extend(events.iter().cloned());
                 }
                 Step::ExpectStat {
                     figure: handle,
