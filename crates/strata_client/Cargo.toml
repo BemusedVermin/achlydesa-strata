@@ -16,6 +16,19 @@ strata_content = { path = "../strata_content" }
 strata_session = { path = "../strata_session" }
 strata_ai = { path = "../strata_ai" }
 strata_editor = { path = "../strata_editor" }
+bevy = { version = "=0.20.1", default-features = false, features = [
+    "3d",
+    "default_app",
+    "std",
+    "bevy_winit",
+    "bevy_clipboard",
+    "default_font",
+    "multi_threaded",
+    "x11",
+    "wayland",
+] }
+bevy_egui = "=0.43.1"
+clap = { version = "4", features = ["derive"] }
 
 [[bin]]
 name = "strata-client"
