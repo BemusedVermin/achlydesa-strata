@@ -162,6 +162,23 @@ impl PackTests {
                     events = settle(outcome, "place_tokens").map_err(at)?;
                     log.extend(events.iter().cloned());
                 }
+                Step::Activate {
+                    player,
+                    figure: handle,
+                } => {
+                    let found = figure(handle).map_err(at)?;
+                    let unit = engine.state().figures[found.index()].unit;
+                    host.set_rig(Vec::new());
+                    let outcome = engine.submit(*player, Command::ActivateUnit(unit));
+                    events = settle(outcome, "activate_unit").map_err(at)?;
+                    log.extend(events.iter().cloned());
+                }
+                Step::EndActivation { player } => {
+                    host.set_rig(Vec::new());
+                    let outcome = engine.submit(*player, Command::EndActivation);
+                    events = settle(outcome, "end_activation").map_err(at)?;
+                    log.extend(events.iter().cloned());
+                }
                 Step::Action {
                     figure: handle,
                     action,
