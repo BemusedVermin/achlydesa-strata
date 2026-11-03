@@ -217,6 +217,10 @@ impl NativeEnv for LuaRules {
 }
 
 impl HookRunner for LuaRules {
+    fn action_runner(&self) -> Option<&dyn ActionRunner> {
+        Some(self)
+    }
+
     fn env(&self) -> &dyn NativeEnv {
         self
     }
