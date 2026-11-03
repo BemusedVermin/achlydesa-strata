@@ -1,7 +1,9 @@
 //! Running the `test {}` records of a pack set against a ruleset (design §16.4).
 
+mod export;
 pub(crate) mod host;
 mod report;
+mod rig;
 mod run;
 mod state;
 
@@ -13,7 +15,9 @@ use strata_lua::{Limits, LuaModule, PackSource};
 use strata_model::TestDef;
 use strata_rules::{ModuleCatalog, RuleModule};
 
+pub use export::ExportError;
 pub use report::{Failure, TestReport, summary};
+pub use rig::MatchRig;
 
 /// The packs could not be loaded, so no test ran.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]

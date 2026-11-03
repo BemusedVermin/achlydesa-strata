@@ -35,7 +35,7 @@ impl Controller for Toy {
 fn random_match(seed: u64, commands: u32) -> Vec<SimMessage> {
     let handle = SimHandle::spawn(move |link| {
         let tests = pack_tests();
-        let rig = Rig::new(&tests, setup(&tests));
+        let rig = Rig::new(&tests, setup(&tests)).unwrap();
         let seats: Vec<Box<dyn Controller>> = (0..2)
             .map(|seat| Box::new(Toy(RandomController::new(seed, seat))) as Box<dyn Controller>)
             .collect();
@@ -96,7 +96,7 @@ fn the_same_seed_gives_the_same_hash_sequence() {
 fn shutting_down_joins_a_thread_waiting_on_a_human() {
     let handle = SimHandle::spawn(|link| {
         let tests = pack_tests();
-        let rig = Rig::new(&tests, setup(&tests));
+        let rig = Rig::new(&tests, setup(&tests)).unwrap();
         let seats: Vec<Box<dyn Controller>> = vec![Box::new(link.human()), Box::new(link.human())];
         let mut session = Session::new(rig.engine(), seats);
         link.run(&mut session, PlayerId(0), 100);
@@ -111,7 +111,7 @@ fn shutting_down_joins_a_thread_waiting_on_a_human() {
 fn a_human_seat_plays_the_commands_the_client_sends() {
     let handle = SimHandle::spawn(|link| {
         let tests = pack_tests();
-        let rig = Rig::new(&tests, setup(&tests));
+        let rig = Rig::new(&tests, setup(&tests)).unwrap();
         let seats: Vec<Box<dyn Controller>> = vec![Box::new(link.human()), Box::new(link.human())];
         let mut session = Session::new(rig.engine(), seats);
         link.run(&mut session, PlayerId(0), 1);

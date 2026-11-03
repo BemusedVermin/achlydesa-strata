@@ -14,7 +14,7 @@ pub struct Placement {
     pub unit: Sym,
     /// The player who owns it.
     pub player: PlayerId,
-    /// One space per figure, in the order the unit lists its figures.
+    /// One space per figure, in the order the unit lists its figures; none leaves them in reserve. none leaves them in reserve.
     pub at: Vec<Space>,
 }
 
