@@ -189,3 +189,18 @@ fn pack_errors_are_returned_as_load_errors() {
     assert_eq!(errors.len(), 1);
     assert!(errors[0].to_string().contains("missing pack `missing`"));
 }
+
+#[test]
+fn a_pack_with_dice_loads_and_hashes() {
+    let base = format!(
+        "{BASE}\ndie {{ id = 'd6', name = 'D6', range = {{ 1, 6 }} }}\ndie {{ id = 'coin', name = 'Coin', faces = {{ 'heads', 'tails' }} }}"
+    );
+    let (_dir, roots) = fixture(&base, GAME);
+    let registry = load(&roots).expect("a pack with dice loads");
+    let (_, coin) = registry.find::<strata_model::DieDef>("base:coin").unwrap();
+    assert_eq!(
+        coin.kind,
+        strata_model::DieKind::Faces(vec!["heads".into(), "tails".into()])
+    );
+    assert_eq!(registry, load(&roots).unwrap());
+}

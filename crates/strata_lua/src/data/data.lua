@@ -21,16 +21,31 @@ end
 
 -- Step constructors for `test { steps = { ... } }` (design 16.4). They return plain data.
 globals.act = {
-  command = function(player, id, payload)
-    return { Custom = { player = player, id = id, payload = payload } }
+  command = function(player, id, payload, opts)
+    return { Custom = { player = player, id = id, payload = payload, rig = opts and opts.rig } }
   end,
+  action = function(figure, action, args, opts)
+    return { Action = { figure = figure, action = action, args = args, rig = opts and opts.rig } }
+  end,
+  answer = {
+    figure = function(id) return { Answer = { Figure = id } } end,
+    option = function(index) return { Answer = { Option = index } } end,
+    yes_no = function(yes) return { Answer = { YesNo = yes } } end,
+    number = function(n) return { Answer = { Number = n } } end,
+  },
 }
 globals.expect = {
   stat = function(figure, stat, value)
     return { ExpectStat = { figure = figure, stat = stat, value = value } }
   end,
-  event = function(kind)
-    return { ExpectEvent = { kind = kind } }
+  event = function(kind, fields)
+    return { ExpectEvent = { kind = kind, figure = fields and fields.figure } }
+  end,
+  figure = function(figure, status)
+    return { ExpectFigure = { figure = figure, status = status } }
+  end,
+  decision = function(prompt)
+    return { ExpectDecision = { prompt = prompt } }
   end,
 }
 

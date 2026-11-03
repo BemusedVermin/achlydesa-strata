@@ -1,0 +1,6 @@
+---
+source: crates/strata_cli/tests/pack_test.rs
+expression: text(&out.get_output().stdout)
+---
+PASS a soldier has its base defense
+1 passed, 0 failed

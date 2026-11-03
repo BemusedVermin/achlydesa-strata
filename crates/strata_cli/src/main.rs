@@ -9,6 +9,7 @@ use clap::{Args, Parser, Subcommand};
 use miette::{IntoDiagnostic, MietteHandlerOpts, Result, WrapErr};
 
 mod lint;
+mod pack_test;
 mod package;
 mod validate;
 
@@ -65,8 +66,15 @@ enum PackCommand {
         #[arg(required = true)]
         paths: Vec<PathBuf>,
     },
-    /// Run a pack's Lua tests (not yet implemented).
-    Test(Unimplemented),
+    /// Run the `test {}` records of the packs.
+    Test {
+        /// Directories whose subdirectories are packs.
+        #[arg(required = true)]
+        paths: Vec<PathBuf>,
+        /// Only run tests whose name contains this text.
+        #[arg(long)]
+        filter: Option<String>,
+    },
 }
 
 /// Arguments of a subcommand that does not exist yet.
@@ -83,7 +91,9 @@ fn main() -> ExitCode {
     }
     match cli.command {
         Command::Pack(PackCommand::Validate { paths }) => validate::run(&paths),
-        Command::Pack(PackCommand::Test(_)) => unimplemented_command("pack test"),
+        Command::Pack(PackCommand::Test { paths, filter }) => {
+            pack_test::run(&paths, filter.as_deref())
+        }
         Command::Stubs { out } => finish(write_stubs(&out)),
         Command::Lint { paths } => lint::run(&paths),
         Command::Package { out, client, paths } => finish(package::run(&paths, &out, client)),

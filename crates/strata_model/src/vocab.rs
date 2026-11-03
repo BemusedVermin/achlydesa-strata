@@ -2,7 +2,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde::{Deserialize, Serialize};
+use serde::ser::SerializeMap;
+use serde::{Deserialize, Serialize, Serializer};
 use strata_kernel::{DefId, StableHash, Sym, Value};
 
 /// Display text for names and descriptions.
@@ -60,7 +61,10 @@ pub enum DieKind {
 }
 
 /// A die.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+///
+/// It serializes by hand because `postcard`, which hashes pack content, cannot serialize the
+/// unknown-length map that a derived `Serialize` makes of the flattened `kind`.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, StableHash)]
 pub struct DieDef {
     /// The die's handle.
     pub id: DefId,
@@ -78,6 +82,22 @@ pub struct DieDef {
     /// Where the definition was authored.
     #[serde(default)]
     pub source: SourceLoc,
+}
+
+impl Serialize for DieDef {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut map = serializer.serialize_map(Some(6))?;
+        map.serialize_entry("id", &self.id)?;
+        map.serialize_entry("name", &self.name)?;
+        match &self.kind {
+            DieKind::Faces(faces) => map.serialize_entry("faces", faces)?,
+            DieKind::Range(low, high) => map.serialize_entry("range", &(low, high))?,
+        }
+        map.serialize_entry("tags", &self.tags)?;
+        map.serialize_entry("meta", &self.meta)?;
+        map.serialize_entry("source", &self.source)?;
+        map.end()
+    }
 }
 
 /// A marker such as a wound or a status.
