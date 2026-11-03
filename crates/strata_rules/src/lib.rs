@@ -27,12 +27,14 @@ pub use flow::{
     ActionRunner, ActivationRules, Flow, FlowError, OrderingPolicy, PhaseTree, ROOT, take_action,
 };
 pub use module::{ModuleError, RuleModule};
-pub use native::{MAX_POOL, NativeEnv, NativeLogic, NoEnv, Roll, native_name, roll_pool};
+pub use native::{
+    DicePool, MAX_POOL, NativeEnv, NativeLogic, NoEnv, Roll, native_name, reroll, roll_pool,
+};
 pub use query::{
     EvalCtx, LogicError, LogicEvaluator, Logics, Query, QueryEngine, QueryError, QueryTrace,
     ScriptCaller, SourcedModifier, StatBounds, StatQuery, TraceStep, VoteQuery,
 };
-pub use registrar::{Anchor, CommandHandler, LuaApi, PhaseDef, Registrar, Service};
+pub use registrar::{Anchor, ApiHandler, CommandHandler, LuaApi, PhaseDef, Registrar, Service};
 pub use resolve::{ResolveError, RulesetSource, Site, resolve};
 pub use runtime::RulesRuntime;
 

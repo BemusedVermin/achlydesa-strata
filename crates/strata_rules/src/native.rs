@@ -1,7 +1,10 @@
 //! Rust logic that a registered trigger runs in place of a Lua script.
 
 use strata_kernel::{DefId, Sym};
-use strata_model::{Descriptor, DieKind, Event, FigureId, GameState, Logic};
+use strata_model::{
+    Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureId, GameState, Logic,
+    PlayerId,
+};
 
 use crate::engine::{Ctx, Halt};
 use crate::query::LogicError;
@@ -26,6 +29,11 @@ pub trait NativeEnv: Send + Sync {
     fn stat(&self, state: &GameState, figure: FigureId, stat: &str) -> Result<i64, LogicError>;
     /// The definition ID and faces of the die called `name`.
     fn die(&self, name: &str) -> Option<(DefId, DieKind)>;
+    /// The definition ID of the marker called `name`, such as `wound`. `None` if there is none or
+    /// the environment cannot tell.
+    fn marker(&self, _name: &str) -> Option<DefId> {
+        None
+    }
     /// Results that replace the next roll of `count` dice named `die`, for tests that rig the
     /// dice, as in the script host. `None` leaves the roll to the command's random stream.
     fn forced_roll(&self, _die: &str, _count: usize) -> Option<Result<Vec<u32>, String>> {
@@ -97,6 +105,68 @@ pub fn roll_pool(ctx: &mut dyn Ctx, env: &dyn NativeEnv, name: &str, n: i64) -> 
         results: results.clone(),
     })?;
     Ok(Roll { results, faces })
+}
+
+/// A pool of one die whose size a stat query decides.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DicePool {
+    /// The die's name.
+    pub die: String,
+    /// How many dice to roll.
+    pub count: i64,
+}
+
+impl DicePool {
+    /// The pool of `die` as large as `figure`'s `stat`, modifiers included.
+    pub fn for_stat(
+        env: &dyn NativeEnv,
+        state: &GameState,
+        die: &str,
+        figure: FigureId,
+        stat: &str,
+    ) -> Result<Self, Halt> {
+        let count = env
+            .stat(state, figure, stat)
+            .map_err(|e| Halt::reject(e.to_string()))?;
+        Ok(Self {
+            die: die.to_owned(),
+            count,
+        })
+    }
+
+    /// Rolls the pool from the command's stream, emitting `DiceRolled`.
+    pub fn roll(&self, ctx: &mut dyn Ctx, env: &dyn NativeEnv) -> Result<Roll, Halt> {
+        roll_pool(ctx, env, &self.die, self.count)
+    }
+}
+
+/// Asks `chooser` whether to reroll the die at `index` of `roll`. If they agree, one replacement
+/// die is rolled (emitting `DiceRolled`) and takes the old result's place.
+pub fn reroll(
+    ctx: &mut dyn Ctx,
+    env: &dyn NativeEnv,
+    chooser: PlayerId,
+    die: &str,
+    roll: &Roll,
+    index: usize,
+) -> Result<Roll, Halt> {
+    if index >= roll.results.len() {
+        return Err(Halt::reject("reroll: no die at that index"));
+    }
+    let ask = Decision {
+        prompt: Sym::new("reroll"),
+        kind: DecisionKind::YesNo,
+    };
+    if ctx.choose(chooser, ask)? != Answer::YesNo(true) {
+        return Ok(roll.clone());
+    }
+    let replacement = roll_pool(ctx, env, die, 1)?;
+    let mut rerolled = roll.clone();
+    rerolled.results[index] = replacement.results[0];
+    if let Some(face) = rerolled.faces.get_mut(index) {
+        face.clone_from(&replacement.faces[0]);
+    }
+    Ok(rerolled)
 }
 
 /// The name in a `{ native = "<name>" }` descriptor, or `None` for any other logic.

@@ -2,12 +2,13 @@
 
 use std::any::TypeId;
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use strata_kernel::{ModuleId, SlotId, Sym, Value, WindowId};
 use strata_model::{ActionDef, ModifierDef, ReactionDef, ReplacementDef, TriggerDef};
 
 use crate::native::NativeLogic;
-use crate::registrar::{Anchor, CommandHandler, LuaApi, PhaseDef, Registrar, Service};
+use crate::registrar::{Anchor, ApiHandler, CommandHandler, LuaApi, PhaseDef, Registrar, Service};
 
 /// Every registration of a resolved ruleset. It is plain data shared by all threads.
 pub struct RulesRuntime {
@@ -92,6 +93,12 @@ impl RulesRuntime {
     /// Every exported namespace with its API, in name order.
     pub fn lua_apis(&self) -> impl Iterator<Item = (&Sym, &LuaApi)> {
         self.reg.lua_apis.iter()
+    }
+
+    /// The Rust handler behind `ctx.<namespace>`, for a namespace exported with
+    /// `Registrar::lua_api_native`.
+    pub fn api_handler(&self, namespace: &str) -> Option<Arc<dyn ApiHandler>> {
+        self.reg.api_handlers.get(namespace).cloned()
     }
 
     /// The API exported under `ctx.<namespace>`.

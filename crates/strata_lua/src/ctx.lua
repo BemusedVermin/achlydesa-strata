@@ -73,10 +73,31 @@ function Roll:faces()
   return copy
 end
 
+-- Asks `chooser` whether to replace the die at `index` (one-based). If they agree, one new die
+-- is rolled and takes its place. Returns the resulting roll, or this one if they decline.
+function Roll:reroll(chooser, index)
+  if index < 1 or index > #self._results then error("reroll: no die at that index", 2) end
+  if not call("choose", { chooser = chooser, prompt = "reroll", yes_no = true }) then
+    return self
+  end
+  local again = call("roll", { die = self._die, n = 1 })
+  local results, faces = {}, {}
+  for i, result in ipairs(self._results) do results[i] = result end
+  for i, face in ipairs(self._faces) do faces[i] = face end
+  results[index], faces[index] = again.results[1], again.faces[1]
+  return setmetatable({ _die = self._die, _results = results, _faces = faces }, Roll)
+end
+
+local function rolled(die, n)
+  local r = call("roll", { die = die, n = n })
+  return setmetatable({ _die = die, _results = r.results, _faces = r.faces }, Roll)
+end
+
 ctx.dice = {
-  roll = function(die, n)
-    local rolled = call("roll", { die = die, n = n })
-    return setmetatable({ _results = rolled.results, _faces = rolled.faces }, Roll)
+  roll = rolled,
+  -- Rolls `die` as many times as `figure`'s `stat` says, modifiers included.
+  pool = function(die, figure, stat)
+    return rolled(die, call("query", { name = "stat", args = { figure, stat } }))
   end,
 }
 
