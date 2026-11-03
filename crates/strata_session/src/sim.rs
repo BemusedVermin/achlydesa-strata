@@ -79,6 +79,11 @@ impl SimLink {
         self.send(SimMessage::Finished);
     }
 
+    /// Reports that the match could not run.
+    pub(crate) fn fail(&self, error: SessionError) {
+        self.send(SimMessage::Error(error));
+    }
+
     fn send(&self, message: SimMessage) -> bool {
         self.output.send(message).is_ok()
     }

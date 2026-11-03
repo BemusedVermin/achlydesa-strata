@@ -6,6 +6,7 @@
 
 pub mod controller;
 pub mod human;
+pub mod launch;
 pub mod pack_test;
 pub mod random;
 pub mod replay;
@@ -16,6 +17,7 @@ pub mod view;
 
 pub use controller::Controller;
 pub use human::HumanController;
+pub use launch::{LaunchSpec, launch};
 pub use random::RandomController;
 pub use replay::{Replay, ReplayError, ReplayRecord, SNAPSHOT_EVERY, Snapshot};
 pub use session::{Session, SessionError};
