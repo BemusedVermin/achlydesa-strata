@@ -4,14 +4,26 @@ expression: summary(&reports)
 ---
 FAIL bad handle (step 1): `p0.dummy` is not a figure handle like `p0.unit.figure#1`
 PASS a handle may leave out the figure name
+FAIL broken map (setup): piece 0 at Hex { q: 0, r: 0 } names unknown tile `ghost_tile`
+PASS rigged dice survive answering a decision
+PASS a destroyed figure is reported
 FAIL missing figure (step 1): no figure matches `p1.dummy#1`
+PASS a script selects enemies with a native descriptor
+FAIL answer without a decision (step 1): `answer` was rejected: no decision is pending
 FAIL no ruleset (setup): the test names no ruleset
 PASS a modifier raises a stat and a script reacts to an event
+FAIL short rig (step 1): `hit` was rejected: rigged 1 faces for a roll of 2
+FAIL unknown action (step 1): unknown action `nope`
 FAIL unknown command (step 1): `nope` was rejected: no handler for `nope`
+FAIL unknown face (step 1): `hit` was rejected: `d` has no face `seven`
 FAIL unknown map (setup): unknown map `nope`
 FAIL unknown ruleset (setup): ruleset `nope` does not exist
 FAIL unknown unit (setup): place: unknown unit `ghost`
 FAIL wrong figure count (setup): place: `soldier` has 2 figures, but `at` has 1
+FAIL wrong decision (step 2): decision: expected other, got Some("pick")
 FAIL wrong event (step 2): event `figure_destroyed`: expected it, got ["wounds_applied", "reacted"]
+FAIL wrong event figure (step 2): event `wounds_applied` for p0.soldier.f#2: expected it, got ["wounds_applied", "reacted"]
+FAIL wrong roll (step 3): event `lucky`: expected it, got ["wounds_applied", "dice_rolled"]
 FAIL wrong stat (step 2): p0.soldier.f#1 defense: expected 9, got 5
-2 passed, 10 failed
+FAIL wrong status (step 1): p0.dummy#1: expected destroyed, got on_board
+5 passed, 19 failed

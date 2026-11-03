@@ -56,6 +56,7 @@ pub(super) fn reference(kind: &str, route: &[String]) -> Option<(Site, &'static 
 const VALUES: &[(&str, &str)] = &[
     ("rule_module", "config/*/default"),
     ("test", "steps/*/Custom/payload"),
+    ("test", "steps/*/Action/args"),
 ];
 
 pub(super) fn is_value(kind: &str, route: &[String]) -> bool {

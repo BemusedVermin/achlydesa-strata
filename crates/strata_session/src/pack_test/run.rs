@@ -2,11 +2,15 @@
 
 use std::sync::Arc;
 
+use strata_kernel::DefId;
 use strata_lua::{LuaRules, ModuleBinding};
-use strata_model::{Command, Event, MapDef, RuleModuleDef, RulesetDef, Step, TestDef};
+use strata_model::board::compile;
+use strata_model::{
+    Command, Event, FigureId, FigureStatus, MapDef, RuleModuleDef, RulesetDef, Step, TestDef,
+};
 use strata_rules::{Engine, Outcome, RulesetSource, SourcedModifier, event_kind, resolve};
 
-use super::host::{Host, find};
+use super::host::{Host, RegistryDefs, find};
 use super::report::Failure;
 use super::{PackTests, state};
 
@@ -23,9 +27,40 @@ impl RulesetSource for Rulesets<'_> {
     }
 }
 
+/// The figure an event is about, if it is about one.
+fn event_figure(event: &Event) -> Option<FigureId> {
+    match event {
+        Event::FigureMoved { figure, .. }
+        | Event::WoundsApplied { figure, .. }
+        | Event::MarkerChanged { figure, .. }
+        | Event::ControlChanged { figure, .. }
+        | Event::FigureDestroyed(figure) => Some(*figure),
+        _ => None,
+    }
+}
+
+/// The events a command committed (none while it waits on a decision), or why it was refused.
+fn settle(outcome: Outcome, what: &str) -> Result<Vec<Event>, String> {
+    match outcome {
+        Outcome::Committed(events) => Ok(events),
+        Outcome::NeedsDecision { .. } => Ok(Vec::new()),
+        Outcome::Rejected(violation) => Err(format!("`{what}` was rejected: {violation}")),
+    }
+}
+
+fn status_name(status: FigureStatus) -> &'static str {
+    match status {
+        FigureStatus::Reserve => "reserve",
+        FigureStatus::OnBoard => "on_board",
+        FigureStatus::Destroyed => "destroyed",
+        FigureStatus::Removed => "removed",
+    }
+}
+
 impl PackTests {
-    /// Runs the test `id`, stopping at the first step that fails.
-    pub(super) fn run_one(&self, id: &str, def: &TestDef) -> Result<(), Failure> {
+    /// Runs the test `id`, stopping at the first step that fails. On success, returns the state
+    /// hash after each committed command.
+    pub(super) fn run_one(&self, id: &str, def: &TestDef) -> Result<Vec<u64>, Failure> {
         let setup = |message: String| Failure {
             step: None,
             message,
@@ -35,10 +70,18 @@ impl PackTests {
             .ruleset
             .as_ref()
             .ok_or_else(|| setup("the test names no ruleset".into()))?;
-        if let Some(map) = &def.map {
-            let found = find::<MapDef>(&self.registry, pack, map.as_str());
-            found.ok_or_else(|| setup(format!("unknown map `{map}`")))?;
-        }
+        let board = match &def.map {
+            Some(map) => {
+                let (_, found) = find::<MapDef>(&self.registry, pack, map.as_str())
+                    .ok_or_else(|| setup(format!("unknown map `{map}`")))?;
+                let defs = RegistryDefs {
+                    registry: &self.registry,
+                    pack,
+                };
+                Some(compile(found, &defs).map_err(|e| setup(e.to_string()))?)
+            }
+            None => None,
+        };
         let rulesets = Rulesets { tests: self, pack };
         let rt =
             resolve(name.as_str(), &rulesets, &self.catalog).map_err(|e| setup(e.to_string()))?;
@@ -51,7 +94,8 @@ impl PackTests {
             priority: 0,
             def: m.clone(),
         });
-        let host = Arc::new(Host::new(&self.registry, pack, modifiers.collect()));
+        let host = Host::new(&self.registry, pack, modifiers.collect(), board);
+        let host = Arc::new(host);
         let lua_modules = rt
             .configs()
             .iter()
@@ -73,50 +117,92 @@ impl PackTests {
                 step: Some(index + 1),
                 message,
             };
+            let figure = |handle: &str| state::figure(engine.state(), &self.registry, handle);
             match step {
                 Step::Custom {
                     player,
                     id,
                     payload,
+                    rig,
                 } => {
+                    host.set_rig(rig.clone());
                     let command = Command::Custom {
                         id: id.clone(),
                         payload: payload.clone(),
                     };
-                    match engine.submit(*player, command) {
-                        Outcome::Committed(emitted) => events = emitted,
-                        Outcome::NeedsDecision { decision, .. } => {
-                            return Err(at(format!(
-                                "`{id}` asked an unanswered {:?}",
-                                decision.kind
-                            )));
-                        }
-                        Outcome::Rejected(violation) => {
-                            return Err(at(format!("`{id}` was rejected: {violation}")));
-                        }
-                    }
+                    events = settle(engine.submit(*player, command), id.as_str()).map_err(at)?;
+                }
+                Step::Action {
+                    figure: handle,
+                    action,
+                    args,
+                    rig,
+                } => {
+                    let found = figure(handle).map_err(at)?;
+                    let position = rt.actions().iter().position(|a| a.id == *action);
+                    let position =
+                        position.ok_or_else(|| at(format!("unknown action `{action}`")))?;
+                    host.set_rig(rig.clone());
+                    let command = Command::Action {
+                        figure: found,
+                        action: DefId(position as u32),
+                        args: args.clone(),
+                    };
+                    let player = engine.state().figures[found.index()].controller;
+                    events = settle(engine.submit(player, command), action.as_str()).map_err(at)?;
+                }
+                Step::Answer(answer) => {
+                    host.rewind();
+                    events = settle(engine.answer(answer.clone()), "answer").map_err(at)?;
                 }
                 Step::ExpectStat {
-                    figure,
+                    figure: handle,
                     stat,
                     value,
                 } => {
-                    let found =
-                        state::figure(engine.state(), &self.registry, figure).map_err(at)?;
+                    let found = figure(handle).map_err(at)?;
                     let got = host.stat(engine.state(), found, stat.as_str());
                     let got = got.map_err(|e| at(e.to_string()))?;
                     if got != *value {
-                        return Err(at(format!("{figure} {stat}: expected {value}, got {got}")));
+                        return Err(at(format!("{handle} {stat}: expected {value}, got {got}")));
                     }
                 }
-                Step::ExpectEvent { kind } => {
-                    if !events.iter().any(|e| event_kind(e) == kind.as_str()) {
+                Step::ExpectEvent {
+                    kind,
+                    figure: handle,
+                } => {
+                    let about = handle.as_deref().map(figure).transpose().map_err(at)?;
+                    let hit = events.iter().any(|e| {
+                        event_kind(e) == kind.as_str()
+                            && about.is_none_or(|a| event_figure(e) == Some(a))
+                    });
+                    if !hit {
                         let got: Vec<&str> = events.iter().map(event_kind).collect();
-                        return Err(at(format!("event `{kind}`: expected it, got {got:?}")));
+                        let of = handle
+                            .as_deref()
+                            .map_or(String::new(), |h| format!(" for {h}"));
+                        return Err(at(format!("event `{kind}`{of}: expected it, got {got:?}")));
+                    }
+                }
+                Step::ExpectFigure {
+                    figure: handle,
+                    status,
+                } => {
+                    let found = figure(handle).map_err(at)?;
+                    let got = status_name(engine.state().figures[found.index()].status);
+                    if got != status.as_str() {
+                        return Err(at(format!("{handle}: expected {status}, got {got}")));
+                    }
+                }
+                Step::ExpectDecision { prompt } => {
+                    let pending = engine.state().pending.as_ref();
+                    let got = pending.map(|p| p.decision.prompt.as_str());
+                    if got != Some(prompt.as_str()) {
+                        return Err(at(format!("decision: expected {prompt}, got {got:?}")));
                     }
                 }
             }
         }
-        Ok(())
+        Ok(engine.log().iter().map(|r| r.state_hash).collect())
     }
 }

@@ -16,14 +16,14 @@ pub struct Failure {
 pub struct TestReport {
     /// The test's name.
     pub name: String,
-    /// `Ok` when every step passed.
-    pub outcome: Result<(), Failure>,
+    /// `Ok` with the state hash after each committed command when every step passed.
+    pub outcome: Result<Vec<u64>, Failure>,
 }
 
 impl fmt::Display for TestReport {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.outcome {
-            Ok(()) => write!(f, "PASS {}", self.name),
+            Ok(_) => write!(f, "PASS {}", self.name),
             Err(Failure { step, message }) => {
                 let at = step.map_or("setup".to_owned(), |s| format!("step {s}"));
                 write!(f, "FAIL {} ({at}): {message}", self.name)

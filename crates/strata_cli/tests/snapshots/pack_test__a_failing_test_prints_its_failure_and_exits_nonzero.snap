@@ -1,0 +1,7 @@
+---
+source: crates/strata_cli/tests/pack_test.rs
+expression: text(&out.get_output().stdout)
+---
+PASS a soldier has its base defense
+FAIL a soldier is expected to have the wrong defense (step 1): p0.soldier#1 defense: expected 7, got 4
+1 passed, 1 failed

@@ -40,6 +40,12 @@ pub trait RuleHost: Send + Sync {
         args: &[Value],
         ctx: &mut dyn Ctx,
     ) -> Result<Value, Halt>;
+    /// Results that replace the next roll of `count` dice named `die`, for tests that rig the
+    /// dice: one-based face numbers for a die with faces, the values themselves for a range.
+    /// `None` leaves the roll to the command's random stream.
+    fn forced_roll(&self, _die: &str, _count: usize) -> Option<Result<Vec<u32>, String>> {
+        None
+    }
     /// Receives `ctx.log` output. It must not affect the game.
     fn log(&self, _text: &str) {}
 }
@@ -188,7 +194,7 @@ impl<'a> Frame<'a> {
             .ok_or_else(|| Halt::reject(format!("unknown die `{name}`")))?;
         let count = n.as_int().ok().filter(|n| (0..=MAX_DICE).contains(n));
         let count = count.ok_or_else(|| Halt::reject("dice count must be 0..=1024"))?;
-        let results: Vec<u32> = (0..count)
+        let drawn: Vec<u32> = (0..count)
             .map(|_| match &kind {
                 DieKind::Faces(faces) => ctx.rng().roll(faces.len().max(1) as u32),
                 DieKind::Range(low, high) => {
@@ -197,6 +203,10 @@ impl<'a> Frame<'a> {
                 }
             })
             .collect();
+        let results = match self.host.forced_roll(name, drawn.len()) {
+            Some(forced) => forced.map_err(Halt::reject)?,
+            None => drawn,
+        };
         let faces = match &kind {
             DieKind::Faces(faces) => results
                 .iter()
