@@ -24,7 +24,8 @@ If something is ambiguous, do not guess on design decisions. Comment on the issu
    ```
    cargo fmt --all
    cargo clippy --workspace --all-targets --locked -- -D warnings
-   cargo test --workspace --locked
+   cargo test --locked                       # core crates (default members): fast
+   cargo test -p strata_client --locked      # only if the PR touches client or render code
    python scripts/line_budget.py --base origin/master
    ```
 6. Open a PR to `master` titled `T-NNN: <issue title>`, fill in the PR template, and include `Closes #<issue number>`.

@@ -6,6 +6,10 @@ rust-version.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+# Local iteration only: links Bevy dynamically. CI and release builds must not enable it.
+dev = ["bevy/dynamic_linking"]
+
 [dependencies]
 strata_kernel = { path = "../strata_kernel" }
 strata_model = { path = "../strata_model" }
