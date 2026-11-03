@@ -21,7 +21,7 @@ use crate::pack_test::PackTests;
 use crate::pack_test::host::{Host, find};
 use crate::*;
 
-fn pack_tests() -> PackTests {
+pub(crate) fn pack_tests() -> PackTests {
     let root = env!("CARGO_MANIFEST_DIR");
     let roots = [PathBuf::from(root).join("../../fixtures/packs/toy")];
     let loaded = PackTests::load(&roots).unwrap();
@@ -50,7 +50,7 @@ fn seat(id: u8, slot: &str, unit: &str) -> PlayerSetup {
     }
 }
 
-fn setup(tests: &PackTests) -> MatchSetup {
+pub(crate) fn setup(tests: &PackTests) -> MatchSetup {
     let registry = &tests.registry;
     let (ruleset, _) = find::<RulesetDef>(registry, "toy", "toy_rust").unwrap();
     let (scenario, _) = find::<ScenarioDef>(registry, "toy", "duel").unwrap();
@@ -73,14 +73,14 @@ impl RulesetSource for Rulesets<'_> {
 }
 
 /// The rules of the toy ruleset, running against a built match.
-struct Rig {
+pub(crate) struct Rig {
     rt: RulesRuntime,
     rules: Arc<LuaRules>,
     start: GameState,
 }
 
 impl Rig {
-    fn new(tests: &PackTests, setup: MatchSetup) -> Self {
+    pub(crate) fn new(tests: &PackTests, setup: MatchSetup) -> Self {
         let built = build_match(&tests.registry, setup).unwrap();
         let rt = resolve("toy_rust", &Rulesets(tests), &tests.catalog).unwrap();
         let modifiers = rt.modifiers().iter().map(|m| SourcedModifier {
@@ -110,7 +110,7 @@ impl Rig {
         }
     }
 
-    fn engine(&self) -> Engine<'_> {
+    pub(crate) fn engine(&self) -> Engine<'_> {
         Engine::new(&self.rt, &*self.rules, self.start.clone())
     }
 }
@@ -133,7 +133,7 @@ impl Controller for Script {
     }
 }
 
-fn attack(attacker: i64, target: i64) -> Command {
+pub(crate) fn attack(attacker: i64, target: i64) -> Command {
     let payload = [
         (Sym::new("attacker"), Value::Int(attacker)),
         (Sym::new("target"), Value::Int(target)),
