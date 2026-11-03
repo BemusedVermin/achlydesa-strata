@@ -33,6 +33,8 @@ pub fn event_kind(event: &Event) -> &str {
         Event::RelicClaimed { .. } => "relic_claimed",
         Event::VarSet { .. } => "var_set",
         Event::ControlChanged { .. } => "control_changed",
+        Event::RoundStarted(_) => "round_started",
+        Event::TurnStarted { .. } => "turn_started",
         Event::Custom { id, .. } => id.as_ref(),
     }
 }

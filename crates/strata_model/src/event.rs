@@ -124,6 +124,15 @@ pub enum Event {
         /// Its new controller.
         controller: PlayerId,
     },
+    /// A round began: the round counter is set and the turn counter restarts.
+    RoundStarted(u32),
+    /// A turn began, and its player became the active player.
+    TurnStarted {
+        /// The turn within the round, counted from 1.
+        turn: u32,
+        /// The player whose turn it is.
+        active: PlayerId,
+    },
     /// An event declared by a pack. Triggers and presentation only; no state changes.
     Custom {
         /// The event's name.

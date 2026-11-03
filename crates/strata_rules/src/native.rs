@@ -7,6 +7,7 @@ use strata_model::{
 };
 
 use crate::engine::{Ctx, Halt};
+use crate::flow::PhaseTree;
 use crate::query::LogicError;
 
 /// The most dice one pool may hold.
@@ -29,6 +30,10 @@ pub trait NativeEnv: Send + Sync {
     fn stat(&self, state: &GameState, figure: FigureId, stat: &str) -> Result<i64, LogicError>;
     /// The definition ID and faces of the die called `name`.
     fn die(&self, name: &str) -> Option<(DefId, DieKind)>;
+    /// The ruleset's phase tree, for logic that moves the game between phases.
+    fn phases(&self) -> Option<&PhaseTree> {
+        None
+    }
     /// The definition ID of the marker called `name`, such as `wound`. `None` if there is none or
     /// the environment cannot tell.
     fn marker(&self, _name: &str) -> Option<DefId> {
