@@ -11,4 +11,9 @@ pub trait Controller: Send {
     fn choose_command(&mut self, view: &PlayerView, legal: &[Command]) -> Command;
     /// Answers a question the rules asked this player mid-resolution.
     fn answer(&mut self, view: &PlayerView, decision: &Decision) -> Answer;
+    /// True once this seat can no longer play, for example because the match was shut down.
+    /// The session then drops whatever the seat last returned instead of submitting it.
+    fn abandoned(&self) -> bool {
+        false
+    }
 }

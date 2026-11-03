@@ -16,6 +16,7 @@ strata_modules = { path = "../strata_modules" }
 serde = { version = "1", features = ["derive"] }
 postcard = { version = "1", default-features = false, features = ["alloc"] }
 thiserror = "2"
+crossbeam-channel = "0.5"
 
 [dev-dependencies]
 insta = "1"
