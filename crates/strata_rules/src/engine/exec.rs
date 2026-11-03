@@ -12,6 +12,7 @@ use super::ctx::Ctx;
 use super::halt::Halt;
 use super::hooks::HookRunner;
 use super::names::{affected_player, answer_fits, command_kind, event_kind, is_kind};
+use crate::native::native_name;
 use crate::runtime::RulesRuntime;
 
 mod window;
@@ -175,6 +176,11 @@ impl<'a> Exec<'a> {
             };
             self.state.apply(&set)?;
             self.events.push(set);
+        }
+        if let Some(name) = native_name(&def.effect) {
+            let logic = rt.native(name);
+            let logic = logic.ok_or_else(|| Halt::reject(format!("no native logic `{name}`")))?;
+            return logic.run(self, &queued.event);
         }
         hooks.fire(def, &queued.event, self)
     }

@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use strata_kernel::{ModuleId, SlotId, Sym, Value, WindowId};
 use strata_model::{ActionDef, ModifierDef, ReactionDef, ReplacementDef, TriggerDef};
 
+use crate::native::NativeLogic;
 use crate::registrar::{Anchor, CommandHandler, LuaApi, PhaseDef, Registrar, Service};
 
 /// Every registration of a resolved ruleset. It is plain data shared by all threads.
@@ -81,6 +82,11 @@ impl RulesRuntime {
     pub fn service<S: ?Sized + Service>(&self) -> Option<&S> {
         let boxed = self.reg.services.get(&TypeId::of::<S>())?;
         boxed.downcast_ref::<Box<S>>().map(|b| &**b)
+    }
+
+    /// The Rust logic registered as `name`, if any module provided it.
+    pub fn native(&self, name: &str) -> Option<&dyn NativeLogic> {
+        self.reg.natives.get(name).map(|n| &**n)
     }
 
     /// Every exported namespace with its API, in name order.
