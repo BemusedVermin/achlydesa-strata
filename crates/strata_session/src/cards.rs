@@ -1,0 +1,54 @@
+//! Unit cards: what a player reads off a unit, computed on the simulation thread where the
+//! rules can be asked (design §13.1, §8.4).
+
+use strata_model::{GameState, UnitId};
+
+/// One stat on a card.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StatLine {
+    /// Short label, such as `ATK`.
+    pub label: String,
+    /// The printed value.
+    pub base: i64,
+    /// The value after every modifier.
+    pub value: i64,
+}
+
+/// One ability on a card.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AbilityLine {
+    /// Display name.
+    pub name: String,
+    /// Card text, generated or overridden.
+    pub text: String,
+}
+
+/// A unit's card.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct UnitCard {
+    /// The unit this card describes.
+    pub unit: UnitId,
+    /// Display name.
+    pub name: String,
+    /// The unit's kind, such as `squad`.
+    pub kind: String,
+    /// Stats in display order.
+    pub stats: Vec<StatLine>,
+    /// Abilities with their card text.
+    pub abilities: Vec<AbilityLine>,
+}
+
+/// Something that can write the card of every unit in a state.
+pub trait CardSource {
+    /// A card for each unit of `state` it knows, in unit order.
+    fn cards(&self, state: &GameState) -> Vec<UnitCard>;
+}
+
+/// A source with no content, for runs that have no cards to show.
+pub struct NoCards;
+
+impl CardSource for NoCards {
+    fn cards(&self, _: &GameState) -> Vec<UnitCard> {
+        Vec::new()
+    }
+}

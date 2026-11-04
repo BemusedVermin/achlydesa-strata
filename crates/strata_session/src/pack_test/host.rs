@@ -4,18 +4,27 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
+use crate::cards::{AbilityLine, CardSource, StatLine, UnitCard};
 use strata_content::ContentRegistry;
 use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::{BoardDefs, CompiledBoard};
 use strata_model::{
     Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus, FootprintDef, GameState,
-    MarkerDef, PlayerId, StatDef, TerrainDef, TileDef, UnitDef,
+    MarkerDef, PlayerId, StatDef, TerrainDef, TileDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
     Ctx, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics, LosWorld,
     NativeEvaluator, QueryEngine, SourcedModifier, StatBounds, StatQuery, World,
 };
+
+impl CardSource for Host {
+    fn cards(&self, state: &GameState) -> Vec<UnitCard> {
+        let units = (0u32..).zip(&state.units);
+        let cards = units.map(|(id, unit)| self.card(state, UnitId(id), unit));
+        cards.flatten().collect()
+    }
+}
 
 /// The definition called `name`: as written, then in `pack`, then in any pack.
 pub(crate) fn find<'a, T: Def>(
@@ -92,6 +101,47 @@ impl Host {
             rig: Mutex::default(),
             rules: OnceLock::new(),
         }
+    }
+
+    /// The card of one unit. Its stats are queried on the first figure still in play, and fall
+    /// back to the printed values when there is none or the query fails.
+    fn card(&self, state: &GameState, id: UnitId, unit: &UnitState) -> Option<UnitCard> {
+        let def = self.registry.get::<UnitDef>(unit.def)?;
+        let in_play = |f: &&FigureId| {
+            let figure = state.figures.get(f.index());
+            figure
+                .is_some_and(|f| matches!(f.status, FigureStatus::OnBoard | FigureStatus::Reserve))
+        };
+        let figure = unit.figures.iter().find(in_play);
+        let mut stats = Vec::new();
+        for (stat, printed) in &def.stats {
+            let (name, stat_def) = (
+                self.registry.name::<StatDef>(*stat)?,
+                self.registry.get::<StatDef>(*stat)?,
+            );
+            let base = i64::from(*printed);
+            let bare = name.split_once(':').map_or(name, |(_, bare)| bare);
+            let queried = figure.and_then(|f| self.stat(state, *f, bare).ok());
+            let label = stat_def.abbrev.as_ref().unwrap_or(&stat_def.name);
+            let line = StatLine {
+                label: label.0.clone(),
+                base,
+                value: queried.unwrap_or(base),
+            };
+            stats.push((stat_def.order, line));
+        }
+        stats.sort_by_key(|(order, _)| *order);
+        let ability = |a: &strata_model::AbilityDef| AbilityLine {
+            name: a.name.0.clone(),
+            text: a.text.0.clone(),
+        };
+        Some(UnitCard {
+            unit: id,
+            name: def.name.0.clone(),
+            kind: def.kind.as_str().to_owned(),
+            stats: stats.into_iter().map(|(_, line)| line).collect(),
+            abilities: def.abilities.iter().map(ability).collect(),
+        })
     }
 
     /// Answers `in_los` selectors with the ruleset's line-of-sight service.

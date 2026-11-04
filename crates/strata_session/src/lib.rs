@@ -4,6 +4,7 @@
 #![deny(clippy::float_arithmetic)]
 #![warn(missing_docs)]
 
+pub mod cards;
 pub mod controller;
 pub mod human;
 pub mod launch;
@@ -16,6 +17,7 @@ pub mod setup;
 pub mod sim;
 pub mod view;
 
+pub use cards::{AbilityLine, CardSource, NoCards, StatLine, UnitCard};
 pub use controller::Controller;
 pub use human::HumanController;
 pub use launch::{LaunchSpec, launch};

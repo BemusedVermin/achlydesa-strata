@@ -1,5 +1,6 @@
 //! What one player may see of the state and of the events (design §15.3).
 
+use crate::cards::UnitCard;
 use strata_kernel::DefId;
 use strata_model::{Event, GameState, PlayerId, UnitId, Visibility};
 
@@ -14,6 +15,8 @@ pub struct PlayerView {
     pub viewer: PlayerId,
     /// The state as the viewer sees it.
     pub state: GameState,
+    /// A card per unit, with stats as the rules query them; empty when no content was supplied.
+    pub cards: Vec<UnitCard>,
 }
 
 impl PlayerView {
@@ -32,7 +35,11 @@ impl PlayerView {
                 player.hand.iter_mut().for_each(|kind| *kind = REDACTED);
             }
         }
-        Self { viewer, state }
+        Self {
+            viewer,
+            state,
+            cards: Vec::new(),
+        }
     }
 }
 
