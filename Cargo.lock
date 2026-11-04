@@ -5179,7 +5179,6 @@ dependencies = [
  "bevy",
  "bevy_egui",
  "clap",
- "glam",
  "strata_ai",
  "strata_content",
  "strata_editor",
@@ -5187,6 +5186,7 @@ dependencies = [
  "strata_lua",
  "strata_model",
  "strata_modules",
+ "strata_render",
  "strata_rules",
  "strata_session",
 ]
@@ -5282,6 +5282,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "strata_render"
+version = "0.1.0"
+dependencies = [
+ "bevy",
+ "strata_kernel",
+ "strata_scene",
+]
+
+[[package]]
 name = "strata_rules"
 version = "0.1.0"
 dependencies = [
@@ -5289,6 +5298,16 @@ dependencies = [
  "strata_kernel",
  "strata_model",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "strata_scene"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "strata_content",
+ "strata_kernel",
+ "strata_model",
 ]
 
 [[package]]

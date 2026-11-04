@@ -1,13 +1,13 @@
 //! `CameraPlugin`: the orthographic isometric camera and cursor picking (design §13.3, §13.8).
 //!
-//! The math lives in [`crate::scene`]; this file only wires it to Bevy.
+//! The math lives in [`strata_scene`]; this file only wires it to Bevy.
 
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::window::PrimaryWindow;
 use strata_kernel::Space;
 
-use crate::scene::{IsoView, SceneBoard, pick};
+use strata_scene::{IsoView, SceneBoard, pick};
 
 /// Pan speed in world units per second at zoom 1.
 const PAN_SPEED: f32 = 8.0;

@@ -7,11 +7,7 @@ use bevy_egui::EguiPlugin;
 use clap::Parser;
 use strata_session::{LaunchSpec, launch};
 
-mod camera;
 mod plugins;
-// The board and figure plugins that consume the rest of this arrive in later tasks.
-#[allow(dead_code)]
-mod scene;
 mod sim_link;
 
 use plugins::ClientPlugins;
