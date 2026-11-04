@@ -5,6 +5,8 @@
 use bevy::prelude::*;
 use strata_render::RenderPlugins;
 
+use crate::ui::UiPlugin;
+
 macro_rules! skeleton {
     ($($(#[$doc:meta])* $name:ident),* $(,)?) => {$(
         $(#[$doc])*
@@ -17,8 +19,6 @@ macro_rules! skeleton {
 }
 
 skeleton! {
-    /// The `bevy_egui` panels.
-    UiPlugin,
     /// The map editor.
     EditorPlugin,
     /// Resolves visual keys to files, with fallbacks.

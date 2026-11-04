@@ -9,6 +9,7 @@ use strata_session::{LaunchSpec, launch};
 
 mod plugins;
 mod sim_link;
+mod ui;
 
 use plugins::ClientPlugins;
 use sim_link::SimLinkPlugin;

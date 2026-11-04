@@ -4,7 +4,7 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
-use crate::cards::{AbilityLine, CardSource, StatLine, UnitCard};
+use crate::cards::{AbilityLine, CardSource, FigureLine, StatLine, UnitCard};
 use strata_content::ContentRegistry;
 use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
@@ -107,12 +107,25 @@ impl Host {
     /// back to the printed values when there is none or the query fails.
     fn card(&self, state: &GameState, id: UnitId, unit: &UnitState) -> Option<UnitCard> {
         let def = self.registry.get::<UnitDef>(unit.def)?;
-        let in_play = |f: &&FigureId| {
+        let alive = |f: &FigureId| {
             let figure = state.figures.get(f.index());
-            figure
-                .is_some_and(|f| matches!(f.status, FigureStatus::OnBoard | FigureStatus::Reserve))
+            let live = [FigureStatus::OnBoard, FigureStatus::Reserve];
+            figure.is_some_and(|f| live.contains(&f.status))
         };
-        let figure = unit.figures.iter().find(in_play);
+        let wound = find::<MarkerDef>(&self.registry, &self.pack, "wound").map(|(id, _)| id);
+        let figure_line = |f: &FigureId| {
+            let markers = state.figures.get(f.index()).map(|s| s.markers.as_slice());
+            let wounds = markers.unwrap_or_default().iter();
+            FigureLine {
+                figure: *f,
+                alive: alive(f),
+                wounds: wounds
+                    .filter(|m| Some(m.def) == wound)
+                    .map(|m| m.count)
+                    .sum(),
+            }
+        };
+        let figure = unit.figures.iter().find(|f| alive(f));
         let mut stats = Vec::new();
         for (stat, printed) in &def.stats {
             let (name, stat_def) = (
@@ -141,6 +154,7 @@ impl Host {
             kind: def.kind.as_str().to_owned(),
             stats: stats.into_iter().map(|(_, line)| line).collect(),
             abilities: def.abilities.iter().map(ability).collect(),
+            figures: unit.figures.iter().map(figure_line).collect(),
         })
     }
 
