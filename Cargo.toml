@@ -30,3 +30,12 @@ debug = "line-tables-only"
 # opt-level 3 here made a clean Bevy build ~5x slower (30 min), so deps stay at 1.
 [profile.dev.package."*"]
 opt-level = 1
+
+# CI only (`--profile ci`): nothing is optimised, so a cold Bevy build is as cheap as it gets.
+[profile.ci]
+inherits = "dev"
+opt-level = 0
+debug = false
+
+[profile.ci.package."*"]
+opt-level = 0
