@@ -4,6 +4,7 @@ use strata_model::{Event, GameState, PlayerId, ReactionDef, ReplacementDef, Trig
 
 use super::ctx::Ctx;
 use super::halt::Halt;
+use crate::flow::ActionRunner;
 use crate::native::{NativeEnv, NoEnv};
 
 /// Evaluates the filters and effects of replacements and triggers.
@@ -35,5 +36,10 @@ pub trait HookRunner: Send + Sync {
     /// What native logic may ask of the content; by default nothing.
     fn env(&self) -> &dyn NativeEnv {
         &NoEnv
+    }
+    /// Evaluates action targeting and resolvers; by default there is no runner, so no action can be
+    /// taken.
+    fn action_runner(&self) -> Option<&dyn ActionRunner> {
+        None
     }
 }

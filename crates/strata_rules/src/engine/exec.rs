@@ -12,7 +12,7 @@ use super::ctx::Ctx;
 use super::halt::Halt;
 use super::hooks::HookRunner;
 use super::names::{affected_player, answer_fits, command_kind, event_kind, is_kind};
-use crate::flow::ActivationGate;
+use crate::flow::{ActivationGate, ActivationRules, take_action};
 use crate::native::native_name;
 use crate::runtime::RulesRuntime;
 
@@ -240,6 +240,18 @@ impl Ctx for Exec<'_> {
     fn may_activate(&self, player: PlayerId, unit: UnitId) -> bool {
         let gate = self.rt.service::<dyn ActivationGate>();
         gate.is_none_or(|g| g.may_activate(&self.state, player, unit))
+    }
+
+    fn run_action(
+        &mut self,
+        rules: &ActivationRules,
+        player: PlayerId,
+        command: &Command,
+    ) -> Result<(), Halt> {
+        let (rt, hooks) = (self.rt, self.hooks);
+        let runner = hooks.action_runner();
+        let runner = runner.ok_or_else(|| Halt::reject("no action runner is available"))?;
+        take_action(rt.actions(), rules, runner, self, player, command)
     }
 
     fn rng(&mut self) -> &mut CommandRng {

@@ -6,7 +6,7 @@
 //! may end the activation early. Abilities grant extra slots through `ctx.activation.grant`, or
 //! from Rust by emitting a [`GRANT_SLOT`] event.
 //!
-//! The module registers the `activate_unit` and `end_activation` commands and provides its
+//! The module registers the `activate_unit`, `action` and `end_activation` commands and provides its
 //! [`ActivationRules`] as a service, which spending slots and listing legal actions build on.
 
 use std::collections::BTreeMap;
@@ -72,6 +72,7 @@ impl RuleModule for Activation {
         let rules = Arc::new(rules);
         r.command(Activate(rules.clone()));
         r.command(End);
+        r.command(Act(rules.clone()));
         let functions = ["grant", "end"].map(Sym::new).to_vec();
         let api = Api(rules.clone());
         r.lua_api_native("activation", LuaApi { functions }, Box::new(api));
@@ -134,6 +135,19 @@ impl CommandHandler for Activate {
             return Err(Halt::reject("that unit may not be activated now"));
         }
         self.0.begin(ctx, player, *unit)
+    }
+}
+
+/// Handles `action`: a figure of the active unit spends slots to act.
+struct Act(Arc<ActivationRules>);
+
+impl CommandHandler for Act {
+    fn kind(&self) -> &str {
+        "action"
+    }
+
+    fn resolve(&self, ctx: &mut dyn Ctx, player: PlayerId, command: &Command) -> Result<(), Halt> {
+        ctx.run_action(&self.0, player, command)
     }
 }
 

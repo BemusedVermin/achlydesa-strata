@@ -1,9 +1,10 @@
 //! What every rule sees while resolving (design §5.1).
 
 use strata_kernel::{CommandRng, WindowId};
-use strata_model::{Answer, Decision, Event, GameState, PlayerId, UnitId};
+use strata_model::{Answer, Command, Decision, Event, GameState, PlayerId, UnitId};
 
 use super::halt::Halt;
+use crate::flow::ActivationRules;
 
 /// The working copy of a command's resolution.
 pub trait Ctx {
@@ -26,5 +27,18 @@ pub trait Ctx {
     /// Contexts without a ruleset, and rulesets without a gate, allow every activation.
     fn may_activate(&self, _player: PlayerId, _unit: UnitId) -> bool {
         true
+    }
+
+    /// Takes the `Command::Action` in `command` for `player`: checks who may act and the targets,
+    /// spends the slots under `rules`, then resolves it.
+    ///
+    /// Contexts without a ruleset or an action runner reject every action.
+    fn run_action(
+        &mut self,
+        _rules: &ActivationRules,
+        _player: PlayerId,
+        _command: &Command,
+    ) -> Result<(), Halt> {
+        Err(Halt::reject("this context cannot take actions"))
     }
 }
