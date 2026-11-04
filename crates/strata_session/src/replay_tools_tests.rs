@@ -3,10 +3,17 @@
 use std::fs;
 use std::path::PathBuf;
 
-use strata_model::Command;
-use strata_modules::native_modules;
+use std::sync::OnceLock;
 
-use crate::pack_test::{ExportError, PackTests};
+use strata_kernel::{ModuleId, SlotId, Space, Sym, Value};
+use strata_model::{Command, Event, FigureId, PlayerId, RulesetDef, UnitId};
+use strata_modules::native_modules;
+use strata_rules::{
+    CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, Outcome, Registrar, RuleModule,
+};
+
+use crate::pack_test::host::find;
+use crate::pack_test::{ExportError, MatchRig as Rig, PackTests};
 use crate::tests::{attack, pack_tests, play};
 use crate::*;
 
@@ -125,4 +132,107 @@ fn to_test_refuses_what_it_cannot_express() {
     replay.commands[1].command = Command::EndActivation;
     let got = tests.to_test(&replay, 1).unwrap_err();
     assert!(matches!(got, ExportError::Replay(_)));
+}
+
+/// Handles `deploy`: puts figure 0 on the board, which the match setup leaves in reserve.
+struct Deploy;
+
+impl CommandHandler for Deploy {
+    fn kind(&self) -> &str {
+        "deploy"
+    }
+
+    fn resolve(&self, ctx: &mut dyn Ctx, _: PlayerId, _: &Command) -> Result<(), Halt> {
+        ctx.emit(Event::FigureMoved {
+            figure: FigureId(0),
+            to: Space::new(0, 0, 1),
+            rotation: Default::default(),
+        })
+    }
+}
+
+struct DeployModule;
+
+impl RuleModule for DeployModule {
+    fn id(&self) -> ModuleId {
+        ModuleId::new("test:deploy")
+    }
+
+    fn slot(&self) -> Option<SlotId> {
+        None
+    }
+
+    fn depends_on(&self) -> &[ModuleId] {
+        &[]
+    }
+
+    fn config_schema(&self) -> &ConfigSchema {
+        static EMPTY: OnceLock<ConfigSchema> = OnceLock::new();
+        EMPTY.get_or_init(ConfigSchema::default)
+    }
+
+    fn register(&self, r: &mut Registrar, _: &Value) -> Result<(), ModuleError> {
+        r.command(Deploy);
+        Ok(())
+    }
+}
+
+const ACTIVATION_RULESET: &str = "ruleset {
+  id = 'toy_activation', name = 'Toy activation',
+  slots = { activation = { id = 'core:activation' } },
+  addons = {{ id = 'toy:driver' }, { id = 'test:deploy' }},
+}";
+
+/// The toy pack plus a ruleset with `core:activation`, and a replay of deploying, activating the
+/// first unit and ending the activation.
+fn activation_replay(extra: &str) -> (tempfile::TempDir, PackTests, Replay) {
+    let (dir, tests) = pack_with(&format!("{ACTIVATION_RULESET}\n{extra}"));
+    let tests = tests.with_native(Box::new(DeployModule)).unwrap();
+    let mut setup = crate::tests::setup(&tests);
+    let (ruleset, _) = find::<RulesetDef>(&tests.registry, "toy", "toy_activation").unwrap();
+    setup.ruleset = ruleset;
+    let rig = Rig::new(&tests, setup.clone()).unwrap();
+    let mut engine = rig.engine();
+    let custom = Command::Custom {
+        id: Sym::new("deploy"),
+        payload: Value::Nil,
+    };
+    for command in [
+        custom,
+        Command::ActivateUnit(UnitId(0)),
+        Command::EndActivation,
+    ] {
+        let outcome = engine.submit(PlayerId(0), command);
+        assert!(matches!(outcome, Outcome::Committed(_)), "{outcome:?}");
+    }
+    let replay = Replay::new(setup, engine.log(), Vec::new());
+    (dir, tests, replay)
+}
+
+#[test]
+fn an_activation_exports_as_a_step_that_passes() {
+    let (_dir, tests, replay) = activation_replay("");
+    let text = tests.to_test(&replay, 1).unwrap();
+    assert!(
+        text.contains("act.activate(0, 'p0.toy:test_soldier.s#1')"),
+        "{text}"
+    );
+    assert!(
+        text.contains("expect.event('activation_started')"),
+        "{text}"
+    );
+
+    let (_dir, with_test) = pack_with(&format!("{ACTIVATION_RULESET}\n{text}"));
+    let with_test = with_test.with_native(Box::new(DeployModule)).unwrap();
+    let reports = with_test.run(Some("replay command 1"));
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].outcome.as_ref().err(), None);
+}
+
+#[test]
+fn ending_an_activation_exports_as_a_step() {
+    let (_dir, tests, replay) = activation_replay("");
+    let text = tests.to_test(&replay, 2).unwrap();
+    assert!(text.contains("act.end_activation(0)"), "{text}");
+    assert!(text.contains("expect.event('activation_ended')"), "{text}");
 }

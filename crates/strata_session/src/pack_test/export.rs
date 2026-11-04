@@ -65,7 +65,7 @@ impl PackTests {
         let handles = self.handles(&before);
         let handle = |id: FigureId| handles.get(&id).cloned().unwrap_or_default();
 
-        let mut steps = vec![self.command_step(&rig, record, &events, &handle)?];
+        let mut steps = vec![self.command_step(&rig, record, &events, &before, &handle)?];
         for answer in &record.answers {
             steps.push(answer_step(answer)?);
         }
@@ -160,6 +160,7 @@ impl PackTests {
         rig: &MatchRig,
         record: &ReplayRecord,
         events: &[Event],
+        before: &GameState,
         handle: &dyn Fn(FigureId) -> String,
     ) -> Result<String, ExportError> {
         let opts = self.rig_options(events)?;
@@ -186,7 +187,19 @@ impl PackTests {
                     lua_value(args)?
                 ))
             }
-            _ => unsupported("only actions and pack commands can be written as test steps"),
+            Command::ActivateUnit(unit) => {
+                let figure = before
+                    .units
+                    .get(unit.index())
+                    .and_then(|u| u.figures.first());
+                let Some(figure) = figure else {
+                    return unsupported("the command activates a unit that has no figures");
+                };
+                let (player, figure) = (record.player.0, lua_str(&handle(*figure)));
+                Ok(format!("act.activate({player}, {figure})"))
+            }
+            Command::EndActivation => Ok(format!("act.end_activation({})", record.player.0)),
+            Command::PlaceTokens(_) => unsupported("token placement has no test step yet"),
         }
     }
 
