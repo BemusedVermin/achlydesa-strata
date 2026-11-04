@@ -21,7 +21,6 @@ strata_session = { path = "../strata_session" }
 strata_ai = { path = "../strata_ai" }
 strata_editor = { path = "../strata_editor" }
 bevy = { version = "=0.20.1", default-features = false, features = [
-    "3d",
     "default_app",
     "std",
     "bevy_winit",
@@ -30,6 +29,25 @@ bevy = { version = "=0.20.1", default-features = false, features = [
     "multi_threaded",
     "x11",
     "wayland",
+    # What the 2.5D scene needs: ortho camera, lit meshes, billboard quads, egui. Left out on purpose
+    # (they pull in much of the build): gltf, scene, picking, animation, gizmos, anti-aliasing,
+    # post-processing, gilrs, audio. Add one back here when a feature needs it.
+    "bevy_render",
+    "bevy_core_pipeline",
+    "bevy_pbr",
+    "bevy_light",
+    "bevy_camera",
+    "bevy_mesh",
+    "bevy_image",
+    "bevy_color",
+    "bevy_shader",
+    "bevy_material",
+    "bevy_window",
+    "bevy_text",
+    "png",
+    "tonemapping_luts",
+    "ktx2",
+    "zstd_rust",
 ] }
 bevy_egui = "=0.43.1"
 glam = "0.33.12"
