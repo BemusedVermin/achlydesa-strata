@@ -1,9 +1,32 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# Crates without Bevy: what a bare `cargo test` or `cargo build` covers.
+# Use `--workspace` (as CI does) or `-p strata_client` to include the client.
+default-members = [
+    "crates/strata_kernel",
+    "crates/strata_derive",
+    "crates/strata_model",
+    "crates/strata_rules",
+    "crates/strata_modules",
+    "crates/strata_lua",
+    "crates/strata_content",
+    "crates/strata_session",
+    "crates/strata_ai",
+    "crates/strata_editor",
+    "crates/strata_cli",
+]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
+
+[profile.dev]
+opt-level = 1
+debug = "line-tables-only"
+
+# opt-level 3 here made a clean Bevy build ~5x slower (30 min), so deps stay at 1.
+[profile.dev.package."*"]
+opt-level = 1
