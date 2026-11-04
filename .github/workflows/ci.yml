@@ -81,15 +81,15 @@ jobs:
       # systems test the default members, which is everything else.
       - name: cargo test (core crates)
         if: steps.ws.outputs.present == 'true' && runner.os != 'Linux'
-        run: cargo test --locked
+        run: cargo test --locked --profile ci
 
       - name: cargo test (workspace, including the client)
         if: steps.ws.outputs.present == 'true' && runner.os == 'Linux'
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --profile ci
 
       - name: toy pack tests (Rust and Lua combat)
         if: steps.ws.outputs.present == 'true'
-        run: cargo run --locked -p strata_cli -- pack test fixtures/packs/toy
+        run: cargo run --locked --profile ci -p strata_cli -- pack test fixtures/packs/toy
 
   deny:
     name: cargo-deny
