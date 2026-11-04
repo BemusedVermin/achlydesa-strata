@@ -2,6 +2,8 @@
 
 use bevy::prelude::*;
 
+use crate::camera::CameraPlugin;
+
 macro_rules! skeleton {
     ($($(#[$doc:meta])* $name:ident),* $(,)?) => {$(
         $(#[$doc])*
@@ -22,8 +24,6 @@ skeleton! {
     PlaybackPlugin,
     /// Turns clicks into commands.
     InputPlugin,
-    /// The orthographic isometric camera.
-    CameraPlugin,
     /// The `bevy_egui` panels.
     UiPlugin,
     /// Movement, line-of-sight and combat previews.

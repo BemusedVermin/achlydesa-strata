@@ -166,6 +166,19 @@ impl CompiledBoard {
         })
     }
 
+    /// Returns the highest solid level on the board, or `None` for an empty board.
+    pub fn max_level(&self) -> Option<u32> {
+        let segments = self
+            .columns
+            .iter()
+            .flat_map(|c| c.segments.iter().map(|s| s.z1));
+        let features = self
+            .columns
+            .iter()
+            .flat_map(|c| c.features.iter().map(|f| f.z1));
+        segments.chain(features).max()
+    }
+
     /// Returns the line-of-sight blockers at `hex`, for the kernel's occlusion tests.
     pub fn blockers(&self, hex: Hex) -> &[Blocker] {
         self.column(hex).map_or(&[], |c| &c.blockers)
