@@ -67,3 +67,15 @@ fn an_unknown_figure_handle_fails_the_step() {
     );
     assert!(message(missing).contains("p0.nobody#1"));
 }
+
+#[test]
+fn only_the_active_player_may_end_and_a_unit_is_not_activated_twice() {
+    let reports = run();
+    let other = report(&reports, "only the active player may end an activation");
+    assert!(message(other).contains("`end_activation` was rejected"));
+    let twice = report(
+        &reports,
+        "a unit cannot be activated while an activation is under way",
+    );
+    assert!(message(twice).contains("`activate_unit` was rejected"));
+}

@@ -1,4 +1,5 @@
-//! `core:activation`: ordering, early end and granted slots, driven through the engine.
+//! `core:activation`'s gate, driven through the engine. Ordering, early end and granted slots are
+//! pack tests: see `fixtures/packs/actions` and `fixtures/packs/activation`.
 
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
@@ -9,66 +10,14 @@ use strata_model::{
     Command, Event, FigureId, FigureState, FigureStatus, GameState, PlayerId, PlayerState,
     ReactionDef, ReplacementDef, RulesetDef, TriggerDef, UnitId, UnitState,
 };
-use strata_modules::activation::{Activation, GRANT_SLOT};
+use strata_modules::activation::Activation;
 use strata_rules::{
-    ActivationGate, ActivationRules, CommandHandler, ConfigSchema, Ctx, Engine, Halt, HookRunner,
-    ModuleCatalog, ModuleError, OrderingPolicy, Outcome, Registrar, RuleModule, RulesRuntime,
-    resolve,
+    ActivationGate, ConfigSchema, Ctx, Engine, Halt, HookRunner, ModuleCatalog, ModuleError,
+    Outcome, Registrar, RuleModule, RulesRuntime, resolve,
 };
 
 fn sym(s: &str) -> Sym {
     Sym::new(s)
-}
-
-/// Mirrors the configuration given to `core:activation`, for the test commands.
-fn rules(all_figures: bool) -> ActivationRules {
-    ActivationRules {
-        steps: vec![sym("move"), sym("attack")],
-        budgets: BTreeMap::new(),
-        ordering: if all_figures {
-            OrderingPolicy::AllFiguresPerStep
-        } else {
-            OrderingPolicy::PerFigure
-        },
-    }
-}
-
-fn payload_of(command: &Command) -> Result<&Value, Halt> {
-    match command {
-        Command::Custom { payload, .. } => Ok(payload),
-        _ => Err(Halt::reject("custom only")),
-    }
-}
-
-/// `spend { figure, slot }` spends a slot, as an action would.
-struct Spend(ActivationRules);
-
-impl CommandHandler for Spend {
-    fn kind(&self) -> &str {
-        "spend"
-    }
-
-    fn resolve(&self, ctx: &mut dyn Ctx, _: PlayerId, command: &Command) -> Result<(), Halt> {
-        let payload = payload_of(command)?;
-        let figure = FigureId(payload.get("figure").unwrap().as_int().unwrap() as u32);
-        let slot = sym(payload.get("slot").unwrap().as_str().unwrap());
-        self.0.consume(ctx, figure, &[slot])
-    }
-}
-
-/// `grant { figure, slot, extra }` emits the event an ability would.
-struct Grant;
-
-impl CommandHandler for Grant {
-    fn kind(&self) -> &str {
-        "grant"
-    }
-
-    fn resolve(&self, ctx: &mut dyn Ctx, _: PlayerId, command: &Command) -> Result<(), Halt> {
-        let payload = payload_of(command)?.clone();
-        let id = sym(GRANT_SLOT);
-        ctx.emit(Event::Custom { id, payload })
-    }
 }
 
 /// Refuses to activate unit 0, as a token gate would for a unit without the turn's token.
@@ -80,7 +29,8 @@ impl ActivationGate for Deny {
     }
 }
 
-struct Harness(ActivationRules, bool);
+/// Installs the `Deny` gate.
+struct Harness;
 
 impl RuleModule for Harness {
     fn id(&self) -> ModuleId {
@@ -101,11 +51,7 @@ impl RuleModule for Harness {
     }
 
     fn register(&self, r: &mut Registrar, _: &Value) -> Result<(), ModuleError> {
-        r.command(Spend(self.0.clone()));
-        r.command(Grant);
-        if self.1 {
-            r.service::<dyn ActivationGate>(Box::new(Deny));
-        }
+        r.service::<dyn ActivationGate>(Box::new(Deny));
         Ok(())
     }
 }
@@ -138,218 +84,64 @@ impl HookRunner for NoHooks {
     }
 }
 
-fn runtime(all_figures: bool) -> RulesRuntime {
-    build(all_figures, false)
-}
-
-fn build(all_figures: bool, gated: bool) -> RulesRuntime {
-    let config = json!({ "all_figures_per_step": { "Bool": all_figures } });
+fn build(gated: bool) -> RulesRuntime {
     let body = json!({
         "id": 0,
-        "slots": { "activation": { "id": "core:activation", "config": config } },
-        "addons": [{ "id": "t:harness" }],
+        "slots": { "activation": { "id": "core:activation" } },
+        "addons": if gated { json!([{ "id": "t:harness" }]) } else { json!([]) },
     });
     let sets: BTreeMap<Sym, RulesetDef> =
         [(sym("rs"), serde_json::from_value(body).unwrap())].into();
     let mut catalog = ModuleCatalog::default();
     catalog.register(Box::new(Activation)).unwrap();
-    let harness = Harness(rules(all_figures), gated);
-    catalog.register(Box::new(harness)).unwrap();
+    catalog.register(Box::new(Harness)).unwrap();
     resolve("rs", &sets, &catalog).unwrap()
 }
 
-/// Player 0 has a squad of two figures (unit 0); player 1 has one figure (unit 1).
+/// Two units for player 0 (unit 0 has two figures, unit 1 one).
 fn state() -> GameState {
-    let figure = |unit: u32, controller: u8| FigureState {
+    let figure = |unit: u32| FigureState {
         unit: UnitId(unit),
-        controller: PlayerId(controller),
+        controller: PlayerId(0),
         status: FigureStatus::OnBoard,
         ..Default::default()
     };
-    let unit = |owner: u8, figures: Vec<FigureId>| UnitState {
-        owner: PlayerId(owner),
+    let unit = |figures: Vec<FigureId>| UnitState {
+        owner: PlayerId(0),
         figures,
         ..Default::default()
     };
     GameState {
         players: vec![PlayerState::default(); 2],
         units: vec![
-            unit(0, vec![FigureId(0), FigureId(1)]),
-            unit(1, vec![FigureId(2)]),
+            unit(vec![FigureId(0), FigureId(1)]),
+            unit(vec![FigureId(2)]),
         ],
-        figures: vec![figure(0, 0), figure(0, 0), figure(1, 1)],
+        figures: vec![figure(0), figure(0), figure(1)],
         ..Default::default()
     }
 }
 
-fn custom(id: &str, figure: u32, slot: &str, extra: i64) -> Command {
-    let field = |k: &str, v| (sym(k), v);
-    let payload = Value::Map(
-        [
-            field("figure", Value::Int(figure.into())),
-            field("slot", Value::Str(sym(slot))),
-            field("extra", Value::Int(extra)),
-        ]
-        .into(),
-    );
-    Command::Custom {
-        id: sym(id),
-        payload,
-    }
-}
-
-fn spend(figure: u32, slot: &str) -> Command {
-    custom("spend", figure, slot, 0)
-}
-
-fn ok(outcome: Outcome) -> Vec<Event> {
-    match outcome {
-        Outcome::Committed(events) => events,
-        other => panic!("expected a commit, got {other:?}"),
-    }
-}
-
-fn refused(outcome: Outcome) {
-    assert!(matches!(outcome, Outcome::Rejected(_)), "{outcome:?}");
-}
-
-fn start(rt: &RulesRuntime) -> Engine<'_> {
-    let mut engine = Engine::new(rt, &NoHooks, state());
-    ok(engine.submit(PlayerId(0), Command::ActivateUnit(UnitId(0))));
-    engine
-}
-
-fn left(engine: &Engine, figure: u32, slot: &str) -> u8 {
-    let act = engine.state().flow.activation.as_ref().unwrap();
-    act.slots[&FigureId(figure)][&sym(slot)]
-}
-
-#[test]
-fn a_squad_moves_all_figures_before_any_attacks_under_the_default_config() {
-    let rt = runtime(true);
-    let mut engine = start(&rt);
-    let p0 = PlayerId(0);
-    // Each figure begins with one move and one attack.
-    assert_eq!(
-        (left(&engine, 0, "move"), left(&engine, 1, "attack")),
-        (1, 1)
-    );
-    refused(engine.submit(p0, spend(0, "attack")));
-    ok(engine.submit(p0, spend(0, "move")));
-    // Figure 1 has not moved, so figure 0 may not attack yet.
-    refused(engine.submit(p0, spend(0, "attack")));
-    refused(engine.submit(p0, spend(1, "attack")));
-    ok(engine.submit(p0, spend(1, "move")));
-    let step = engine
-        .state()
-        .flow
-        .activation
-        .as_ref()
-        .unwrap()
-        .step
-        .clone();
-    assert_eq!(step, sym("attack"));
-    ok(engine.submit(p0, spend(1, "attack")));
-    ok(engine.submit(p0, spend(0, "attack")));
-    refused(engine.submit(p0, spend(0, "attack")));
-}
-
-#[test]
-fn with_all_figures_per_step_off_one_figure_finishes_before_the_next_starts() {
-    let rt = runtime(false);
-    let mut engine = start(&rt);
-    let p0 = PlayerId(0);
-    ok(engine.submit(p0, spend(0, "move")));
-    refused(engine.submit(p0, spend(1, "move")));
-    ok(engine.submit(p0, spend(0, "attack")));
-    ok(engine.submit(p0, spend(1, "move")));
-}
-
-#[test]
-fn an_activation_can_end_early_and_then_nothing_is_spent() {
-    let rt = runtime(true);
-    let mut engine = start(&rt);
-    let p0 = PlayerId(0);
-    ok(engine.submit(p0, spend(0, "move")));
-    let events = ok(engine.submit(p0, Command::EndActivation));
-    assert!(events.contains(&Event::ActivationEnded));
-    assert!(engine.state().flow.activation.is_none());
-    refused(engine.submit(p0, spend(1, "move")));
-    refused(engine.submit(p0, Command::EndActivation));
-}
-
-#[test]
-fn only_the_active_player_may_activate_or_end() {
-    let rt = runtime(true);
-    let mut engine = Engine::new(&rt, &NoHooks, state());
-    let p1 = PlayerId(1);
-    refused(engine.submit(p1, Command::ActivateUnit(UnitId(1))));
-    ok(engine.submit(PlayerId(0), Command::ActivateUnit(UnitId(0))));
-    refused(engine.submit(p1, Command::EndActivation));
-    refused(engine.submit(PlayerId(0), Command::ActivateUnit(UnitId(0))));
-}
-
-#[test]
-fn an_ability_can_grant_an_extra_move_after_the_moves_are_spent() {
-    let rt = runtime(true);
-    let mut engine = start(&rt);
-    let p0 = PlayerId(0);
-    ok(engine.submit(p0, spend(0, "move")));
-    ok(engine.submit(p0, spend(1, "move")));
-    refused(engine.submit(p0, spend(0, "move")));
-    ok(engine.submit(p0, spend(0, "attack")));
-    ok(engine.submit(p0, custom("grant", 0, "move", 1)));
-    assert_eq!(left(&engine, 0, "move"), 1);
-    // The granted move reopens the move step; figure 1's attack waits for it.
-    refused(engine.submit(p0, spend(1, "attack")));
-    ok(engine.submit(p0, spend(0, "move")));
-    ok(engine.submit(p0, spend(1, "attack")));
-}
-
-#[test]
-fn granting_to_a_figure_outside_the_activation_is_refused() {
-    let rt = runtime(true);
-    let mut engine = start(&rt);
-    refused(engine.submit(PlayerId(0), custom("grant", 2, "move", 1)));
-}
-
-#[test]
-fn the_same_commands_twice_give_the_same_hashes() {
-    let play = || {
-        let rt = runtime(true);
-        let mut engine = start(&rt);
-        let p0 = PlayerId(0);
-        ok(engine.submit(p0, spend(0, "move")));
-        ok(engine.submit(p0, custom("grant", 0, "move", 1)));
-        ok(engine.submit(p0, Command::EndActivation));
-        let hashes = engine.log().iter().map(|r| r.state_hash);
-        hashes.collect::<Vec<_>>()
-    };
-    assert_eq!(play(), play());
-}
-
-fn two_units_for_player_zero() -> GameState {
-    let mut state = state();
-    state.units[1].owner = PlayerId(0);
-    state.figures[2].controller = PlayerId(0);
-    state
+fn committed(outcome: Outcome) {
+    assert!(matches!(outcome, Outcome::Committed(_)), "{outcome:?}");
 }
 
 #[test]
 fn a_gate_refuses_a_submitted_activation_not_only_a_listed_one() {
-    let rt = build(true, true);
-    let mut engine = Engine::new(&rt, &NoHooks, two_units_for_player_zero());
+    let rt = build(true);
+    let mut engine = Engine::new(&rt, &NoHooks, state());
     let p0 = PlayerId(0);
     // Unit 0 is gated off; the command is refused and nothing changes.
-    refused(engine.submit(p0, Command::ActivateUnit(UnitId(0))));
+    let refused = engine.submit(p0, Command::ActivateUnit(UnitId(0)));
+    assert!(matches!(refused, Outcome::Rejected(_)), "{refused:?}");
     assert!(engine.state().flow.activation.is_none());
     assert!(engine.log().is_empty());
-    ok(engine.submit(p0, Command::ActivateUnit(UnitId(1))));
+    committed(engine.submit(p0, Command::ActivateUnit(UnitId(1))));
 }
 
 #[test]
 fn without_a_gate_every_own_unit_may_be_activated() {
-    let rt = build(true, false);
-    let mut engine = Engine::new(&rt, &NoHooks, two_units_for_player_zero());
-    ok(engine.submit(PlayerId(0), Command::ActivateUnit(UnitId(0))));
+    let rt = build(false);
+    let mut engine = Engine::new(&rt, &NoHooks, state());
+    committed(engine.submit(PlayerId(0), Command::ActivateUnit(UnitId(0))));
 }
