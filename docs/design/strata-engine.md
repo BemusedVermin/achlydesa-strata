@@ -48,11 +48,12 @@ Eight rules settle the structural questions in the rest of this document. When a
 
 ## 3. Architecture
 
-The engine is a Cargo workspace of 11 crates in four layers (plus the `strata_derive` proc-macro helper), and a crate may depend only on crates in layers beneath it. Bevy appears in exactly one crate and `mlua` in exactly one other, so the rules build, run and test headlessly, and either dependency can be swapped by touching one crate.
+The engine is a Cargo workspace of 13 crates in four layers (plus the `strata_derive` proc-macro helper), and a crate may depend only on crates in layers beneath it. Bevy appears in exactly two crates (`strata_render` and `strata_client`) and `mlua` in exactly one other, so the rules build, run and test headlessly, and either dependency can be swapped by touching one crate.
 
 Layers, top to bottom (diagram summarized):
 
-- **Front ends:** `strata_client` (the only crate that depends on Bevy), `strata_cli`.
+- **Front ends:** `strata_client` (the app shell; depends on Bevy), `strata_cli`.
+- **Presentation:** `strata_render` (the Bevy scene plugins; depends on Bevy), `strata_scene` (Bevy-free scene math: projection, view, picking).
 - **Application:** `strata_session`, `strata_ai`, `strata_editor`.
 - **Rules and scripting:** `strata_rules`, `strata_modules`, `strata_lua` (the only crate that depends on `mlua`), `strata_content`.
 - **Foundation:** `strata_model`, `strata_kernel`.
@@ -70,9 +71,11 @@ Layers, top to bottom (diagram summarized):
 | `strata_ai` | Evaluator terms, greedy controller, later MCTS | session |
 | `strata_editor` | Map documents, edit commands, validation, fairness analysis, Lua writer | content, modules |
 | `strata_cli` | `validate`, `test`, `lint`, `stubs`, `stats`, `sim`, `replay` | Everything except client |
-| `strata_client` | Bevy app and all UI | Everything |
+| `strata_scene` | Engine-independent presentation math: hex-to-world layout, isometric view, ray picking. Floats allowed; no Bevy | kernel, model, content |
+| `strata_render` | Bevy plugins for the scene: board, figures, playback, input, camera, previews, occlusion | scene |
+| `strata_client` | Bevy app shell, simulation link, UI panels and editor UI | Everything |
 
-`cargo-deny` enforces the two isolation rules with `wrappers`: `bevy` may only be a dependency of `strata_client`, and `mlua` only of `strata_lua`. At runtime the client and the simulation are separate threads joined by channels (section 13.1).
+`cargo-deny` enforces the two isolation rules with `wrappers`: `bevy` may only be a dependency of `strata_client` and `strata_render`, and `mlua` only of `strata_lua`. At runtime the client and the simulation are separate threads joined by channels (section 13.1).
 
 ## 4. Content packs and the Lua data stage
 
@@ -896,6 +899,8 @@ Bevy's ECS is the right tool for rendering and input but the wrong one for these
 
 ### 13.3 Plugins
 
+`BoardPlugin`, `FigurePlugin`, `PlaybackPlugin`, `InputPlugin`, `CameraPlugin`, `PreviewPlugin` and `OcclusionPlugin` live in `strata_render`, on top of the Bevy-free math in `strata_scene`. `SimLinkPlugin`, `UiPlugin`, `EditorPlugin`, `AssetsPlugin` and `DevPlugin` stay in `strata_client`, which also adds the render plugins.
+
 | Plugin | Responsibility |
 | --- | --- |
 | `SimLinkPlugin` | Starts the simulation thread; drains its channel into a `PendingEvents` resource each frame |
@@ -934,7 +939,7 @@ Each decision type maps to one UI pattern. A figure or space choice highlights t
 
 ### 13.7 Containing Bevy upgrades
 
-Bevy ships breaking releases every few months. The workspace pins one Bevy version, and every Bevy-dependent crate (including `bevy_egui`) is used only inside `strata_client`, so an upgrade touches one crate.
+Bevy ships breaking releases every few months. The workspace pins one Bevy version, and Bevy is used only inside `strata_render` and `strata_client` (and `bevy_egui` only in `strata_client`), so an upgrade touches two crates.
 
 ### 13.8 Isometric rendering and sprites
 

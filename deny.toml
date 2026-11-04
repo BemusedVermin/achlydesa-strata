@@ -7,7 +7,7 @@ allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "Un
 [bans]
 multiple-versions = "warn"
 deny = [
-    { crate = "bevy", wrappers = ["strata_client"] },
+    { crate = "bevy", wrappers = ["strata_client", "strata_render"] },
     { crate = "mlua", wrappers = ["strata_lua"] },
 ]
 

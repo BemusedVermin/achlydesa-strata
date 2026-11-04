@@ -1,0 +1,13 @@
+[package]
+name = "strata_scene"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+strata_kernel = { path = "../strata_kernel" }
+strata_model = { path = "../strata_model" }
+strata_content = { path = "../strata_content" }
+glam = { workspace = true }

@@ -25,7 +25,7 @@ If something is ambiguous, do not guess on design decisions. Comment on the issu
    cargo fmt --all
    cargo clippy --workspace --all-targets --locked -- -D warnings
    cargo test --locked                       # core crates (default members): fast
-   cargo test -p strata_client --locked      # only if the PR touches client or render code
+   cargo test -p strata_client -p strata_render -p strata_scene --locked   # only if the PR touches client or render code
    python scripts/line_budget.py --base origin/master
    ```
 6. Open a PR to `master` titled `T-NNN: <issue title>`, fill in the PR template, and include `Closes #<issue number>`.
@@ -54,15 +54,15 @@ If the work will not fit in 500 lines, **split it**: open the PR for the first c
 ## Architecture rules
 
 - **Layering** (§3). A crate depends only on crates that come earlier in this lowest-to-highest order:
-  `strata_kernel` → `strata_model` → `strata_rules` → (`strata_modules`, `strata_lua`) → `strata_content` → (`strata_session`, `strata_editor`) → `strata_ai` → (`strata_cli`, `strata_client`).
+  `strata_kernel` → `strata_model` → `strata_rules` → (`strata_modules`, `strata_lua`) → `strata_content` → (`strata_session`, `strata_editor`, `strata_scene`) → (`strata_ai`, `strata_render`) → (`strata_cli`, `strata_client`).
   `strata_derive` is a proc-macro used by kernel and model.
-- **Bevy** appears only in `strata_client`. **mlua** appears only in `strata_lua`. `cargo deny` enforces both.
+- **Bevy** appears only in `strata_render` and `strata_client`. `strata_scene` is presentation math with no Bevy. **mlua** appears only in `strata_lua`. `cargo deny` enforces both.
 - **Events are the only mutator** of `GameState` (§5.1). Rules never write state directly.
 - **Lua holds no state.** All game state lives in Rust; scripts use `ctx` (§9).
 
 ## Determinism rules (§5.6, §9.4)
 
-Core crates are everything except `strata_client` and `strata_cli`. In core crates:
+Core crates are everything except `strata_client`, `strata_render`, `strata_scene` and `strata_cli`. In core crates:
 
 - No floating point. Each core `lib.rs` has `#![deny(clippy::float_arithmetic)]`. Use integers and the kernel's exact rationals.
 - No `HashMap` or `HashSet` (clippy `disallowed-types`). Use `BTreeMap`, `BTreeSet`, `IndexMap` or `Vec`.
@@ -83,7 +83,7 @@ Core crates are everything except `strata_client` and `strata_cli`. In core crat
 
 Use these freely within the layering rules. Anything else must be justified in the PR description.
 
-`serde`, `serde_json` (dev/tests and tooling only), `postcard`, `thiserror`, `miette`, `smallvec`, `indexmap`, `xxhash-rust` (feature `xxh3`), `sha2`, `semver`, `syn`, `quote`, `proc-macro2` (strata_derive only), `mlua` (strata_lua only; features `lua54`, `vendored`, `serde`), `clap` (derive), `crossbeam-channel`, `rayon`, `notify`, `full_moon`, `image` (CLI sprite lint only), `schemars` (stub generation), `bevy` and `bevy_egui` (strata_client only), and as dev-dependencies `proptest`, `insta`, `assert_cmd`, `tempfile`.
+`serde`, `serde_json` (dev/tests and tooling only), `postcard`, `thiserror`, `miette`, `smallvec`, `indexmap`, `xxhash-rust` (feature `xxh3`), `sha2`, `semver`, `syn`, `quote`, `proc-macro2` (strata_derive only), `mlua` (strata_lua only; features `lua54`, `vendored`, `serde`), `clap` (derive), `crossbeam-channel`, `rayon`, `notify`, `full_moon`, `image` (CLI sprite lint only), `schemars` (stub generation), `bevy` and `bevy_egui` (strata_client and strata_render; `bevy_egui` in strata_client only), and as dev-dependencies `proptest`, `insta`, `assert_cmd`, `tempfile`.
 
 ## Tests
 

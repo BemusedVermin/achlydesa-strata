@@ -1,0 +1,12 @@
+[package]
+name = "strata_render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+strata_kernel = { path = "../strata_kernel" }
+strata_scene = { path = "../strata_scene" }
+bevy = { workspace = true }
