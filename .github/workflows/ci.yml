@@ -77,8 +77,14 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev libudev-dev libwayland-dev libxkbcommon-dev
 
-      - name: cargo test
-        if: steps.ws.outputs.present == 'true'
+      # Bevy is only built on Linux (the client crate is the only one that needs it); the other
+      # systems test the default members, which is everything else.
+      - name: cargo test (core crates)
+        if: steps.ws.outputs.present == 'true' && runner.os != 'Linux'
+        run: cargo test --locked
+
+      - name: cargo test (workspace, including the client)
+        if: steps.ws.outputs.present == 'true' && runner.os == 'Linux'
         run: cargo test --workspace --locked
 
       - name: toy pack tests (Rust and Lua combat)
