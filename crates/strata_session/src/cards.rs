@@ -1,7 +1,7 @@
 //! Unit cards: what a player reads off a unit, computed on the simulation thread where the
 //! rules can be asked (design §13.1, §8.4).
 
-use strata_model::{GameState, UnitId};
+use strata_model::{FigureId, GameState, UnitId};
 
 /// One stat on a card.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,6 +23,17 @@ pub struct AbilityLine {
     pub text: String,
 }
 
+/// One figure of a unit.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FigureLine {
+    /// The figure.
+    pub figure: FigureId,
+    /// Whether it is still in play, on the board or in reserve.
+    pub alive: bool,
+    /// Wounds on it.
+    pub wounds: u32,
+}
+
 /// A unit's card.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UnitCard {
@@ -36,6 +47,8 @@ pub struct UnitCard {
     pub stats: Vec<StatLine>,
     /// Abilities with their card text.
     pub abilities: Vec<AbilityLine>,
+    /// The unit's figures, in order.
+    pub figures: Vec<FigureLine>,
 }
 
 /// Something that can write the card of every unit in a state.

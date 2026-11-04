@@ -126,6 +126,8 @@ fn a_card_shows_a_stat_as_the_aura_modifies_it() {
     assert_eq!((stat("DEF").base, stat("DEF").value), (2, 3));
     let labels: Vec<&str> = card.stats.iter().map(|s| s.label.as_str()).collect();
     assert_eq!(labels, ["ATK", "DEF"]);
+    let alive: Vec<(bool, u32)> = card.figures.iter().map(|f| (f.alive, f.wounds)).collect();
+    assert_eq!(alive, [(true, 0), (true, 0)]);
     assert_eq!(card.abilities[0].name, "Shieldwall");
     assert_eq!(card.abilities[0].text, "Adds 1 to defense.");
 }

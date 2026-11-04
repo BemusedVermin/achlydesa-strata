@@ -15,6 +15,14 @@ pub struct Sim(pub SimHandle);
 #[derive(Resource, Default)]
 pub struct PendingEvents(pub VecDeque<Vec<Event>>);
 
+/// The most events the log keeps.
+pub const LOG_CAP: usize = 1000;
+
+/// Every visible event received so far, oldest first, for the game log. Playback consumes
+/// [`PendingEvents`]; this is a separate copy.
+#[derive(Resource, Default)]
+pub struct EventLog(pub Vec<Event>);
+
 /// The newest view of the match from the viewer's seat.
 #[derive(Resource, Default)]
 pub struct LatestView(pub Option<Box<PlayerView>>);
@@ -56,6 +64,7 @@ impl Plugin for SimLinkPlugin {
             app.insert_resource(Sim(handle));
         }
         app.init_resource::<PendingEvents>()
+            .init_resource::<EventLog>()
             .init_resource::<LatestView>()
             .init_resource::<SimStatus>()
             .add_message::<SendCommand>()
@@ -68,6 +77,7 @@ impl Plugin for SimLinkPlugin {
 fn drain_sim(
     sim: Option<Res<Sim>>,
     mut pending: ResMut<PendingEvents>,
+    mut log: ResMut<EventLog>,
     mut view: ResMut<LatestView>,
     mut status: ResMut<SimStatus>,
 ) {
@@ -76,6 +86,9 @@ fn drain_sim(
         match message {
             SimMessage::Events(events) => {
                 info!("received {} event(s): {events:?}", events.len());
+                log.0.extend(events.iter().cloned());
+                let excess = log.0.len().saturating_sub(LOG_CAP);
+                log.0.drain(..excess);
                 pending.0.push_back(events);
             }
             SimMessage::View(latest) => view.0 = Some(latest),
