@@ -45,3 +45,13 @@ test {
   ruleset = 'rs', place = board(),
   steps = { act.activate(0, 'p0.nobody#1') },
 }
+test {
+  id = 'end_by_other', name = 'only the active player may end an activation',
+  ruleset = 'rs', place = board(),
+  steps = { act.activate(0, 'p0.test_soldier#1'), act.end_activation(1) },
+}
+test {
+  id = 'activate_twice', name = 'a unit cannot be activated while an activation is under way',
+  ruleset = 'rs', place = board(),
+  steps = { act.activate(0, 'p0.test_soldier#1'), act.activate(0, 'p0.test_soldier#1') },
+}
