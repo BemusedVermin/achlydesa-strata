@@ -6,6 +6,7 @@ use std::time::Duration;
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError, unbounded};
 use strata_model::{Answer, Command, Event, PlayerId};
 
+use crate::cards::{CardSource, NoCards};
 use crate::human::HumanController;
 use crate::session::{Session, SessionError};
 use crate::view::{PlayerView, visible_events};
@@ -54,7 +55,18 @@ impl SimLink {
     /// Steps `session` until `commands` commands have committed, sending `viewer`'s events and
     /// views out as it goes. Returns early on a shutdown request, an error or a closed client.
     pub fn run(&self, session: &mut Session<'_>, viewer: PlayerId, commands: u32) {
-        if !self.send_view(session, viewer) {
+        self.run_with(session, viewer, commands, &NoCards);
+    }
+
+    /// As [`run`](Self::run), with every view carrying the cards `cards` writes.
+    pub fn run_with(
+        &self,
+        session: &mut Session<'_>,
+        viewer: PlayerId,
+        commands: u32,
+        cards: &dyn CardSource,
+    ) {
+        if !self.send_view(session, viewer, cards) {
             return;
         }
         while session.state().command_index < commands {
@@ -65,7 +77,7 @@ impl SimLink {
                 Ok(events) => {
                     let visible = visible_events(session.state(), viewer, &events);
                     let sent = events.is_empty() || self.send(SimMessage::Events(visible));
-                    if !(sent && self.send_view(session, viewer)) {
+                    if !(sent && self.send_view(session, viewer, cards)) {
                         return;
                     }
                 }
@@ -88,8 +100,9 @@ impl SimLink {
         self.output.send(message).is_ok()
     }
 
-    fn send_view(&self, session: &Session<'_>, viewer: PlayerId) -> bool {
-        let view = PlayerView::of(session.state(), viewer);
+    fn send_view(&self, session: &Session<'_>, viewer: PlayerId, cards: &dyn CardSource) -> bool {
+        let mut view = PlayerView::of(session.state(), viewer);
+        view.cards = cards.cards(session.state());
         self.send(SimMessage::View(Box::new(view)))
     }
 

@@ -114,7 +114,7 @@ fn play(spec: &LaunchSpec, link: &SimLink) -> Result<(), String> {
         .map(|_| Box::new(link.human()) as Box<dyn Controller>)
         .collect();
     let mut session = Session::new(engine, controllers);
-    link.run(&mut session, PlayerId(0), spec.commands);
+    link.run_with(&mut session, PlayerId(0), spec.commands, &*host);
     Ok(())
 }
 

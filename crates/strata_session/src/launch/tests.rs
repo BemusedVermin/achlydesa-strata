@@ -93,3 +93,47 @@ fn an_unnamed_ruleset_must_be_the_only_one() {
     let got = first_error(spec("duel", None));
     assert!(got.contains("several rulesets"), "{got}");
 }
+
+fn cards_spec() -> LaunchSpec {
+    let root = env!("CARGO_MANIFEST_DIR");
+    LaunchSpec {
+        roots: vec![PathBuf::from(root).join("../../fixtures/packs/cards")],
+        scenario: "duel".into(),
+        ruleset: Some("rs".into()),
+        seed: 1,
+        armies: vec![army("test_soldier"), army("test_soldier")],
+        commands: 0,
+    }
+}
+
+fn first_view(spec: LaunchSpec) -> PlayerView {
+    let handle = launch(spec);
+    match handle.recv_timeout(WAIT) {
+        Ok(SimMessage::View(view)) => *view,
+        other => panic!("expected a view, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_card_shows_a_stat_as_the_aura_modifies_it() {
+    let view = first_view(cards_spec());
+    let card = view.cards.first().expect("a card per unit");
+    assert_eq!(view.cards.len(), view.state.units.len());
+    assert_eq!(card.name, "Test Soldier");
+    assert_eq!(card.kind, "squad");
+    let stat = |label: &str| card.stats.iter().find(|s| s.label == label).unwrap();
+    assert_eq!((stat("ATK").base, stat("ATK").value), (3, 3));
+    assert_eq!((stat("DEF").base, stat("DEF").value), (2, 3));
+    let labels: Vec<&str> = card.stats.iter().map(|s| s.label.as_str()).collect();
+    assert_eq!(labels, ["ATK", "DEF"]);
+    assert_eq!(card.abilities[0].name, "Shieldwall");
+    assert_eq!(card.abilities[0].text, "Adds 1 to defense.");
+}
+
+#[test]
+fn cards_are_the_same_on_every_launch() {
+    assert_eq!(
+        first_view(cards_spec()).cards,
+        first_view(cards_spec()).cards
+    );
+}
