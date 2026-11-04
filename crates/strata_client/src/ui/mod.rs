@@ -23,11 +23,16 @@ impl Plugin for UiPlugin {
 /// Draws every panel from the newest view and log.
 fn panels(mut contexts: EguiContexts, view: Res<LatestView>, log: Res<EventLog>) -> Result {
     let ctx = contexts.ctx_mut()?;
+    let names = view
+        .0
+        .as_deref()
+        .map(|v| v.names.clone())
+        .unwrap_or_default();
     if let Some(view) = view.0.as_deref() {
         egui::Window::new("Turn").show(ctx, |ui| turn::show(ui, &turn::TurnModel::of(view)));
         egui::Window::new("Units").show(ctx, |ui| cards::show(ui, &cards::card_models(view)));
     }
-    egui::Window::new("Log").show(ctx, |ui| log::show(ui, &log::lines(&log.0)));
+    egui::Window::new("Log").show(ctx, |ui| log::show(ui, &log::lines(&log.0, &names)));
     Ok(())
 }
 

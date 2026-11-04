@@ -1,16 +1,25 @@
 //! The scrollable game log, from the events the viewer may see.
 
 use bevy_egui::egui;
+use strata_kernel::DefId;
 use strata_model::Event;
+use strata_session::Names;
 
 fn seat(player: strata_model::PlayerId) -> u32 {
     u32::from(player.0) + 1
 }
 
+fn or_id(name: Option<&str>, id: DefId) -> String {
+    name.map_or_else(|| format!("#{}", id.0), str::to_owned)
+}
+
 /// One line for `event`, or `None` for events a player does not need to read, such as variable
-/// writes and slot bookkeeping.
-pub fn describe(event: &Event) -> Option<String> {
+/// writes and slot bookkeeping. `names` words the dice, markers and phases it mentions.
+pub fn describe(event: &Event, names: &Names) -> Option<String> {
     Some(match event {
+        Event::PhaseEntered(phase) => {
+            format!("Phase: {}", or_id(names.phase(*phase), *phase))
+        }
         Event::RoundStarted(round) => format!("Round {round} begins"),
         Event::TurnStarted { turn, active } => format!("Turn {turn}: player {}", seat(*active)),
         Event::ActivationStarted { unit, .. } => format!("Unit {} activates", unit.0),
@@ -18,9 +27,25 @@ pub fn describe(event: &Event) -> Option<String> {
             let hex = to.hex();
             format!("Figure {} moves to {},{}", figure.0, hex.q, hex.r)
         }
-        Event::DiceRolled { results, .. } => format!("Dice rolled: {results:?}"),
-        Event::WoundsApplied { figure, amount, .. } => {
-            format!("Figure {} takes {amount} wound(s)", figure.0)
+        Event::DiceRolled { die, results } => {
+            format!("{} rolled: {results:?}", or_id(names.die(*die), *die))
+        }
+        Event::WoundsApplied {
+            figure,
+            wound,
+            amount,
+        } => {
+            let kind = or_id(names.marker(*wound), *wound);
+            format!("Figure {} takes {amount} {kind}", figure.0)
+        }
+        Event::MarkerChanged {
+            figure,
+            marker,
+            delta,
+            ..
+        } => {
+            let kind = or_id(names.marker(*marker), *marker);
+            format!("Figure {} {delta:+} {kind}", figure.0)
         }
         Event::FigureDestroyed(figure) => format!("Figure {} is destroyed", figure.0),
         Event::TokensDealt { player, tokens } => {
@@ -37,8 +62,8 @@ pub fn describe(event: &Event) -> Option<String> {
 }
 
 /// The log lines for `events`, oldest first.
-pub fn lines(events: &[Event]) -> Vec<String> {
-    events.iter().filter_map(describe).collect()
+pub fn lines(events: &[Event], names: &Names) -> Vec<String> {
+    events.iter().filter_map(|e| describe(e, names)).collect()
 }
 
 /// Draws the log, pinned to the newest line.

@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use crate::cards::{AbilityLine, CardSource, FigureLine, StatLine, UnitCard};
+use crate::names::Names;
 use strata_content::ContentRegistry;
 use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
@@ -19,6 +20,10 @@ use strata_rules::{
 };
 
 impl CardSource for Host {
+    fn names(&self) -> Arc<Names> {
+        self.names.get().cloned().unwrap_or_default()
+    }
+
     fn cards(&self, state: &GameState) -> Vec<UnitCard> {
         let units = (0u32..).zip(&state.units);
         let cards = units.map(|(id, unit)| self.card(state, UnitId(id), unit));
@@ -75,6 +80,8 @@ pub(crate) struct Host {
     board: Option<CompiledBoard>,
     los: Option<Arc<dyn LineOfSight>>,
     rig: Mutex<Rig>,
+    /// Set once the ruleset's phases are known.
+    pub(crate) names: OnceLock<Arc<Names>>,
     /// Set once the rules exist, because the rules hold this host.
     pub(crate) rules: OnceLock<Weak<LuaRules>>,
 }
@@ -99,6 +106,7 @@ impl Host {
             board,
             los: None,
             rig: Mutex::default(),
+            names: OnceLock::new(),
             rules: OnceLock::new(),
         }
     }

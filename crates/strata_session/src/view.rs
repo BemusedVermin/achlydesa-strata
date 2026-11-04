@@ -1,6 +1,9 @@
 //! What one player may see of the state and of the events (design §15.3).
 
+use std::sync::Arc;
+
 use crate::cards::UnitCard;
+use crate::names::Names;
 use strata_kernel::DefId;
 use strata_model::{Event, GameState, PlayerId, UnitId, Visibility};
 
@@ -17,6 +20,9 @@ pub struct PlayerView {
     pub state: GameState,
     /// A card per unit, with stats as the rules query them; empty when no content was supplied.
     pub cards: Vec<UnitCard>,
+    /// Names of the dice, markers and phases that events mention; empty when no content was
+    /// supplied.
+    pub names: Arc<Names>,
 }
 
 impl PlayerView {
@@ -39,6 +45,7 @@ impl PlayerView {
             viewer,
             state,
             cards: Vec::new(),
+            names: Arc::default(),
         }
     }
 }

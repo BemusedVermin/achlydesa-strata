@@ -7,7 +7,7 @@ use strata_model::{
     ArmyEntry, ArmyList, Event, GameState, PlayerId, PlayerState, Text, Token, UnitId, UnitState,
     Visibility,
 };
-use strata_session::{LaunchSpec, PlayerView, SimMessage, launch};
+use strata_session::{LaunchSpec, Names, PlayerView, SimMessage, launch};
 
 use super::cards::{Tone, card_models};
 use super::log::{describe, lines};
@@ -125,12 +125,53 @@ fn the_log_keeps_player_facing_events_and_drops_bookkeeping() {
         },
     ];
     assert_eq!(
-        lines(&events),
+        lines(&events, &Names::default()),
         [
             "Round 1 begins",
-            "Figure 4 takes 2 wound(s)",
+            "Figure 4 takes 2 #0",
             "A token is revealed on unit 3",
         ]
     );
-    assert_eq!(describe(&Event::ActivationEnded), None);
+    assert_eq!(describe(&Event::ActivationEnded, &Names::default()), None);
+}
+
+/// The ID `names` gives to the die, marker or phase called `name`.
+fn id_of(name: &str, lookup: impl Fn(DefId) -> Option<String>) -> DefId {
+    (0..64)
+        .map(DefId)
+        .find(|id| lookup(*id).as_deref() == Some(name))
+        .unwrap()
+}
+
+#[test]
+fn the_log_words_dice_and_markers_with_their_names() {
+    let names = launched_view().names;
+    let die = id_of("Combat", |id| names.die(id).map(str::to_owned));
+    let wound = id_of("Wound", |id| names.marker(id).map(str::to_owned));
+    let events = [
+        Event::DiceRolled {
+            die,
+            results: vec![1, 2],
+        },
+        Event::WoundsApplied {
+            figure: strata_model::FigureId(4),
+            wound,
+            amount: 2,
+        },
+        Event::MarkerChanged {
+            figure: strata_model::FigureId(1),
+            marker: wound,
+            delta: -1,
+            source: None,
+            expiry: None,
+        },
+    ];
+    assert_eq!(
+        lines(&events, &names),
+        [
+            "Combat rolled: [1, 2]",
+            "Figure 4 takes 2 Wound",
+            "Figure 1 -1 Wound",
+        ]
+    );
 }

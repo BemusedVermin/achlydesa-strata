@@ -1,6 +1,8 @@
 -- A duel whose ruleset adds 1 to every figure's defense, so cards show a buffed stat.
 stat { id = 'attack', name = 'Attack', abbrev = 'ATK', order = 1, min = 0, max = 9 }
 stat { id = 'defense', name = 'Defense', abbrev = 'DEF', order = 2, min = 0, max = 9 }
+marker { id = 'wound', name = 'Wound', stacking = 'count', visibility = 'public' }
+die { id = 'combat', name = 'Combat', faces = { 'hit', 'blank' } }
 
 terrain { id = 'grass', name = 'Grass', standable = true }
 tile { id = 'meadow', name = 'Meadow', terrain = 'grass', thickness = 1, shape = {{ q = 0, r = 0 }} }
