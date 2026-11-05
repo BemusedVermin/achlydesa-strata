@@ -74,6 +74,7 @@ impl GameState {
                 figure,
                 to,
                 rotation,
+                ..
             } => {
                 let fig = self.live_figure(*figure)?;
                 let from = fig.location;

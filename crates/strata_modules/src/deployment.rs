@@ -175,6 +175,7 @@ impl NativeLogic for Drive {
                 figure,
                 to: *to,
                 rotation,
+                path: Vec::new(),
             })?;
         }
         let next = (turn.unwrap_or(0) + 1) % seats.len();
