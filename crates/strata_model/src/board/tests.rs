@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use strata_kernel::{BlockerFootprint, DefId, Hex, Rotation, Shape, Sym, blocked};
 use strata_kernel::{Point, Point3, SUB_LEVELS, Seg3};
 
-use super::{BoardDefs, BoardError, CompiledBoard, Surface, compile};
+use super::{BoardDefs, BoardError, CompiledBoard, Surface, compile, compile_all};
 use crate::map::{MapConstraints, MapDef, PlacedFeature, PlacedPiece};
 use crate::terrain::{FeatureCell, FeatureDef, Segment, TileDef};
 use crate::vocab::{SourceLoc, Text};
@@ -306,4 +306,43 @@ fn assert_same_columns(a: &CompiledBoard, b: &CompiledBoard, by: Rotation) {
         }
     }
     assert!(seen > 0);
+}
+
+#[test]
+fn compile_all_reports_every_error_and_compile_reports_the_first() {
+    let pieces = vec![
+        piece("slab", (0, 0), 0, 0),
+        piece("slab", (0, 0), 0, 0),
+        piece("nope", (5, 5), 0, 0),
+        piece("deck", (3, 3), 0, 2),
+    ];
+    let m = map(pieces, vec![feature("wall", (3, 3), 0)], true);
+    let errors = compile_all(&m, &defs()).unwrap_err();
+    let overlap = |hex| BoardError::Overlap {
+        piece: 1,
+        other: 0,
+        hex,
+    };
+    assert_eq!(
+        errors,
+        vec![
+            overlap(Hex::new(0, 0)),
+            overlap(Hex::new(0, 1)),
+            overlap(Hex::new(1, 0)),
+            BoardError::UnknownTile {
+                piece: 2,
+                at: Hex::new(5, 5),
+                name: "nope".into(),
+            },
+            BoardError::Unsupported {
+                piece: 3,
+                hex: Hex::new(3, 3),
+            },
+            BoardError::FeatureOffBoard {
+                feature: 0,
+                hex: Hex::new(4, 3),
+            },
+        ]
+    );
+    assert_eq!(compile(&m, &defs()), Err(errors[0].clone()));
 }

@@ -38,16 +38,7 @@ pub(crate) fn find<'a, T: Def>(
     pack: &str,
     name: &str,
 ) -> Option<(DefId, &'a T)> {
-    let suffix = format!(":{name}");
-    registry
-        .find::<T>(name)
-        .or_else(|| registry.find::<T>(&format!("{pack}:{name}")))
-        .or_else(|| {
-            let mut hits = registry
-                .iter::<T>()
-                .filter(|(_, id, _)| id.ends_with(&suffix));
-            hits.next().map(|(id, _, def)| (id, def))
-        })
+    registry.lookup::<T>(pack, name)
 }
 
 /// Resolves the tile and feature names of a map against the registry.

@@ -1,9 +1,13 @@
 //! The document being edited: a map, its compiled board and the undo history.
 
-use strata_model::MapDef;
-use strata_model::board::{BoardDefs, BoardError, CompiledBoard, compile};
+use std::sync::Arc;
 
+use strata_model::MapDef;
+use strata_model::board::{BoardDefs, BoardError, CompiledBoard, compile_all};
+
+use crate::defs::EditorDefs;
 use crate::edit::{Edit, EditError};
+use crate::validate::{Validation, ValidationOptions, validate};
 
 /// An applied edit and the edit that undoes it.
 #[derive(Clone, Debug)]
@@ -16,7 +20,10 @@ struct Applied {
 pub struct MapDocument<D: BoardDefs> {
     map: MapDef,
     defs: D,
-    board: Result<CompiledBoard, BoardError>,
+    /// The board, or every reason the map does not compile (never an empty list).
+    board: Result<CompiledBoard, Vec<BoardError>>,
+    /// The latest validation and the options it ran with, until the next change.
+    validation: Option<(ValidationOptions, Arc<Validation>)>,
     undo: Vec<Applied>,
     redo: Vec<Applied>,
 }
@@ -24,11 +31,12 @@ pub struct MapDocument<D: BoardDefs> {
 impl<D: BoardDefs> MapDocument<D> {
     /// Opens `map` for editing against `defs`.
     pub fn new(map: MapDef, defs: D) -> Self {
-        let board = compile(&map, &defs);
+        let board = compile_all(&map, &defs);
         Self {
             map,
             defs,
             board,
+            validation: None,
             undo: Vec::new(),
             redo: Vec::new(),
         }
@@ -44,7 +52,7 @@ impl<D: BoardDefs> MapDocument<D> {
     /// A map mid-edit may overlap or name a missing tile, so this is a `Result` rather than a
     /// reason to reject the edit.
     pub fn board(&self) -> Result<&CompiledBoard, &BoardError> {
-        self.board.as_ref()
+        self.board.as_ref().map_err(|errors| &errors[0])
     }
 
     /// Returns whether there is an edit to undo.
@@ -88,10 +96,29 @@ impl<D: BoardDefs> MapDocument<D> {
         Ok(true)
     }
 
-    /// Recompiles the board if `edit` could have changed it.
+    /// Recompiles the board if `edit` could have changed it, and drops the cached validation.
     fn refresh(&mut self, edit: &Edit) {
         if edit.affects_board() {
-            self.board = compile(&self.map, &self.defs);
+            self.board = compile_all(&self.map, &self.defs);
         }
+        self.validation = None;
+    }
+}
+
+impl<D: EditorDefs> MapDocument<D> {
+    /// Validates the map as edited so far.
+    ///
+    /// The result is cached: until the next edit, undo or redo, asking again with the same
+    /// options returns the same `Arc` without checking anything.
+    pub fn validate(&mut self, options: &ValidationOptions) -> Arc<Validation> {
+        if let Some((cached, validation)) = &self.validation
+            && cached == options
+        {
+            return Arc::clone(validation);
+        }
+        let board = self.board.as_ref().map_err(Vec::as_slice);
+        let validation = Arc::new(validate(&self.map, board, &self.defs, options));
+        self.validation = Some((options.clone(), Arc::clone(&validation)));
+        validation
     }
 }

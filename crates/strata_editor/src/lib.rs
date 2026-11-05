@@ -4,10 +4,17 @@
 #![deny(clippy::float_arithmetic)]
 #![warn(missing_docs)]
 
+mod defs;
 mod document;
 mod edit;
+mod finding;
+mod standing;
+mod validate;
 mod writer;
 
+pub use defs::{EditorDefs, RegistryDefs};
 pub use document::MapDocument;
 pub use edit::{Edit, EditError, Metadata};
+pub use finding::{Finding, FindingKind, Severity};
+pub use validate::{START_ZONE_PREFIX, Validation, ValidationOptions};
 pub use writer::{WriteError, write_map};

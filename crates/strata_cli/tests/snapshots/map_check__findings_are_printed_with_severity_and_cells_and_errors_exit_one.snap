@@ -1,0 +1,20 @@
+---
+source: crates/strata_cli/tests/map_check.rs
+expression: text
+---
+map t:overlap (t/maps/overlap.lua)
+error: piece 1 overlaps piece 0; cells (0, 0)
+1 error(s), 0 warning(s)
+map t:unsupported (t/maps/unsupported.lua)
+error: piece 1 is unsupported; cells (1, 0)
+1 error(s), 0 warning(s)
+map t:inventory (t/maps/inventory.lua)
+error: uses 4 `grass_1` but the inventory has 3; cells (0, 0), (1, 0), (2, 0), (3, 0)
+error: uses 1 `hill_2` but the inventory has 0; cells (4, 0)
+2 error(s), 0 warning(s)
+map t:unstandable_zone (t/maps/unstandable_zone.lua)
+warning: zone `ford` covers unstandable columns; cells (2, 0), (5, 5)
+0 error(s), 1 warning(s)
+map t:small_zone (t/maps/small_zone.lua)
+error: start zone `start_a` has 2 standable spaces for an army of 3; cells (0, 0), (1, 0)
+1 error(s), 0 warning(s)
