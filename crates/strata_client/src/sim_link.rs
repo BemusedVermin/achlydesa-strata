@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::sync::Mutex;
 
 use bevy::prelude::*;
-use strata_model::{Command, Event};
+use strata_model::{Answer, Command, Event};
 use strata_session::{PlayerView, SimHandle, SimMessage};
 
 /// The running simulation. Dropping it stops the thread.
@@ -43,6 +43,10 @@ pub enum SimStatus {
 #[derive(Message)]
 pub struct SendCommand(pub Command);
 
+/// Answers the pending decision, whichever seat chooses.
+#[derive(Message)]
+pub struct SendAnswer(pub Answer);
+
 /// Hands the simulation's messages to the ECS each frame and the client's commands back.
 pub struct SimLinkPlugin {
     handle: Mutex<Option<SimHandle>>,
@@ -68,8 +72,9 @@ impl Plugin for SimLinkPlugin {
             .init_resource::<LatestView>()
             .init_resource::<SimStatus>()
             .add_message::<SendCommand>()
+            .add_message::<SendAnswer>()
             .add_systems(PreUpdate, drain_sim)
-            .add_systems(Update, forward_commands);
+            .add_systems(Update, (forward_commands, forward_answers));
     }
 }
 
@@ -109,6 +114,15 @@ fn forward_commands(sim: Option<Res<Sim>>, mut commands: MessageReader<SendComma
     for SendCommand(command) in commands.read() {
         if let Some(sim) = &sim {
             sim.0.send_command(command.clone());
+        }
+    }
+}
+
+/// Sends each [`SendAnswer`] to the simulation.
+fn forward_answers(sim: Option<Res<Sim>>, mut answers: MessageReader<SendAnswer>) {
+    for SendAnswer(answer) in answers.read() {
+        if let Some(sim) = &sim {
+            sim.0.send_answer(answer.clone());
         }
     }
 }
