@@ -10,7 +10,7 @@ use strata_model::Answer;
 use strata_render::{BoardHighlights, SpaceClicked};
 use strata_session::PlayerView;
 
-use crate::sim_link::{LatestView, SendAnswer};
+use crate::sim_link::{LatestView, SendAnswer, SimStatus};
 
 pub mod decision;
 pub mod pick;
@@ -19,9 +19,9 @@ use decision::{Highlights, Widget};
 use pick::{Pick, Refusal};
 
 /// The input state the board and the decision prompt share.
-#[derive(Resource, Clone, Debug, Default)]
+#[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
 pub struct DecisionInput {
-    /// The widget for the decision the viewer must answer, if any.
+    /// The widget for the pending decision, if any.
     pub widget: Option<Widget>,
     /// The stepper's value.
     pub number: i32,
@@ -34,13 +34,11 @@ pub struct DecisionInput {
 }
 
 impl DecisionInput {
-    /// Fresh input for the state `view` shows. Only a decision the viewer must answer gets a
-    /// widget.
+    /// Fresh input for the state `view` shows. Every seat is played from this client until
+    /// hot-seat switching lands (T-056), so a pending decision gets a widget whoever chooses.
     pub fn of(view: &PlayerView) -> Self {
         let pending = view.state.pending.as_ref();
-        let widget = pending
-            .filter(|p| p.chooser == view.viewer)
-            .map(|p| Widget::of(&p.decision));
+        let widget = pending.map(|p| Widget::of(&p.decision));
         let (number, order) = widget.as_ref().map(Widget::start).unwrap_or_default();
         Self {
             widget,
@@ -52,15 +50,10 @@ impl DecisionInput {
     }
 
     /// Applies a click to the pending decision. A refused click leaves its reason in
-    /// [`why`](Self::why).
+    /// [`why`](Self::why); with no decision pending, a click does nothing.
     pub fn click(&mut self, pick: &Pick) -> Option<Answer> {
-        if self.sent {
-            return None;
-        }
-        let result = match &self.widget {
-            Some(widget) => widget.click(pick),
-            None => Err(Refusal::NothingToDo),
-        };
+        let widget = self.widget.as_ref().filter(|_| !self.sent)?;
+        let result = widget.click(pick);
         self.why = result.as_ref().err().copied();
         self.settle(result.ok())
     }
@@ -81,8 +74,9 @@ impl DecisionInput {
     }
 }
 
-/// What the board highlights now, figures included, for the panels and for tests.
-#[derive(Resource, Default, Debug)]
+/// The figures and spaces of the pending decision that are highlighted. The board itself draws
+/// [`BoardHighlights`], which holds only spaces; this keeps the figures too, for tests.
+#[derive(Resource, Default, Debug, PartialEq, Eq)]
 pub struct Highlighted(pub Highlights);
 
 /// Turns board clicks into answers and keeps the highlights current.
@@ -98,9 +92,11 @@ impl Plugin for DecisionInputPlugin {
     }
 }
 
-/// Starts over whenever a new view arrives.
-fn refresh(view: Res<LatestView>, mut input: ResMut<DecisionInput>) {
-    if let Some(view) = view.0.as_deref().filter(|_| view.is_changed()) {
+/// Starts over whenever a new view arrives, and clears the input once the match has stopped.
+fn refresh(view: Res<LatestView>, status: Res<SimStatus>, mut input: ResMut<DecisionInput>) {
+    if *status != SimStatus::Running {
+        input.set_if_neq(DecisionInput::default());
+    } else if let Some(view) = view.0.as_deref().filter(|_| view.is_changed()) {
         *input = DecisionInput::of(view);
     }
 }
@@ -135,7 +131,7 @@ fn highlight(
     if view.is_changed() || input.is_changed() {
         let highlights = input.highlights();
         board.set_if_neq(BoardHighlights(highlights.board_spaces(state)));
-        shown.0 = highlights;
+        shown.set_if_neq(Highlighted(highlights));
     }
 }
 

@@ -39,21 +39,23 @@ fn panels(
     if let Some(view) = view.0.as_deref() {
         egui::Window::new("Turn").show(ctx, |ui| turn::show(ui, &turn::TurnModel::of(view)));
         egui::Window::new("Units").show(ctx, |ui| cards::show(ui, &cards::card_models(view)));
-        let input = &mut *input;
-        if input.widget.is_some() {
+        // Edit a copy, so the input is only marked changed when the prompt really changed it.
+        let mut edited = input.clone();
+        if edited.widget.is_some() {
             let mut answer = None;
             egui::Window::new("Decision").show(ctx, |ui| {
-                if input.sent {
+                if edited.sent {
                     ui.label("Waiting for the rules.");
                 } else {
-                    answer = prompt::decision(ui, view, input);
+                    answer = prompt::decision(ui, view, &mut edited);
                 }
-                prompt::why(ui, input);
+                prompt::why(ui, &edited);
             });
             if let Some(answer) = answer {
                 answers.write(SendAnswer(answer));
             }
         }
+        input.set_if_neq(edited);
     }
     egui::Window::new("Log").show(ctx, |ui| log::show(ui, &log::lines(&log.0, &names)));
     Ok(())

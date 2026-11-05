@@ -13,7 +13,7 @@ use strata_session::{LaunchSpec, PlayerView, SimHandle, SimMessage, launch};
 use super::decision::{Highlights, Widget, reorder};
 use super::pick::{Pick, Refusal};
 use super::*;
-use crate::sim_link::{SendCommand, SimLinkPlugin};
+use crate::sim_link::{SendCommand, SimLinkPlugin, SimStatus};
 
 // ---- fixtures -------------------------------------------------------------------------------
 
@@ -183,20 +183,95 @@ fn a_pending_decision_takes_board_clicks_and_one_answer_goes_out() {
 }
 
 #[test]
-fn another_players_decision_gets_no_widget() {
+fn another_seats_decision_is_answered_here_too() {
+    // Every seat is a human on this client's channels until T-056, so player 1's decision is
+    // answered from player 0's screen rather than blocking the match.
     let mut s = state();
     s.pending = Some(PendingDecision {
-        decision: decision(DecisionKind::YesNo),
+        decision: decision(DecisionKind::ChooseFigure(vec![FigureId(3)])),
         chooser: PlayerId(1),
         player: PlayerId(1),
         command: Command::EndActivation,
         answers: Vec::new(),
     });
     let mut input = DecisionInput::of(&PlayerView::of(&s, PlayerId(0)));
+    assert_eq!(input.widget, Some(Widget::Figures(figures(&[3]))));
+    let answer = input.click(&Pick::figure(FigureId(3)));
+    assert_eq!(answer, Some(Answer::Figure(FigureId(3))));
+}
+
+#[test]
+fn with_no_decision_a_click_does_nothing_and_says_nothing() {
+    let s = state();
+    let mut input = DecisionInput::of(&PlayerView::of(&s, PlayerId(0)));
     assert_eq!(input.widget, None);
     assert_eq!(input.highlights(), Highlights::default());
     assert_eq!(input.click(&Pick::at(&s, space(0))), None);
-    assert_eq!(input.why, Some(Refusal::NothingToDo));
+    assert_eq!(input.why, None);
+}
+
+/// A headless app with the decision input and the resources the sim link would provide.
+fn input_app() -> App {
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .init_resource::<LatestView>()
+        .init_resource::<SimStatus>()
+        .add_message::<SendAnswer>()
+        .add_plugins(DecisionInputPlugin);
+    app
+}
+
+fn pending_view() -> PlayerView {
+    let mut s = state();
+    s.pending = Some(PendingDecision {
+        decision: decision(DecisionKind::ChooseFigure(vec![FigureId(0)])),
+        chooser: PlayerId(0),
+        player: PlayerId(0),
+        command: Command::EndActivation,
+        answers: Vec::new(),
+    });
+    PlayerView::of(&s, PlayerId(0))
+}
+
+#[test]
+fn the_input_resets_once_the_match_stops() {
+    for stopped in [SimStatus::Finished, SimStatus::Failed("boom".into())] {
+        let mut app = input_app();
+        app.world_mut().resource_mut::<LatestView>().0 = Some(Box::new(pending_view()));
+        app.update();
+        app.world_mut().resource_mut::<DecisionInput>().sent = true;
+        app.update();
+        assert!(app.world().resource::<DecisionInput>().sent);
+        *app.world_mut().resource_mut::<SimStatus>() = stopped;
+        app.update();
+        assert_eq!(
+            *app.world().resource::<DecisionInput>(),
+            DecisionInput::default()
+        );
+        assert_eq!(app.world().resource::<BoardHighlights>().0, []);
+    }
+}
+
+/// Whether [`DecisionInput`] and [`Highlighted`] changed in the last frame, as a system sees it.
+#[derive(Resource, Default)]
+struct Changes(bool, bool);
+
+fn record_changes(input: Res<DecisionInput>, shown: Res<Highlighted>, mut seen: ResMut<Changes>) {
+    *seen = Changes(input.is_changed(), shown.is_changed());
+}
+
+#[test]
+fn idle_frames_do_not_mark_the_input_or_highlights_changed() {
+    let mut app = input_app();
+    app.init_resource::<Changes>()
+        .add_systems(PostUpdate, record_changes);
+    app.world_mut().resource_mut::<LatestView>().0 = Some(Box::new(pending_view()));
+    app.update();
+    let seen = app.world().resource::<Changes>();
+    assert!(seen.0 && seen.1, "the first view changes both");
+    app.update();
+    let seen = app.world().resource::<Changes>();
+    assert!(!seen.0 && !seen.1, "an idle frame changes neither");
 }
 
 // ---- end to end: a Lua ability's ctx.choose -------------------------------------------------
@@ -216,7 +291,8 @@ fn army(unit: &str) -> Option<ArmyList> {
 }
 
 /// The `decide` fixture: player 0 has figures 0 and 1, player 1 has figures 2 and 3. Its
-/// `rally` ability asks player 0 to pick the attacker or the target of an attack.
+/// `rally` ability asks player 0 to pick the attacker or the target of an attack. The match
+/// allows enough commands to deploy every figure first.
 fn decide() -> SimHandle {
     let root = env!("CARGO_MANIFEST_DIR");
     launch(LaunchSpec {
@@ -225,8 +301,28 @@ fn decide() -> SimHandle {
         ruleset: Some("rs".into()),
         seed: 3,
         armies: vec![army("test_soldier"), army("test_archer")],
-        commands: 1,
+        commands: 5,
     })
+}
+
+/// Where the end-to-end test deploys figure `figure`: one per meadow of the strip.
+fn deployed(figure: u32) -> Space {
+    Space::new(figure as i32, 0, 1)
+}
+
+/// The toy driver's `move_to`, which puts a figure from reserve on the board.
+fn move_to(figure: u32) -> Command {
+    let at = deployed(figure);
+    let payload = [
+        (Sym::new("figure"), Value::Int(i64::from(figure))),
+        (Sym::new("q"), Value::Int(i64::from(at.q))),
+        (Sym::new("r"), Value::Int(i64::from(at.r))),
+        (Sym::new("z"), Value::Int(i64::from(at.z))),
+    ];
+    Command::Custom {
+        id: Sym::new("move_to"),
+        payload: Value::Map(payload.into()),
+    }
 }
 
 fn attack(attacker: i64, target: i64) -> Command {
@@ -247,10 +343,28 @@ fn next_view(handle: &SimHandle) -> PlayerView {
     }
 }
 
+/// The next view, skipping the events that come before it.
+fn view_after_events(handle: &SimHandle) -> PlayerView {
+    loop {
+        match handle.recv_timeout(WAIT) {
+            Ok(SimMessage::View(view)) => return *view,
+            Ok(SimMessage::Events(_)) => {}
+            other => panic!("expected a view, got {other:?}"),
+        }
+    }
+}
+
 #[test]
 fn a_lua_choose_with_figures_highlights_exactly_the_legal_figures() {
     let handle = decide();
     let _ = next_view(&handle);
+    for figure in 0..4 {
+        handle.send_command(move_to(figure));
+        let view = view_after_events(&handle);
+        let placed = &view.state.figures[figure as usize];
+        assert_eq!(placed.status, FigureStatus::OnBoard);
+        assert_eq!(placed.location, Some(deployed(figure)));
+    }
     handle.send_command(attack(0, 2));
     let view = next_view(&handle);
     let pending = view
@@ -267,12 +381,16 @@ fn a_lua_choose_with_figures_highlights_exactly_the_legal_figures() {
     let mut input = DecisionInput::of(&view);
     assert_eq!(input.highlights().figures, legal);
     assert_eq!(input.highlights().spaces, BTreeSet::new());
+    let outlined = input.highlights().board_spaces(&view.state);
+    assert_eq!(outlined, [deployed(0), deployed(2)]);
 
-    assert_eq!(input.click(&Pick::figure(FigureId(1))), None);
+    let state = &view.state;
+    assert_eq!(input.click(&Pick::at(state, deployed(1))), None);
     assert_eq!(input.why, Some(Refusal::NotAChoice));
-    let Some(answer) = input.click(&Pick::figure(FigureId(2))) else {
-        panic!("a legal figure answers the decision");
+    let Some(answer) = input.click(&Pick::at(state, deployed(2))) else {
+        panic!("a click on a legal figure's space answers the decision");
     };
+    assert_eq!(answer, Answer::Figure(FigureId(2)));
     handle.send_answer(answer);
     let rallied = |e: &Event| matches!(e, Event::Custom { id, payload } if id.as_str() == "rallied" && *payload == Value::Int(2));
     match handle.recv_timeout(WAIT) {

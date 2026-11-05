@@ -21,12 +21,18 @@ fn figure_label(view: &PlayerView, figure: FigureId) -> String {
     }
 }
 
-/// Draws the decision the viewer must answer and returns the answer once given.
+/// Draws the pending decision and returns the answer once given.
 pub fn decision(ui: &mut egui::Ui, view: &PlayerView, input: &mut DecisionInput) -> Option<Answer> {
     let (Some(widget), Some(pending)) = (input.widget.clone(), view.state.pending.as_ref()) else {
         return None;
     };
     ui.heading(pending.decision.prompt.as_str());
+    if pending.chooser != view.viewer {
+        ui.label(format!(
+            "Player {} decides.",
+            u32::from(pending.chooser.0) + 1
+        ));
+    }
     let mut answer = None;
     match &widget {
         Widget::Figures(figures) => {

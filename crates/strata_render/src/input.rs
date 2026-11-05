@@ -78,7 +78,8 @@ fn click(
     }
 }
 
-/// Replaces the highlight entities whenever the highlighted spaces change.
+/// Replaces the highlight entities whenever the highlighted spaces or the board change. With no
+/// board, nothing is drawn.
 fn draw_highlights(
     mut commands: Commands,
     highlights: Res<BoardHighlights>,
@@ -87,13 +88,15 @@ fn draw_highlights(
     drawn: Query<Entity, With<HighlightMark>>,
 ) {
     let Some(look) = look else { return };
-    if !highlights.is_changed() {
+    let board_changed = board.as_ref().is_some_and(Res::is_changed);
+    if !highlights.is_changed() && !board_changed {
         return;
     }
     for entity in &drawn {
         commands.entity(entity).despawn();
     }
-    let orientation = board.map_or_else(Orientation::default, |b| b.0.orientation);
+    let Some(board) = board else { return };
+    let orientation = board.0.orientation;
     // The polygon mesh lies in the XY plane with a corner toward +Y; laid flat, that corner
     // points along the depth axis, which is the pointy layout.
     let yaw = match orientation {

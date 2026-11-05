@@ -39,8 +39,6 @@ impl Pick {
 /// Why a click did nothing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Refusal {
-    /// The viewer has no decision to answer.
-    NothingToDo,
     /// No figure stands where the click landed.
     NoFigure,
     /// The decision does not offer what was clicked.
@@ -52,7 +50,6 @@ pub enum Refusal {
 impl fmt::Display for Refusal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::NothingToDo => "There is no decision for you to answer.",
             Self::NoFigure => "There is no figure there.",
             Self::NotAChoice => "That is not one of the choices.",
             Self::UseDialog => "Answer this in the dialog.",

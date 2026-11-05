@@ -43,7 +43,7 @@ pub enum SimStatus {
 #[derive(Message)]
 pub struct SendCommand(pub Command);
 
-/// Answers the viewer's pending decision.
+/// Answers the pending decision, whichever seat chooses.
 #[derive(Message)]
 pub struct SendAnswer(pub Answer);
 
