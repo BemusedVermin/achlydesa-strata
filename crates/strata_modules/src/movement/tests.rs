@@ -79,6 +79,10 @@ struct Scene {
     /// Rises of this many levels or more are refused by `can_climb`.
     climb_veto: i32,
     asked: Cell<usize>,
+    /// Steps out of this space provoke a reprisal.
+    engaged_on: Option<Space>,
+    /// How many steps were asked whether they provoke.
+    asked_reprisal: Cell<usize>,
 }
 
 impl Scene {
@@ -91,6 +95,8 @@ impl Scene {
             costs: BTreeMap::new(),
             climb_veto: i32::MAX,
             asked: Cell::new(0),
+            engaged_on: None,
+            asked_reprisal: Cell::new(0),
         }
     }
 }
@@ -127,6 +133,10 @@ impl MoveWorld for Scene {
     }
     fn can_enter(&self, _: FigureId, _: Space) -> Result<bool, LogicError> {
         Ok(true)
+    }
+    fn provokes_reprisal(&self, _: FigureId, from: Space, _: Space) -> Result<bool, LogicError> {
+        self.asked_reprisal.set(self.asked_reprisal.get() + 1);
+        Ok(self.engaged_on == Some(from))
     }
 }
 
@@ -320,4 +330,30 @@ proptest! {
             prop_assert_eq!(r.path.last().copied(), Some(r.space));
         }
     }
+}
+
+#[test]
+fn a_route_that_leaves_engagement_flags_every_space_beyond() {
+    let mut scene = row(4);
+    assert!(run(&scene, LIMITS).iter().all(|r| !r.provokes_reprisal));
+    scene.engaged_on = Some(Space::new(1, 0, 1));
+    let reach = run(&scene, LIMITS);
+    assert!(!find(&reach, 1, 1).unwrap().provokes_reprisal);
+    assert!(find(&reach, 2, 1).unwrap().provokes_reprisal);
+    assert!(find(&reach, 3, 1).unwrap().provokes_reprisal);
+}
+
+#[test]
+fn leaving_the_start_flags_every_space() {
+    let mut scene = row(4);
+    scene.engaged_on = Some(Space::new(0, 0, 1));
+    assert!(run(&scene, LIMITS).iter().all(|r| r.provokes_reprisal));
+}
+
+#[test]
+fn each_step_is_asked_about_reprisals_at_most_once() {
+    let scene = row(4);
+    run(&scene, LIMITS);
+    // Three steps along the row; stepping back toward the start never improves a route.
+    assert_eq!(scene.asked_reprisal.get(), 3);
 }

@@ -41,6 +41,10 @@ pub trait RuleHost: Send + Sync {
     fn relic(&self, _id: strata_kernel::DefId) -> Option<strata_model::RelicDef> {
         None
     }
+    /// The definition of a figure entry of a unit.
+    fn figure_def(&self, _figure: &strata_model::FigureDefRef) -> Option<&strata_model::FigureDef> {
+        None
+    }
     /// Calls `name` of the namespace a module exported with `Registrar::lua_api`.
     fn call(
         &self,

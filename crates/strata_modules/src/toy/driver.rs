@@ -1,7 +1,7 @@
 //! `toy:driver`: turns the `attack` command into an `attack_declared` event.
 
 use strata_kernel::{ModuleId, Rotation, SlotId, Space, Sym, Value};
-use strata_model::{Command, Event, FigureId, PlayerId};
+use strata_model::{Command, Event, FigureId, FigureStatus, PlayerId};
 use strata_rules::{CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, Registrar, RuleModule};
 
 use super::{ATTACK_DECLARED, no_config};
@@ -26,7 +26,8 @@ impl CommandHandler for Attack {
 }
 
 /// Handles `move_to`, a stand-in for the movement action in tests: the payload `{ figure, q, r, z }`
-/// puts the figure there, whatever the terrain.
+/// puts the figure there in one step, whatever the terrain. Like a move, it first resolves the
+/// reprisals for leaving engagement, and stays put if they take the figure out of play.
 struct MoveTo;
 
 impl CommandHandler for MoveTo {
@@ -44,6 +45,15 @@ impl CommandHandler for MoveTo {
         };
         let figure = FigureId(int("figure")? as u32);
         let to = Space::new(int("q")? as i32, int("r")? as i32, int("z")? as u32);
+        let on_board = |ctx: &dyn Ctx| {
+            let fig = ctx.state().figures.get(figure.index());
+            fig.is_some_and(|f| f.status == FigureStatus::OnBoard)
+        };
+        let moving = on_board(ctx);
+        ctx.leave_engagement(figure, &[to])?;
+        if moving && !on_board(ctx) {
+            return Ok(());
+        }
         let rotation = Rotation::default();
         ctx.emit(Event::FigureMoved {
             figure,

@@ -2,13 +2,13 @@
 
 use strata_kernel::{DefId, Sym};
 use strata_model::{
-    Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureId, GameState, Logic,
-    PlayerId, RelicDef,
+    Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureDef, FigureDefRef, FigureId,
+    GameState, Logic, PlayerId, RelicDef,
 };
 
 use crate::engine::{Ctx, Halt};
 use crate::flow::PhaseTree;
-use crate::query::LogicError;
+use crate::query::{LogicError, VoteQuery};
 
 /// The most dice one pool may hold.
 pub const MAX_POOL: i64 = 1024;
@@ -41,6 +41,18 @@ pub trait NativeEnv: Send + Sync {
     }
     /// The relic with this definition ID.
     fn relic(&self, _id: DefId) -> Option<RelicDef> {
+        None
+    }
+    /// The answer to a vote query, such as `is_engaged`, with every modifier applied.
+    fn vote(&self, _state: &GameState, query: &VoteQuery) -> Result<bool, LogicError> {
+        Err(LogicError(format!(
+            "no environment to query `{}`",
+            query.key
+        )))
+    }
+    /// The definition of a figure entry, for its height and footprint. `None` if the environment
+    /// cannot tell.
+    fn figure_def(&self, _figure: &FigureDefRef) -> Option<&FigureDef> {
         None
     }
     /// Runs a relic's `on_claim` effect for `event`, as a trigger's effect would run.

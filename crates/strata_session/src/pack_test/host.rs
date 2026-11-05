@@ -11,13 +11,13 @@ use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::{BoardDefs, CompiledBoard};
 use strata_model::{
-    AbilityDef, AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus,
-    FootprintDef, GameState, MarkerDef, PlayerId, RelicDef, StatDef, TerrainDef, TileDef, UnitDef,
-    UnitId, UnitState,
+    AbilityDef, AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureDef, FigureDefRef,
+    FigureId, FigureStatus, FootprintDef, GameState, MarkerDef, PlayerId, RelicDef, StatDef,
+    TerrainDef, TileDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
     Ctx, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics, LosWorld,
-    NativeEvaluator, QueryEngine, SourcedModifier, StatBounds, StatQuery, World,
+    NativeEvaluator, Query, QueryEngine, SourcedModifier, StatBounds, StatQuery, VoteQuery, World,
 };
 
 impl CardSource for Host {
@@ -243,6 +243,17 @@ impl Host {
             subject: Value::Int(i64::from(figure.0)),
             context: Value::Nil,
         };
+        self.ask(state, figure, &query)
+    }
+
+    /// Resolves `query` against the state with every modifier applied.
+    fn ask<Q: Query>(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        query: &Q,
+    ) -> Result<Q::Output, LogicError> {
+        let fail = LogicError;
         let rules = self.rules.get().and_then(Weak::upgrade);
         let rules = rules.ok_or_else(|| fail("the rules are not running".into()))?;
         let world = StateWorld { host: self, state };
@@ -254,7 +265,7 @@ impl Host {
                 evaluator: &evaluator,
                 scripts,
             };
-            QueryEngine::new(&modifiers, &self.bounds, logics).query(&query)
+            QueryEngine::new(&modifiers, &self.bounds, logics).query(query)
         });
         let asked = asked.map_err(|_| fail("the script state failed".into()))?;
         asked.map_err(|e| fail(e.to_string()))
@@ -278,16 +289,29 @@ impl RuleHost for Host {
         NativeEvaluator { world: &world }.eval(descriptor, &cx)
     }
 
+    /// Answers `stat` with `[figure, stat]`, and `vote` with `[key, default, figure, context]`.
     fn query(&self, state: &GameState, name: &str, args: &[Value]) -> Result<Value, LogicError> {
         let asked = |e: strata_kernel::ValueError| LogicError(format!("query `{name}`: {e}"));
-        if name != "stat" || args.len() != 2 {
-            return Err(LogicError(format!(
+        match (name, args) {
+            ("stat", [figure, stat]) => {
+                let figure = FigureId(figure.as_int().map_err(asked)? as u32);
+                let stat = stat.as_str().map_err(asked)?;
+                self.stat(state, figure, stat).map(Value::Int)
+            }
+            ("vote", [key, default, subject, context]) => {
+                let query = VoteQuery {
+                    key: Sym::new(key.as_str().map_err(asked)?),
+                    default: default.as_bool().map_err(asked)?,
+                    subject: subject.clone(),
+                    context: context.clone(),
+                };
+                let figure = FigureId(subject.as_int().map_err(asked)? as u32);
+                self.ask(state, figure, &query).map(Value::Bool)
+            }
+            _ => Err(LogicError(format!(
                 "the harness cannot answer query `{name}`"
-            )));
+            ))),
         }
-        let figure = FigureId(args[0].as_int().map_err(asked)? as u32);
-        let stat = args[1].as_str().map_err(asked)?;
-        self.stat(state, figure, stat).map(Value::Int)
     }
 
     fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
@@ -301,6 +325,11 @@ impl RuleHost for Host {
 
     fn relic(&self, id: DefId) -> Option<RelicDef> {
         self.registry.get::<RelicDef>(id).cloned()
+    }
+
+    fn figure_def(&self, figure: &FigureDefRef) -> Option<&FigureDef> {
+        let unit = self.registry.get::<UnitDef>(figure.unit)?;
+        unit.figures.iter().find(|f| f.id == figure.figure)
     }
 
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
