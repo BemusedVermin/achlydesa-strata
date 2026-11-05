@@ -97,6 +97,7 @@ fn play(spec: &LaunchSpec, link: &SimLink) -> Result<(), String> {
         def: m.clone(),
     });
     let host = Host::new(registry, pack, modifiers.collect(), Some(built.board));
+    let host = host.with_scenario(Some(scenario));
     let phases = PhaseTree::build(rt.phases()).map(|t| t.phases().to_vec());
     let _ = host
         .names

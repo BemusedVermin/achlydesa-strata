@@ -1,7 +1,7 @@
 //! The data of a pack test: where figures start and the steps that check the rules (design §16.4).
 
 use serde::{Deserialize, Serialize};
-use strata_kernel::{Space, StableHash, Sym, Value};
+use strata_kernel::{Rotation, Space, StableHash, Sym, Value};
 
 use crate::decision::Answer;
 use crate::ids::PlayerId;
@@ -105,6 +105,19 @@ pub enum Step {
         player: PlayerId,
         /// The handle of any figure of the unit.
         figure: String,
+    },
+    /// A player puts the next reserve figure of a unit on the board, through the deployment
+    /// module's `place_unit` command.
+    Deploy {
+        /// The player placing it.
+        player: PlayerId,
+        /// The handle of any figure of the unit.
+        figure: String,
+        /// The figure's anchor space.
+        at: Space,
+        /// The figure's rotation.
+        #[serde(default)]
+        rotation: Rotation,
     },
     /// A player ends their current activation, whatever slots are left.
     EndActivation {

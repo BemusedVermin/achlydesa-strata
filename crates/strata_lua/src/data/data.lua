@@ -33,6 +33,9 @@ globals.act = {
   end_activation = function(player)
     return { EndActivation = { player = player } }
   end,
+  deploy = function(player, figure, at, rotation)
+    return { Deploy = { player = player, figure = figure, at = at, rotation = rotation } }
+  end,
   action = function(figure, action, args, opts)
     return { Action = { figure = figure, action = action, args = args, rig = opts and opts.rig } }
   end,

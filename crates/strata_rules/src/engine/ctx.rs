@@ -5,6 +5,7 @@ use strata_model::{Answer, Command, Decision, Event, GameState, PlayerId, UnitId
 
 use super::halt::Halt;
 use crate::flow::ActivationRules;
+use crate::native::{NativeEnv, NoEnv};
 
 /// The working copy of a command's resolution.
 pub trait Ctx {
@@ -22,6 +23,12 @@ pub trait Ctx {
     /// Asks `chooser`. Returns the recorded answer, or halts with `NeedsDecision` once the
     /// tape is exhausted.
     fn choose(&mut self, chooser: PlayerId, d: Decision) -> Result<Answer, Halt>;
+    /// What the loaded content can tell rules about the match, such as its board and scenario.
+    ///
+    /// Contexts without content answer nothing.
+    fn env(&self) -> &dyn NativeEnv {
+        &NoEnv
+    }
     /// Whether `player` may activate `unit` now, according to the ruleset's activation gate.
     ///
     /// Contexts without a ruleset, and rulesets without a gate, allow every activation.

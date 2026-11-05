@@ -5,10 +5,11 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use mlua::{Lua, MultiValue, Value as LuaValue};
-use strata_kernel::{ModuleId, Space, Sym, Value};
+use strata_kernel::{Hex, ModuleId, Space, Sym, Value};
+use strata_model::board::CompiledBoard;
 use strata_model::{
-    Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureId, FigureStatus, GameState,
-    PlayerId, ScriptRef, VarKey,
+    Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureDefRef, FigureId,
+    FigureStatus, FootprintDef, GameState, PlayerId, ScenarioDef, ScriptRef, VarKey,
 };
 use strata_rules::{Ctx, Halt, LogicError};
 
@@ -39,6 +40,22 @@ pub trait RuleHost: Send + Sync {
     }
     /// The relic with this definition ID.
     fn relic(&self, _id: strata_kernel::DefId) -> Option<strata_model::RelicDef> {
+        None
+    }
+    /// The board the match is played on.
+    fn board(&self) -> Option<&CompiledBoard> {
+        None
+    }
+    /// The scenario the match is played under.
+    fn scenario(&self) -> Option<&ScenarioDef> {
+        None
+    }
+    /// The columns of the map zone called `name`.
+    fn zone(&self, _name: &str) -> Option<&[Hex]> {
+        None
+    }
+    /// The footprint a figure stands on.
+    fn footprint(&self, _figure: &FigureDefRef) -> Option<&FootprintDef> {
         None
     }
     /// Calls `name` of the namespace a module exported with `Registrar::lua_api`.

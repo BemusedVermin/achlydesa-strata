@@ -11,9 +11,9 @@ use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::{BoardDefs, CompiledBoard};
 use strata_model::{
-    AbilityDef, AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus,
-    FootprintDef, GameState, MarkerDef, PlayerId, RelicDef, StatDef, TerrainDef, TileDef, UnitDef,
-    UnitId, UnitState,
+    AbilityDef, AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureDefRef, FigureId,
+    FigureStatus, FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef,
+    StatDef, TerrainDef, TileDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
     Ctx, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics, LosWorld,
@@ -80,6 +80,9 @@ pub(crate) struct Host {
     bounds: BTreeMap<Sym, StatBounds>,
     board: Option<CompiledBoard>,
     los: Option<Arc<dyn LineOfSight>>,
+    /// The scenario, if the match has one, and the zones of its map.
+    scenario: Option<ScenarioDef>,
+    zones: BTreeMap<Sym, Vec<Hex>>,
     rig: Mutex<Rig>,
     /// Set once the ruleset's phases are known.
     pub(crate) names: OnceLock<Arc<Names>>,
@@ -106,6 +109,8 @@ impl Host {
             bounds: bounds.collect(),
             board,
             los: None,
+            scenario: None,
+            zones: BTreeMap::new(),
             rig: Mutex::default(),
             names: OnceLock::new(),
             rules: OnceLock::new(),
@@ -171,6 +176,21 @@ impl Host {
     pub(crate) fn with_los(mut self, los: Option<Arc<dyn LineOfSight>>) -> Self {
         self.los = los;
         self
+    }
+
+    /// Plays under `scenario`, whose map's zones deployment and victory refer to.
+    pub(crate) fn with_scenario(mut self, scenario: Option<&ScenarioDef>) -> Self {
+        let map = scenario.and_then(|s| find::<MapDef>(&self.registry, &self.pack, s.map.as_str()));
+        self.zones = map.map(|(_, m)| m.zones.clone()).unwrap_or_default();
+        self.scenario = scenario.cloned();
+        self
+    }
+
+    /// The footprint of a figure entry of a unit.
+    fn footprint_of(&self, figure: &FigureDefRef) -> Option<&FootprintDef> {
+        let unit = self.registry.get::<UnitDef>(figure.unit)?;
+        let entry = unit.figures.iter().find(|f| f.id == figure.figure)?;
+        self.registry.get::<FootprintDef>(entry.footprint)
     }
 
     /// Forces the dice of the next command and counts its rolls from the first.
@@ -301,6 +321,22 @@ impl RuleHost for Host {
 
     fn relic(&self, id: DefId) -> Option<RelicDef> {
         self.registry.get::<RelicDef>(id).cloned()
+    }
+
+    fn board(&self) -> Option<&CompiledBoard> {
+        self.board.as_ref()
+    }
+
+    fn scenario(&self) -> Option<&ScenarioDef> {
+        self.scenario.as_ref()
+    }
+
+    fn zone(&self, name: &str) -> Option<&[Hex]> {
+        self.zones.get(name).map(Vec::as_slice)
+    }
+
+    fn footprint(&self, figure: &FigureDefRef) -> Option<&FootprintDef> {
+        self.footprint_of(figure)
     }
 
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
@@ -440,10 +476,9 @@ impl LosWorld for StateLos<'_> {
         let at = fig
             .location
             .filter(|_| fig.status == FigureStatus::OnBoard)?;
-        let registry = &self.host.registry;
-        let unit = registry.get::<UnitDef>(fig.def.unit)?;
+        let unit = self.host.registry.get::<UnitDef>(fig.def.unit)?;
         let entry = unit.figures.iter().find(|f| f.id == fig.def.figure)?;
-        let footprint = registry.get::<FootprintDef>(entry.footprint)?;
+        let footprint = self.host.footprint_of(&fig.def)?;
         let shape = footprint.cells.rotated(fig.rotation).translated(at.hex());
         let floor = i64::from(at.z) * SUB_LEVELS;
         let height = |sub: u16| floor + i64::from(sub);

@@ -6,10 +6,11 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
-use strata_kernel::{CommandRng, DefId, Sym, Value, WindowId};
+use strata_kernel::{CommandRng, DefId, Hex, Sym, Value, WindowId};
+use strata_model::board::CompiledBoard;
 use strata_model::{
-    ActionDef, Answer, Decision, DieKind, Event, FigureId, GameState, Logic, PlayerId, ReactionDef,
-    ReplacementDef, ScriptRef, TriggerDef,
+    ActionDef, Answer, Decision, DieKind, Event, FigureDefRef, FigureId, FootprintDef, GameState,
+    Logic, PlayerId, ReactionDef, ReplacementDef, ScenarioDef, ScriptRef, TriggerDef,
 };
 use strata_rules::{
     ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, PhaseTree, RulesRuntime,
@@ -213,6 +214,22 @@ impl NativeEnv for LuaRules {
 
     fn relic(&self, id: DefId) -> Option<strata_model::RelicDef> {
         self.host.relic(id)
+    }
+
+    fn board(&self) -> Option<&CompiledBoard> {
+        self.host.board()
+    }
+
+    fn scenario(&self) -> Option<&ScenarioDef> {
+        self.host.scenario()
+    }
+
+    fn zone(&self, name: &str) -> Option<&[Hex]> {
+        self.host.zone(name)
+    }
+
+    fn footprint(&self, figure: &FigureDefRef) -> Option<&FootprintDef> {
+        self.host.footprint(figure)
     }
 
     fn run_effect(&self, ctx: &mut dyn Ctx, effect: &Logic, event: &Event) -> Result<(), Halt> {
