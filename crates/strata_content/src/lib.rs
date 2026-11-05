@@ -4,6 +4,7 @@
 #![deny(clippy::float_arithmetic)]
 #![warn(missing_docs)]
 
+mod defs;
 mod discover;
 mod error;
 mod identity;
@@ -14,6 +15,7 @@ mod registry;
 mod resolve;
 mod stages;
 
+pub use defs::RegistryDefs;
 pub use discover::discover_packs;
 pub use error::PackError;
 pub use identity::{ContentHash, PackIdentity};

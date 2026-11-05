@@ -86,6 +86,18 @@ impl ContentRegistry {
         Some((DefId(index as u32), T::from_frozen(&records[index].def)?))
     }
 
+    /// The `T` an authored `name` in `pack` refers to: the name as written, then `pack:name`,
+    /// then the first `T` in any pack whose ID ends in `:name`.
+    pub fn lookup<T: Def>(&self, pack: &str, name: &str) -> Option<(DefId, &T)> {
+        let suffix = format!(":{name}");
+        self.find::<T>(name)
+            .or_else(|| self.find::<T>(&format!("{pack}:{name}")))
+            .or_else(|| {
+                let mut hits = self.iter::<T>().filter(|(_, id, _)| id.ends_with(&suffix));
+                hits.next().map(|(id, _, def)| (id, def))
+            })
+    }
+
     /// The full ID of the `T` with this `DefId`.
     pub fn name<T: Def>(&self, id: DefId) -> Option<&str> {
         Some(self.records::<T>().get(id.0 as usize)?.record.id.as_str())
