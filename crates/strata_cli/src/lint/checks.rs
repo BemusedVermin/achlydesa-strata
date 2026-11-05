@@ -1,15 +1,9 @@
-//! Strata's own Lua checks, built on a `full_moon` syntax tree.
+//! Strata's own Lua checks, driven by the events of the lint [`parser`](super::parser).
 
 use std::collections::BTreeSet;
 
-use full_moon::LuaVersion;
-use full_moon::ast::{
-    AnonymousFunction, Assignment, BinOp, Block, Expression, Field, FunctionArgs, FunctionBody,
-    GenericFor, LocalAssignment, LocalFunction, NumericFor, Parameter, TableConstructor, Var,
-};
-use full_moon::tokenizer::{TokenReference, TokenType};
-use full_moon::visitors::{Visit, Visitor};
-
+use super::lexer;
+use super::parser::{self, Events, Field};
 use super::{Diagnostic, Severity};
 
 /// Fields of a definition that are not archetype parameters.
@@ -18,32 +12,25 @@ const NOT_PARAMETERS: [&str; 6] = ["text", "name", "id", "meta", "tags", "vars"]
 /// Checks one script. `logic` is true for files under a pack's logic folders,
 /// where `/` division is also an error.
 pub fn check(source: &str, logic: bool) -> Vec<Diagnostic> {
-    let parsed = full_moon::parse_fallible(source, LuaVersion::lua54());
-    let mut out = Vec::new();
-    for error in parsed.errors() {
-        out.push(Diagnostic {
+    let tokens = lexer::tokenize(source);
+    let mut checker = Checker::new(logic);
+    if let Err(error) = parser::parse(&tokens, &mut checker) {
+        return vec![Diagnostic {
             severity: Severity::Error,
-            line: error.range().0.line(),
-            message: format!("syntax error: {}", error.error_message()),
+            line: error.line,
+            message: format!("syntax error: {}", error.message),
             fix: "fix the syntax error; the other checks need a parsable file".to_owned(),
-        });
+        }];
     }
-    if out.is_empty() {
-        let mut checker = Checker::new(logic);
-        parsed.ast().nodes().visit(&mut checker);
-        out = checker.found;
-    }
-    out.sort_by_key(|d| d.line);
-    out
-}
-
-fn line_of(token: &TokenReference) -> usize {
-    token.token().start_position().line()
+    let mut found = checker.found;
+    found.sort_by_key(|(at, d)| (d.line, *at));
+    found.into_iter().map(|(_, d)| d).collect()
 }
 
 struct Checker {
     logic: bool,
-    found: Vec<Diagnostic>,
+    /// Findings with the offset of the construct that produced them, for source order.
+    found: Vec<(usize, Diagnostic)>,
     /// Local names per open scope, innermost last.
     scopes: Vec<Vec<String>>,
     /// Depth of call argument lists being walked.
@@ -69,12 +56,6 @@ impl Checker {
         }
     }
 
-    fn declare(&mut self, name: &TokenReference) {
-        if let Some(scope) = self.scopes.last_mut() {
-            scope.push(name.token().to_string());
-        }
-    }
-
     fn is_upvalue(&self, name: &str) -> bool {
         let Some(base) = self.hook_base else {
             return false;
@@ -85,66 +66,24 @@ impl Checker {
             .rposition(|s| s.iter().any(|n| n == name));
         depth.is_some_and(|d| d < base)
     }
-
-    fn check_text(&mut self, table: &TableConstructor) {
-        let mut text = None;
-        let mut numbers = BTreeSet::new();
-        for field in table.fields() {
-            let Field::NameKey { key, value, .. } = field else {
-                continue;
-            };
-            let name = key.token().to_string();
-            if name == "text" {
-                if let Expression::String(literal) = &**value {
-                    text = string_body(literal).map(|body| (body, line_of(key)));
-                }
-            } else if !NOT_PARAMETERS.contains(&name.as_str()) {
-                let mut collector = Numbers::default();
-                value.visit(&mut collector);
-                numbers.extend(collector.found);
-            }
-        }
-        let Some((body, line)) = text else {
-            return;
-        };
-        let spoken = digit_runs(&body);
-        for number in numbers.difference(&spoken) {
-            self.found.push(Diagnostic {
-                severity: Severity::Warning,
-                line,
-                message: format!("card text omits the parameter {number}"),
-                fix: format!(
-                    "mention {number} in `text`, or delete the `text` override to use the generated wording"
-                ),
-            });
-        }
-    }
 }
 
-impl Visitor for Checker {
-    fn visit_block(&mut self, _: &Block) {
-        self.scopes.push(Vec::new());
+impl Events for Checker {
+    fn open_scope(&mut self, names: Vec<String>) {
+        self.scopes.push(names);
     }
 
-    fn visit_block_end(&mut self, _: &Block) {
+    fn close_scope(&mut self) {
         self.scopes.pop();
     }
 
-    fn visit_function_body(&mut self, body: &FunctionBody) {
-        let mut scope = Vec::new();
-        for parameter in body.parameters() {
-            if let Parameter::Name(name) = parameter {
-                scope.push(name.token().to_string());
-            }
+    fn declare(&mut self, name: String) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.push(name);
         }
-        self.scopes.push(scope);
     }
 
-    fn visit_function_body_end(&mut self, _: &FunctionBody) {
-        self.scopes.pop();
-    }
-
-    fn visit_anonymous_function(&mut self, _: &AnonymousFunction) {
+    fn function_start(&mut self) {
         let starts_hook = self.hook_base.is_none() && self.definition_tables > 0;
         if starts_hook {
             self.hook_base = Some(self.scopes.len());
@@ -152,129 +91,86 @@ impl Visitor for Checker {
         self.owners.push(starts_hook);
     }
 
-    fn visit_anonymous_function_end(&mut self, _: &AnonymousFunction) {
+    fn function_end(&mut self) {
         if self.owners.pop() == Some(true) {
             self.hook_base = None;
         }
     }
 
-    fn visit_function_args(&mut self, args: &FunctionArgs) {
+    fn args_start(&mut self) {
         self.call_depth += 1;
-        if let FunctionArgs::TableConstructor(table) = args {
-            self.check_text(table);
-        }
     }
 
-    fn visit_function_args_end(&mut self, _: &FunctionArgs) {
+    fn args_end(&mut self) {
         self.call_depth -= 1;
     }
 
-    fn visit_table_constructor(&mut self, _: &TableConstructor) {
+    fn table_start(&mut self) {
         if self.call_depth > 0 {
             self.definition_tables += 1;
         }
     }
 
-    fn visit_table_constructor_end(&mut self, _: &TableConstructor) {
+    fn table_end(&mut self) {
         if self.call_depth > 0 {
             self.definition_tables -= 1;
         }
     }
 
-    fn visit_local_assignment(&mut self, local: &LocalAssignment) {
-        for name in local.names() {
-            self.declare(name);
-        }
-    }
-
-    fn visit_local_function(&mut self, local: &LocalFunction) {
-        self.declare(local.name());
-    }
-
-    fn visit_numeric_for(&mut self, numeric: &NumericFor) {
-        let name = numeric.index_variable().token().to_string();
-        self.scopes.push(vec![name]);
-    }
-
-    fn visit_numeric_for_end(&mut self, _: &NumericFor) {
-        self.scopes.pop();
-    }
-
-    fn visit_generic_for(&mut self, generic: &GenericFor) {
-        let names = generic.names().iter().map(|n| n.token().to_string());
-        self.scopes.push(names.collect());
-    }
-
-    fn visit_generic_for_end(&mut self, _: &GenericFor) {
-        self.scopes.pop();
-    }
-
-    fn visit_assignment(&mut self, assignment: &Assignment) {
-        for var in assignment.variables() {
-            let Var::Name(name) = var else {
-                continue;
-            };
-            if self.is_upvalue(&name.token().to_string()) {
-                self.found.push(Diagnostic {
-                    severity: Severity::Error,
-                    line: line_of(name),
-                    message: format!("hook assigns to the upvalue `{}`", name.token()),
-                    fix: "keep per-instance state in `ctx.vars(self)` and declare its default in `vars = {}`"
-                        .to_owned(),
-                });
+    fn call_table(&mut self, at: usize, fields: Vec<Field>) {
+        let mut text = None;
+        let mut numbers = BTreeSet::new();
+        for field in fields {
+            if field.key == "text" {
+                if let Some(body) = field.string {
+                    text = Some((body, field.line));
+                }
+            } else if !NOT_PARAMETERS.contains(&field.key.as_str()) {
+                numbers.extend(field.numbers);
             }
         }
-    }
-
-    fn visit_expression(&mut self, expression: &Expression) {
-        let Expression::BinaryOperator {
-            binop: BinOp::Slash(token),
-            ..
-        } = expression
-        else {
+        let Some((body, line)) = text else {
             return;
         };
-        if self.logic {
-            self.found.push(Diagnostic {
-                severity: Severity::Error,
-                line: line_of(token),
-                message: "`/` always produces a float".to_owned(),
-                fix: "use `//` for integer division".to_owned(),
-            });
+        let spoken = digit_runs(&body);
+        for number in numbers.difference(&spoken) {
+            let diagnostic = Diagnostic {
+                severity: Severity::Warning,
+                line,
+                message: format!("card text omits the parameter {number}"),
+                fix: format!(
+                    "mention {number} in `text`, or delete the `text` override to use the generated wording"
+                ),
+            };
+            self.found.push((at, diagnostic));
         }
     }
-}
 
-/// Collects integer literals outside function bodies.
-#[derive(Default)]
-struct Numbers {
-    found: BTreeSet<String>,
-    in_function: usize,
-}
-
-impl Visitor for Numbers {
-    fn visit_anonymous_function(&mut self, _: &AnonymousFunction) {
-        self.in_function += 1;
-    }
-
-    fn visit_anonymous_function_end(&mut self, _: &AnonymousFunction) {
-        self.in_function -= 1;
-    }
-
-    fn visit_expression(&mut self, expression: &Expression) {
-        if let Expression::Number(token) = expression {
-            let text = token.token().to_string();
-            if self.in_function == 0 && text.bytes().all(|b| b.is_ascii_digit()) {
-                self.found.insert(text);
+    fn assignment(&mut self, at: usize, names: Vec<(String, usize)>) {
+        for (name, line) in names {
+            if self.is_upvalue(&name) {
+                let diagnostic = Diagnostic {
+                    severity: Severity::Error,
+                    line,
+                    message: format!("hook assigns to the upvalue `{name}`"),
+                    fix: "keep per-instance state in `ctx.vars(self)` and declare its default in `vars = {}`"
+                        .to_owned(),
+                };
+                self.found.push((at, diagnostic));
             }
         }
     }
-}
 
-fn string_body(token: &TokenReference) -> Option<String> {
-    match token.token().token_type() {
-        TokenType::StringLiteral { literal, .. } => Some(literal.to_string()),
-        _ => None,
+    fn division(&mut self, at: usize, line: usize) {
+        if self.logic {
+            let diagnostic = Diagnostic {
+                severity: Severity::Error,
+                line,
+                message: "`/` always produces a float".to_owned(),
+                fix: "use `//` for integer division".to_owned(),
+            };
+            self.found.push((at, diagnostic));
+        }
     }
 }
 
@@ -285,3 +181,6 @@ fn digit_runs(text: &str) -> BTreeSet<String> {
         .map(str::to_owned)
         .collect()
 }
+
+#[cfg(test)]
+mod tests;

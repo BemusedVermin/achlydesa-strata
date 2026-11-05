@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 mod checks;
+mod lexer;
+mod parser;
 mod selene;
 
 /// How serious a finding is. Errors fail the run; warnings do not.
