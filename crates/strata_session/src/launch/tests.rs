@@ -158,11 +158,12 @@ fn a_card_stat_carries_the_trace_that_explains_it() {
         .find(|s| s.label == "DEF")
         .unwrap();
     let inspection = Inspection::of(def.trace.as_ref().expect("a queried stat has a trace"));
-    assert_eq!(inspection.result, strata_kernel::Value::Int(def.value));
+    assert_eq!(inspection.recompute(), Ok(def.value));
+    let figure = view.cards[0].figures[0].figure.0;
     assert_eq!(
         inspection.lines(),
         [
-            "defense",
+            format!("defense of figure {figure}").as_str(),
             "Base 2",
             "+1 from rs (Lua) = 3",
             "Clamped to 0..9",

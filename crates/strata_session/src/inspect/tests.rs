@@ -83,33 +83,8 @@ fn inspect(mods: &[SourcedModifier], base: i64) -> (i64, Inspection) {
         context: Value::Nil,
     };
     let value = engine.query(&query).unwrap();
-    engine.invalidate();
     let (_, trace) = engine.trace(&query).unwrap();
     (value, Inspection::of(&trace))
-}
-
-/// Redoes the inspection's arithmetic from its base and changes alone, checking each running
-/// value on the way, and returns the clamped result.
-fn recompute(inspection: &Inspection) -> i64 {
-    let mut value = inspection.base.as_int().unwrap();
-    for step in &inspection.steps {
-        value = match step.change {
-            Change::Set(n) => n,
-            Change::Add(n) | Change::Final(n) => value + n,
-            Change::Mul(_, 0) => value,
-            Change::Mul(n, d) => value * n / d,
-            ref other => panic!("not a stat change: {other:?}"),
-        };
-        assert_eq!(
-            step.after,
-            Some(value),
-            "running value after {}",
-            step.source
-        );
-    }
-    let clamp = inspection.clamp.unwrap();
-    assert_eq!(clamp.unclamped, value);
-    value.clamp(clamp.min, clamp.max)
 }
 
 #[test]
@@ -139,8 +114,12 @@ fn the_trace_arithmetic_reproduces_the_queried_value() {
     ];
     for (mods, base) in cases {
         let (value, inspection) = inspect(&mods, base);
-        assert_eq!(recompute(&inspection), value, "{:?}", inspection.lines());
-        assert_eq!(inspection.result, Value::Int(value));
+        assert_eq!(
+            inspection.recompute(),
+            Ok(value),
+            "{:?}",
+            inspection.lines()
+        );
     }
 }
 
@@ -159,7 +138,7 @@ fn a_stat_trace_formats_base_modifiers_clamp_and_result() {
     assert_eq!(
         inspection.lines(),
         [
-            "defense",
+            "defense of figure 1",
             "Base 4",
             "Set 60 from rally (native) = 60",
             "+1 from shieldwall (native) = 61",
@@ -206,10 +185,45 @@ fn a_vote_trace_formats_votes_without_a_clamp() {
     assert_eq!(
         inspection.lines(),
         [
-            "can_enter",
+            "can_enter of figure 1",
             "Base allow",
             "Deny from wall (native, override)",
             "Result deny",
         ]
     );
+}
+
+#[test]
+fn a_zero_denominator_step_is_marked_ignored() {
+    let mods = [native(ModifierLayer::Mul, "broken", fraction(3, 0))];
+    let (value, inspection) = inspect(&mods, 4);
+    assert_eq!(value, 4);
+    assert_eq!(
+        inspection.lines()[2],
+        "×3/0 from broken (native, ignored: zero denominator) = 4"
+    );
+}
+
+#[test]
+fn recompute_reports_a_running_value_the_arithmetic_does_not_reach() {
+    let (_, mut inspection) = inspect(&[int(ModifierLayer::Add, "a", 2)], 4);
+    inspection.steps[0].after = Some(7);
+    assert_eq!(
+        inspection.recompute(),
+        Err(TraceMismatch::Value {
+            at: "the step from a".into(),
+            recorded: Some(7),
+            computed: 6,
+        })
+    );
+    inspection.steps[0].change = Change::Vote(true);
+    assert_eq!(inspection.recompute(), Err(TraceMismatch::NotAStat));
+}
+
+#[test]
+fn the_heading_names_the_traced_figure() {
+    let (_, mut inspection) = inspect(&[], 4);
+    assert_eq!(inspection.heading(), "defense of figure 1");
+    inspection.subject = Value::Nil;
+    assert_eq!(inspection.heading(), "defense");
 }

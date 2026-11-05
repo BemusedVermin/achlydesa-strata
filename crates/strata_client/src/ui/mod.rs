@@ -24,7 +24,7 @@ impl Plugin for UiPlugin {
 
 /// Draws every panel from the newest view and log. A stat clicked on a unit card opens in the
 /// rules inspector.
-fn panels(
+pub(crate) fn panels(
     mut contexts: EguiContexts,
     view: Res<LatestView>,
     log: Res<EventLog>,
@@ -51,4 +51,4 @@ fn panels(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

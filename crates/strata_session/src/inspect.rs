@@ -54,6 +54,8 @@ pub struct Clamp {
 pub struct Inspection {
     /// The query name, such as `defense`.
     pub query: String,
+    /// What the query asked about: a figure's id for the stats on unit cards.
+    pub subject: Value,
     /// The base value or default vote.
     pub base: Value,
     /// Each modifier in application order.
@@ -77,6 +79,7 @@ impl Inspection {
             });
         Self {
             query: trace.query.as_str().to_owned(),
+            subject: trace.subject.clone(),
             base: trace.base.clone(),
             steps: trace.steps.iter().map(step).collect(),
             clamp,
@@ -89,13 +92,25 @@ impl Inspection {
         self.steps.iter().filter(|s| s.lua).count()
     }
 
-    /// The trace as text, one line per stage.
+    /// The query and what it asked about, such as `defense of figure 3`.
+    pub fn heading(&self) -> String {
+        match &self.subject {
+            Value::Nil => self.query.clone(),
+            Value::Int(n) => format!("{} of figure {n}", self.query),
+            other => format!("{} of {}", self.query, show(other)),
+        }
+    }
+
+    /// The trace as text, one line per stage, starting with the heading.
     pub fn lines(&self) -> Vec<String> {
-        let mut lines = vec![self.query.clone(), format!("Base {}", show(&self.base))];
+        let mut lines = vec![self.heading(), format!("Base {}", show(&self.base))];
         for s in &self.steps {
             let mut tags = vec![if s.lua { "Lua" } else { "native" }];
             if s.overrides {
                 tags.push("override");
+            }
+            if matches!(s.change, Change::Mul(_, 0)) {
+                tags.push("ignored: zero denominator");
             }
             let mut line = format!(
                 "{} from {} ({})",
@@ -117,6 +132,61 @@ impl Inspection {
         }
         lines.push(format!("Result {}", show(&self.result)));
         lines
+    }
+
+    /// Redoes a stat's arithmetic from the base and the changes alone, the way the stat query
+    /// applies them, and checks each running value, the unclamped value and the result on the
+    /// way. Returns the result.
+    pub fn recompute(&self) -> Result<i64, TraceMismatch> {
+        let mut value = self.base.as_int().map_err(|_| TraceMismatch::NotAStat)?;
+        for s in &self.steps {
+            value = match s.change {
+                Change::Set(n) => n,
+                Change::Add(n) | Change::Final(n) => value.saturating_add(n),
+                Change::Mul(_, 0) => value,
+                Change::Mul(n, d) => {
+                    let scaled = i128::from(value) * i128::from(n) / i128::from(d);
+                    scaled.clamp(i128::from(i64::MIN), i128::from(i64::MAX)) as i64
+                }
+                Change::Vote(_) | Change::Other(_) => return Err(TraceMismatch::NotAStat),
+            };
+            agree(&format!("the step from {}", s.source), s.after, value)?;
+        }
+        let clamp = self.clamp.ok_or(TraceMismatch::NotAStat)?;
+        agree("the unclamped value", Some(clamp.unclamped), value)?;
+        let value = value.max(clamp.min).min(clamp.max);
+        agree("the result", self.result.as_int().ok(), value)?;
+        Ok(value)
+    }
+}
+
+/// Why [`Inspection::recompute`] could not reproduce a trace.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum TraceMismatch {
+    /// The trace is not a stat's: a vote, or a contribution that is not a number.
+    #[error("not a stat trace")]
+    NotAStat,
+    /// A recorded value differs from the recomputed one.
+    #[error("{at} records {recorded:?}, but the arithmetic gives {computed}")]
+    Value {
+        /// Which value differs.
+        at: String,
+        /// The value in the trace.
+        recorded: Option<i64>,
+        /// The value the arithmetic gives.
+        computed: i64,
+    },
+}
+
+fn agree(at: &str, recorded: Option<i64>, computed: i64) -> Result<(), TraceMismatch> {
+    if recorded == Some(computed) {
+        Ok(())
+    } else {
+        Err(TraceMismatch::Value {
+            at: at.to_owned(),
+            recorded,
+            computed,
+        })
     }
 }
 
