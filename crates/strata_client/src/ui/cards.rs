@@ -3,6 +3,7 @@
 use std::cmp::Ordering;
 
 use bevy_egui::egui;
+use strata_model::UnitId;
 use strata_session::{AbilityLine, PlayerView, StatLine, UnitCard};
 
 /// How a stat's current value compares with its printed one.
@@ -45,6 +46,8 @@ impl StatModel {
 /// Everything one unit card displays.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CardModel {
+    /// The unit the card describes.
+    pub unit: UnitId,
     /// Display name.
     pub name: String,
     /// The unit's kind.
@@ -67,6 +70,7 @@ impl CardModel {
     fn of(view: &PlayerView, card: &UnitCard) -> Self {
         let unit = view.state.units.get(card.unit.index());
         Self {
+            unit: card.unit,
             name: card.name.clone(),
             kind: card.kind.clone(),
             mine: unit.is_some_and(|u| u.owner == view.viewer),
@@ -92,8 +96,10 @@ fn color(tone: Tone) -> egui::Color32 {
     }
 }
 
-/// Draws the cards, the viewer's own first.
-pub fn show(ui: &mut egui::Ui, cards: &[CardModel]) {
+/// Draws the cards, the viewer's own first. Returns the unit and stat label of a stat the
+/// player clicked, for the rules inspector.
+pub fn show(ui: &mut egui::Ui, cards: &[CardModel]) -> Option<(UnitId, String)> {
+    let mut clicked = None;
     let mut sorted: Vec<&CardModel> = cards.iter().collect();
     sorted.sort_by_key(|c| !c.mine);
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -105,7 +111,11 @@ pub fn show(ui: &mut egui::Ui, cards: &[CardModel]) {
                 ui.horizontal(|ui| {
                     for stat in &card.stats {
                         let text = format!("{} {}", stat.label, stat.value);
-                        ui.colored_label(color(stat.tone), text);
+                        let text = egui::RichText::new(text).color(color(stat.tone));
+                        let label = egui::Label::new(text).sense(egui::Sense::click());
+                        if ui.add(label).on_hover_text("Inspect").clicked() {
+                            clicked = Some((card.unit, stat.label.clone()));
+                        }
                     }
                 });
                 for ability in &card.abilities {
@@ -115,4 +125,5 @@ pub fn show(ui: &mut egui::Ui, cards: &[CardModel]) {
             });
         }
     });
+    clicked
 }

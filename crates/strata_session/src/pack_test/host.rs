@@ -17,7 +17,7 @@ use strata_model::{
 };
 use strata_rules::{
     Ctx, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics, LosWorld,
-    NativeEvaluator, QueryEngine, SourcedModifier, StatBounds, StatQuery, World,
+    NativeEvaluator, QueryEngine, QueryTrace, SourcedModifier, StatBounds, StatQuery, World,
 };
 
 impl CardSource for Host {
@@ -143,12 +143,13 @@ impl Host {
             );
             let base = i64::from(*printed);
             let bare = name.split_once(':').map_or(name, |(_, bare)| bare);
-            let queried = figure.and_then(|f| self.stat(state, *f, bare).ok());
+            let queried = figure.and_then(|f| self.stat_trace(state, *f, bare).ok());
             let label = stat_def.abbrev.as_ref().unwrap_or(&stat_def.name);
             let line = StatLine {
                 label: label.0.clone(),
                 base,
-                value: queried.unwrap_or(base),
+                value: queried.as_ref().map_or(base, |(value, _)| *value),
+                trace: queried.map(|(_, trace)| trace),
             };
             stats.push((stat_def.order, line));
         }
@@ -231,6 +232,16 @@ impl Host {
         figure: FigureId,
         stat: &str,
     ) -> Result<i64, LogicError> {
+        self.stat_trace(state, figure, stat).map(|(value, _)| value)
+    }
+
+    /// A figure's stat after every modifier, with how it was reached.
+    fn stat_trace(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        stat: &str,
+    ) -> Result<(i64, QueryTrace), LogicError> {
         let fail = LogicError;
         let (stat_id, _) = find::<StatDef>(&self.registry, &self.pack, stat)
             .ok_or_else(|| fail(format!("unknown stat `{stat}`")))?;
@@ -254,7 +265,7 @@ impl Host {
                 evaluator: &evaluator,
                 scripts,
             };
-            QueryEngine::new(&modifiers, &self.bounds, logics).query(&query)
+            QueryEngine::new(&modifiers, &self.bounds, logics).trace(&query)
         });
         let asked = asked.map_err(|_| fail("the script state failed".into()))?;
         asked.map_err(|e| fail(e.to_string()))
