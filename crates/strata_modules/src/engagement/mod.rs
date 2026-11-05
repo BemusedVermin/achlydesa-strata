@@ -32,7 +32,7 @@ pub struct EngagementModule;
 
 /// How the levels two adjacent figures stand on decide engagement.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Heights {
+pub(crate) enum Heights {
     /// Engaged only when the levels each figure spans overlap.
     Overlap,
     /// Engaged whatever their levels.
@@ -52,8 +52,7 @@ fn id_value(figure: FigureId) -> Value {
 
 /// The team of the player controlling `figure`.
 fn team(state: &GameState, figure: &FigureState) -> u8 {
-    let player = state.players.get(figure.controller.index());
-    player.map_or(figure.controller.0, |p| p.team)
+    state.team(figure.controller)
 }
 
 /// How many levels `figure` spans, at least one.
@@ -69,7 +68,7 @@ pub(crate) fn standing(state: &GameState, figure: FigureId) -> Option<Space> {
 }
 
 /// Whether the level ranges `[a, a + a_height)` and `[b, b + b_height)` share a level.
-pub fn overlaps(a: u32, a_height: u32, b: u32, b_height: u32) -> bool {
+pub(crate) fn overlaps(a: u32, a_height: u32, b: u32, b_height: u32) -> bool {
     a < b.saturating_add(b_height) && b < a.saturating_add(a_height)
 }
 
@@ -217,7 +216,8 @@ impl RuleModule for EngagementModule {
         let dice = cfg.get("dice").and_then(Value::as_int);
         let dice = dice.map_err(|e| bad("dice", &e))?;
         if !(0..=strata_rules::MAX_POOL).contains(&dice) {
-            return Err(bad("dice", &"must be 0..=1024"));
+            let range = format!("must be 0..={}", strata_rules::MAX_POOL);
+            return Err(bad("dice", &range));
         }
         let reprisal = Reprisal {
             die: text("die")?.to_owned(),

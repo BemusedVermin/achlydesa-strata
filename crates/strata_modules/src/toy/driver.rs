@@ -26,8 +26,9 @@ impl CommandHandler for Attack {
 }
 
 /// Handles `move_to`, a stand-in for the movement action in tests: the payload `{ figure, q, r, z }`
-/// puts the figure there in one step, whatever the terrain. Like a move, it first resolves the
-/// reprisals for leaving engagement, and stays put if they take the figure out of play.
+/// puts the figure there, whatever the terrain, in one step or through the spaces of an optional
+/// `via` list of `{ q, r, z }`. Like a move, it first resolves the reprisals for leaving engagement
+/// along that path, and stays put if they take the figure out of play.
 struct MoveTo;
 
 impl CommandHandler for MoveTo {
@@ -39,18 +40,27 @@ impl CommandHandler for MoveTo {
         let Command::Custom { payload, .. } = command else {
             return Err(Halt::reject("`move_to` is a custom command"));
         };
-        let int = |name: &str| {
-            let found = payload.get(name).and_then(Value::as_int);
+        let int = |at: &Value, name: &str| {
+            let found = at.get(name).and_then(Value::as_int);
             found.map_err(|e| Halt::reject(format!("move_to {name}: {e}")))
         };
-        let figure = FigureId(int("figure")? as u32);
-        let to = Space::new(int("q")? as i32, int("r")? as i32, int("z")? as u32);
+        let space = |at: &Value| -> Result<Space, Halt> {
+            let (q, r, z) = (int(at, "q")?, int(at, "r")?, int(at, "z")?);
+            Ok(Space::new(q as i32, r as i32, z as u32))
+        };
+        let figure = FigureId(int(payload, "figure")? as u32);
+        let via = payload.as_map().ok().and_then(|m| m.get("via"));
+        let via = via.map_or(Ok(&[][..]), Value::as_list);
+        let via = via.map_err(|e| Halt::reject(format!("move_to via: {e}")))?;
+        let mut path = via.iter().map(space).collect::<Result<Vec<_>, _>>()?;
+        let to = space(payload)?;
+        path.push(to);
         let on_board = |ctx: &dyn Ctx| {
             let fig = ctx.state().figures.get(figure.index());
             fig.is_some_and(|f| f.status == FigureStatus::OnBoard)
         };
         let moving = on_board(ctx);
-        ctx.leave_engagement(figure, &[to])?;
+        ctx.leave_engagement(figure, &path)?;
         if moving && !on_board(ctx) {
             return Ok(());
         }

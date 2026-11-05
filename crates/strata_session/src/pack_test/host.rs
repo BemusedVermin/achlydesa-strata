@@ -398,8 +398,7 @@ impl World for StateWorld<'_> {
     }
 
     fn team(&self, player: PlayerId) -> u8 {
-        let player_state = self.state.players.get(player.index());
-        player_state.map_or(player.0, |p| p.team)
+        self.state.team(player)
     }
 
     fn has_trait(&self, figure: FigureId, value: &str) -> bool {

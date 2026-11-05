@@ -1,11 +1,12 @@
 -- Pack tests for `core:engagement`. The native `toy:driver` module supplies `move_to`, a stand-in
--- for the movement action: { figure, q, r, z } puts a figure there in one step, after resolving
--- the reprisals for leaving engagement. Figures are numbered in the order the tests place them.
+-- for the movement action: { figure, q, r, z } puts a figure there, in one step or through the
+-- spaces of an optional `via` list, after resolving the reprisals for leaving engagement along
+-- that path. Figures are numbered in the order the tests place them.
 --
 -- The board, with each column's standing level:
---   (0,0) z1   (1,0) z1   (2,0) z1   (3,0) z1   (1,1) z1   (2,-1) z2, one level up
+--   (0,0) z1   (1,0) z1   (2,0) z1   (3,0) z1   (1,1) z1   (0,1) z1   (2,-1) z2, one level up
 -- (1,0) is next to (2,0), (1,1) and (2,-1). (0,0) is next to none of those three, and (3,0)
--- is not next to (1,0).
+-- is not next to (1,0). (1,1) is next to (2,0); (0,1) is not.
 stat { id = 'life', name = 'Life', min = 1, max = 9 }
 marker { id = 'wound', name = 'Wound', stacking = 'count', visibility = 'public' }
 die { id = 'combat', name = 'Combat', faces = { 'hit', 'blank' } }
@@ -14,7 +15,7 @@ tile { id = 'meadow', name = 'Meadow', terrain = 'grass', thickness = 1, shape =
 local function at(q, r, level) return { piece = 'meadow', at = { q = q, r = r }, rot = 0, level = level } end
 map {
   id = 'field', name = 'Field', orientation = 'pointy',
-  pieces = { at(0, 0, 0), at(1, 0, 0), at(2, 0, 0), at(1, 1, 0), at(3, 0, 0),
+  pieces = { at(0, 0, 0), at(1, 0, 0), at(2, 0, 0), at(1, 1, 0), at(3, 0, 0), at(0, 1, 0),
     at(2, -1, 0), at(2, -1, 1) },
 }
 footprint { id = 'one', name = 'One', cells = {{ q = 0, r = 0 }}, move = 'rigid', max_spread = 1 }
@@ -147,5 +148,52 @@ test {
   steps = {
     act.command(1, 'move_to', go(1, 3, 0), { rig = {{ 'blank' }} }),
     expect.event('reprisal'),
+  },
+}
+
+-- Figure 0 for player 0 on (1,0), between two enemies on (2,0) and (1,1).
+local function flanked(mover)
+  local function enemy(q, r) return { unit = 'test_soldier', player = 1, at = {{ q = q, r = r, z = 1 }} } end
+  return { { unit = mover, player = 0, at = {{ q = 1, r = 0, z = 1 }} }, enemy(2, 0), enemy(1, 1) }
+end
+local function via(to, ...)
+  local payload = go(0, to[1], to[2])
+  payload.via = {}
+  for i, s in ipairs({ ... }) do payload.via[i] = { q = s[1], r = s[2], z = 1 } end
+  return payload
+end
+test {
+  id = 'two_enemies', name = 'leaving two enemies at once gives each a reprisal',
+  ruleset = 'rs', map = 'field', place = flanked('test_soldier'),
+  steps = {
+    act.command(0, 'move_to', go(0, 0, 0), { rig = {{ 'blank' }, { 'blank' }} }),
+    expect.event('figure_moved', { figure = 'p0.test_soldier#1' }),
+  },
+}
+test {
+  id = 'two_enemies_destroyed', name = 'when the first of two reprisals destroys the figure, the second is not rolled',
+  ruleset = 'rs', map = 'field', place = flanked('test_scout'),
+  steps = {
+    away({ 'hit' }),
+    expect.event('figure_destroyed', { figure = 'p0.test_scout#1' }),
+    expect.figure('p0.test_scout#1', 'destroyed'),
+  },
+}
+test {
+  id = 'stay_then_leave', name = 'a path that stays next to the enemy and then leaves it gives one reprisal',
+  ruleset = 'rs', map = 'field', place = pair('test_soldier', 2, 0, 1),
+  steps = {
+    act.command(0, 'move_to', via({ 0, 1 }, { 1, 1 }), { rig = {{ 'blank' }} }),
+    expect.event('reprisal'),
+    expect.event('figure_moved', { figure = 'p0.test_soldier#1' }),
+  },
+}
+test {
+  id = 'leave_twice', name = 'leaving the same enemy twice in one move gives it one reprisal',
+  ruleset = 'rs', map = 'field', place = pair('test_soldier', 2, 0, 1),
+  steps = {
+    act.command(0, 'move_to', via({ 0, 0 }, { 0, 0 }, { 1, 0 }), { rig = {{ 'blank' }} }),
+    expect.event('reprisal'),
+    expect.event('figure_moved', { figure = 'p0.test_soldier#1' }),
   },
 }

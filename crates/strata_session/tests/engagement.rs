@@ -7,8 +7,13 @@ use strata_modules::native_modules;
 use strata_session::pack_test::{PackTests, TestReport, summary};
 
 fn run() -> Vec<TestReport> {
+    run_pack("engagement")
+}
+
+/// Runs every test of the fixture pack `pack`.
+fn run_pack(pack: &str) -> Vec<TestReport> {
     let root = env!("CARGO_MANIFEST_DIR");
-    let roots = [PathBuf::from(root).join("../../fixtures/packs/engagement")];
+    let roots = [PathBuf::from(root).join("../../fixtures/packs").join(pack)];
     let loaded = PackTests::load(&roots).unwrap();
     let tests = native_modules()
         .into_iter()
@@ -99,6 +104,70 @@ fn a_figure_denied_reprisal_by_a_modifier_triggers_no_rolls() {
 #[test]
 fn the_denial_does_not_cover_the_enemy() {
     assert_eq!(rolls(&passed("the denial is the figure's own")), 1);
+}
+
+#[test]
+fn leaving_two_enemies_at_once_rolls_a_reprisal_for_each() {
+    let report = passed("leaving two enemies at once");
+    assert_eq!(rolls(&report), 2);
+    assert_eq!(moves(&report), 1);
+}
+
+#[test]
+fn a_reprisal_that_destroys_the_figure_skips_the_other_enemies() {
+    let report = passed("when the first of two reprisals destroys");
+    assert_eq!(rolls(&report), 1);
+    assert_eq!(moves(&report), 0);
+}
+
+#[test]
+fn staying_engaged_then_leaving_along_a_path_rolls_one_reprisal() {
+    let report = passed("a path that stays next to the enemy");
+    assert_eq!(rolls(&report), 1);
+    assert_eq!(moves(&report), 1);
+}
+
+#[test]
+fn leaving_the_same_enemy_twice_in_one_move_rolls_one_reprisal() {
+    let report = passed("leaving the same enemy twice");
+    assert_eq!(rolls(&report), 1);
+    assert_eq!(moves(&report), 1);
+}
+
+/// The failure message of the misconfigured-pack test `name`.
+fn misconfigured(name: &str) -> String {
+    let reports = run_pack("engagement_misconfigured");
+    let found = reports.iter().find(|r| r.name == name);
+    let found = found.unwrap_or_else(|| panic!("no test `{name}`:\n{}", summary(&reports)));
+    let failure = found
+        .outcome
+        .clone()
+        .expect_err("a misconfigured reprisal must fail");
+    assert_eq!(
+        failure.step,
+        Some(1),
+        "the move fails, not the setup: {}",
+        failure.message
+    );
+    assert_eq!(rolls(found), 0, "nothing is rolled before the check");
+    failure.message
+}
+
+#[test]
+fn a_misspelled_reprisal_die_names_the_config_key() {
+    let message = misconfigured("misspelled_die");
+    assert!(message.contains("core:engagement `die`"), "{message}");
+    assert!(message.contains("unknown die `combt`"), "{message}");
+}
+
+#[test]
+fn a_wound_face_the_die_lacks_names_the_config_key() {
+    let message = misconfigured("misspelled_face");
+    assert!(message.contains("core:engagement `wound_on`"), "{message}");
+    assert!(
+        message.contains("`hti` is not a face of die `combat`"),
+        "{message}"
+    );
 }
 
 #[test]
