@@ -5,11 +5,12 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+mod board;
 mod camera;
 mod plugins;
 
+pub use board::{BoardPlugin, DirtyChunks, LevelSlice, TerrainChunk};
 pub use camera::{CameraPlugin, ClientBoard, HoveredSpace, IsoCamera, IsoCameraMarker};
 pub use plugins::{
-    BoardPlugin, FigurePlugin, InputPlugin, OcclusionPlugin, PlaybackPlugin, PreviewPlugin,
-    RenderPlugins,
+    FigurePlugin, InputPlugin, OcclusionPlugin, PlaybackPlugin, PreviewPlugin, RenderPlugins,
 };

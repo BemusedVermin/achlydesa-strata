@@ -9,8 +9,8 @@ use strata_model::{MapConstraints, MapDef, PlacedPiece, SourceLoc, Text, TileDef
 use super::layout::{Orientation, surface_point};
 use super::*;
 
-const GRASS: DefId = DefId(1);
-const ROCK: DefId = DefId(2);
+pub(crate) const GRASS: DefId = DefId(1);
+pub(crate) const ROCK: DefId = DefId(2);
 
 struct Defs(BTreeMap<Sym, TileDef>);
 
@@ -47,7 +47,7 @@ fn piece(name: &str, at: (i32, i32), level: u8) -> PlacedPiece {
 
 /// A one-level slab at `(0, 0)`, a three-level block at `(6, 0)` and a bridge deck over
 /// `(-2..=2, 3)`.
-fn board(orientation: Orientation) -> SceneBoard {
+pub(crate) fn board(orientation: Orientation) -> SceneBoard {
     let mut tiles = BTreeMap::new();
     tiles.insert("slab".into(), tile(GRASS, 1));
     tiles.insert("block".into(), tile(ROCK, 3));
