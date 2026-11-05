@@ -398,6 +398,7 @@ pub(super) const KINDS: [Kind; 20] = [
             NAME,
             opt("ruleset", Ty::Str),
             opt("map", Ty::Str),
+            opt("scenario", Ty::Str),
             opt("place", Ty::Any),
             opt("steps", Ty::Any),
         ],

@@ -110,6 +110,8 @@ pub enum Event {
         /// The claimant.
         by: PlayerId,
     },
+    /// A relic's holder let go, because they left it or were removed.
+    RelicReleased(RelicId),
     /// A relic was turned face up.
     RelicRevealed(RelicId),
     /// An ability instance was attached to a unit, player or relic.

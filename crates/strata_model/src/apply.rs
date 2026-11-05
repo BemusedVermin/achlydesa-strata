@@ -58,6 +58,9 @@ pub enum ApplyError {
     /// No attached ability instance matches.
     #[error("no attached ability {0:?}")]
     NoAbility(DefId),
+    /// The relic has no holder to release.
+    #[error("relic {0:?} is not held")]
+    RelicNotHeld(RelicId),
     /// The relic already has a holder.
     #[error("relic {0:?} is already held")]
     RelicHeld(RelicId),
@@ -178,7 +181,11 @@ impl GameState {
                     return Err(ApplyError::RelicHeld(*relic));
                 }
                 r.holder = Some(*by);
-                r.location = None;
+            }
+            Event::RelicReleased(relic) => {
+                let r = self.relics.get_mut(relic.index());
+                let r = r.ok_or(ApplyError::NoRelic(*relic))?;
+                r.holder.take().ok_or(ApplyError::RelicNotHeld(*relic))?;
             }
             Event::RelicRevealed(relic) => {
                 let r = self.relics.get_mut(relic.index());
