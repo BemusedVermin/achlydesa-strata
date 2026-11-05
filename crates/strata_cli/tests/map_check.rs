@@ -36,11 +36,18 @@ fn stderr(assert: &assert_cmd::assert::Assert) -> String {
     String::from_utf8_lossy(&assert.get_output().stderr).into_owned()
 }
 
-/// Runs `map check` on `file`, expects the "cannot check" exit code, and returns stderr.
+/// Runs `map check` on `file`, expects the "cannot check" exit code, and returns stderr
+/// unwrapped onto one line. miette wraps long messages (a long temp path on macOS) and marks
+/// continuation lines with a `|` gutter.
 fn cannot_check(file: &str) -> String {
     let out = strata(&["map", "check", file]).code(2);
     assert_eq!(stdout(&out), "", "{file}");
     stderr(&out)
+        .lines()
+        .map(|line| line.trim().trim_start_matches('|').trim())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 #[test]
