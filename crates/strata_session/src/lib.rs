@@ -29,7 +29,7 @@ pub use replay_text::dump;
 pub use session::{Session, SessionError};
 pub use setup::{MatchBuild, SetupError, build_match, pack_identities};
 pub use sim::{Control, SimError, SimHandle, SimLink, SimMessage};
-pub use view::{PlayerView, REDACTED, visible_events};
+pub use view::{BoardInfo, PlayerView, REDACTED, visible_events};
 
 #[cfg(test)]
 mod replay_tools_tests;

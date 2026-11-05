@@ -36,6 +36,10 @@ fn launched_view() -> PlayerView {
         armies: vec![army(), army()],
         commands: 0,
     });
+    assert!(matches!(
+        handle.recv_timeout(Duration::from_secs(60)),
+        Ok(SimMessage::Board(_))
+    ));
     match handle.recv_timeout(Duration::from_secs(60)) {
         Ok(SimMessage::View(view)) => *view,
         other => panic!("expected a view, got {other:?}"),

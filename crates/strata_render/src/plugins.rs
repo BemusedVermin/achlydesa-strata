@@ -2,6 +2,7 @@
 
 use bevy::prelude::*;
 
+use crate::board::BoardPlugin;
 use crate::camera::CameraPlugin;
 
 macro_rules! skeleton {
@@ -16,8 +17,6 @@ macro_rules! skeleton {
 }
 
 skeleton! {
-    /// Builds terrain meshes from the compiled board.
-    BoardPlugin,
     /// Spawns figure sprites as camera-facing billboards.
     FigurePlugin,
     /// Plays event batches in sequence.

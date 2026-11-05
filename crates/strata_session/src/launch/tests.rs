@@ -45,6 +45,10 @@ fn first_error(spec: LaunchSpec) -> String {
 #[test]
 fn a_launched_match_plays_the_commands_the_client_sends() {
     let handle = launch(spec("duel", Some("toy_rust")));
+    assert!(matches!(
+        handle.recv_timeout(WAIT),
+        Ok(SimMessage::Board(_))
+    ));
     let view = handle.recv_timeout(WAIT);
     assert!(matches!(&view, Ok(SimMessage::View(v)) if v.state.command_index == 0));
     handle.send_command(attack(0, 2));
@@ -108,6 +112,10 @@ fn cards_spec() -> LaunchSpec {
 
 fn first_view(spec: LaunchSpec) -> PlayerView {
     let handle = launch(spec);
+    assert!(matches!(
+        handle.recv_timeout(WAIT),
+        Ok(SimMessage::Board(_))
+    ));
     match handle.recv_timeout(WAIT) {
         Ok(SimMessage::View(view)) => *view,
         other => panic!("expected a view, got {other:?}"),
@@ -147,4 +155,19 @@ fn a_view_carries_the_names_of_dice_and_markers() {
     assert!(ids().any(|id| names.die(id) == Some("Combat")));
     assert!(ids().any(|id| names.marker(id) == Some("Wound")));
     assert!(!ids().any(|id| names.die(id) == Some("Wound")));
+}
+
+#[test]
+fn the_board_arrives_first_and_matches_the_map() {
+    let handle = launch(spec("duel", Some("toy_rust")));
+    let Ok(SimMessage::Board(info)) = handle.recv_timeout(WAIT) else {
+        panic!("expected the board first");
+    };
+    assert!(matches!(info.orientation.as_str(), "pointy" | "flat"));
+    assert!(info.board.max_level().is_some());
+    assert!(
+        info.board
+            .hexes()
+            .any(|h| info.board.top_surface(h).is_some())
+    );
 }

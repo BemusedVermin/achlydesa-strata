@@ -10,3 +10,6 @@ publish = false
 strata_kernel = { path = "../strata_kernel" }
 strata_scene = { path = "../strata_scene" }
 bevy = { workspace = true }
+
+[dev-dependencies]
+strata_model = { path = "../strata_model" }
