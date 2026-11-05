@@ -11,6 +11,7 @@ pub mod engine;
 pub mod flow;
 pub mod los;
 pub mod module;
+pub mod movement;
 pub mod native;
 pub mod query;
 pub mod registrar;
@@ -30,6 +31,7 @@ pub use flow::{
 };
 pub use los::{FigureVolume, LineOfSight, LosResult, LosWorld};
 pub use module::{ModuleError, RuleModule};
+pub use movement::{MoveWorld, Movement, Reach, TerrainRules};
 pub use native::{
     DicePool, MAX_POOL, NativeEnv, NativeLogic, NoEnv, Roll, native_name, reroll, roll_pool,
 };
