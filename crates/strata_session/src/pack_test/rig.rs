@@ -43,7 +43,8 @@ impl MatchRig {
         });
         let los = rt.service::<Arc<dyn LineOfSight>>().cloned();
         let host = Host::new(registry, pack, modifiers.collect(), Some(built.board));
-        let host = Arc::new(host.with_los(los).with_scenario(scenario_def));
+        let host = host.with_los(los).with_scenario(scenario_def, built.zones);
+        let host = Arc::new(host);
         let lua = rt
             .configs()
             .iter()

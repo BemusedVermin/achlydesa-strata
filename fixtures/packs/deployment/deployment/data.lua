@@ -3,7 +3,8 @@
 --
 -- The board is a row of meadow at level 1 from (0, 0) to (4, 0), one more meadow at (0, 1) and a
 -- rock pillar at (1, 1) whose top is level 3. Slot `a` starts in `west`, slot `b` in `east`.
--- `west` also names (-1, 0), which has no terrain.
+-- `west` also names (-1, 0), which has no terrain. Map `moved` is the same board with `west` at
+-- (2, 0) only, for tests that name a map besides their scenario's.
 stat { id = 'life', name = 'Life', min = 0, max = 9 }
 terrain { id = 'grass', name = 'Grass', standable = true }
 terrain { id = 'rock', name = 'Rock', standable = true }
@@ -12,12 +13,19 @@ tile { id = 'pillar', name = 'Pillar', terrain = 'rock', thickness = 3, shape = 
 
 local function piece(name, q, r) return { piece = name, at = { q = q, r = r }, rot = 0, level = 0 } end
 local function hex(q, r) return { q = q, r = r } end
-map {
-  id = 'field', name = 'Field', orientation = 'pointy',
-  pieces = {
+local function pieces()
+  return {
     piece('meadow', 0, 0), piece('meadow', 1, 0), piece('meadow', 2, 0), piece('meadow', 3, 0),
     piece('meadow', 4, 0), piece('meadow', 0, 1), piece('pillar', 1, 1),
-  },
+  }
+end
+map {
+  id = 'moved', name = 'Moved', orientation = 'pointy', pieces = pieces(),
+  zones = { west = { hex(2, 0) }, east = { hex(3, 0), hex(4, 0) } },
+}
+map {
+  id = 'field', name = 'Field', orientation = 'pointy',
+  pieces = pieces(),
   zones = {
     west = { hex(-1, 0), hex(0, 0), hex(1, 0), hex(0, 1), hex(1, 1) },
     east = { hex(3, 0), hex(4, 0) },
@@ -151,4 +159,17 @@ deployment_test {
     act.deploy(0, 'p0.test_soldier#1', at(1, 0, 1)),
     act.deploy(0, 'p0.test_beast#1', at(0, 0, 1)),
   },
+}
+deployment_test {
+  id = 'map_zone', name = 'the start zone comes from the map the test names',
+  map = 'moved',
+  steps = {
+    act.deploy(0, 'p0.test_soldier#1', at(2, 0, 1)),
+    expect.figure('p0.test_soldier#1', 'on_board'),
+  },
+}
+deployment_test {
+  id = 'map_zone_outside', name = 'the scenario map\'s start zone does not apply under another map',
+  map = 'moved',
+  steps = { act.deploy(0, 'p0.test_soldier#1', at(0, 0, 1)) },
 }

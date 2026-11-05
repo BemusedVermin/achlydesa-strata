@@ -111,6 +111,15 @@ fn a_two_space_figure_needs_every_cell_in_the_zone_and_within_its_spread() {
 }
 
 #[test]
+fn the_start_zones_come_from_the_same_map_as_the_board() {
+    passes("the start zone comes from the map the test names");
+    refused(
+        "the scenario map's start zone does not apply under another map",
+        "outside start zone `west`",
+    );
+}
+
+#[test]
 fn running_twice_gives_identical_reports_and_hashes() {
     assert_eq!(run(), run());
 }

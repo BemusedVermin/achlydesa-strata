@@ -9,6 +9,9 @@ use thiserror::Error;
 use crate::board::CompiledBoard;
 use crate::vocab::{SourceLoc, Text};
 
+#[cfg(test)]
+mod tests;
+
 /// How a multi-cell footprint moves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 #[serde(rename_all = "lowercase")]

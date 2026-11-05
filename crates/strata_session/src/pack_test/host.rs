@@ -11,8 +11,8 @@ use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::{BoardDefs, CompiledBoard};
 use strata_model::{
-    AbilityDef, AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureDefRef, FigureId,
-    FigureStatus, FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef,
+    AbilityDef, AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureDef, FigureDefRef,
+    FigureId, FigureStatus, FootprintDef, GameState, MarkerDef, PlayerId, RelicDef, ScenarioDef,
     StatDef, TerrainDef, TileDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
@@ -80,7 +80,7 @@ pub(crate) struct Host {
     bounds: BTreeMap<Sym, StatBounds>,
     board: Option<CompiledBoard>,
     los: Option<Arc<dyn LineOfSight>>,
-    /// The scenario, if the match has one, and the zones of its map.
+    /// The scenario, if the match has one, and the zones of the board's map.
     scenario: Option<ScenarioDef>,
     zones: BTreeMap<Sym, Vec<Hex>>,
     rig: Mutex<Rig>,
@@ -178,19 +178,23 @@ impl Host {
         self
     }
 
-    /// Plays under `scenario`, whose map's zones deployment and victory refer to.
-    pub(crate) fn with_scenario(mut self, scenario: Option<&ScenarioDef>) -> Self {
-        let map = scenario.and_then(|s| find::<MapDef>(&self.registry, &self.pack, s.map.as_str()));
-        self.zones = map.map(|(_, m)| m.zones.clone()).unwrap_or_default();
+    /// Plays under `scenario`, with the named `zones` that deployment and victory refer to.
+    /// The zones must come from the map the board was compiled from.
+    pub(crate) fn with_scenario(
+        mut self,
+        scenario: Option<&ScenarioDef>,
+        zones: BTreeMap<Sym, Vec<Hex>>,
+    ) -> Self {
+        self.zones = zones;
         self.scenario = scenario.cloned();
         self
     }
 
-    /// The footprint of a figure entry of a unit.
-    fn footprint_of(&self, figure: &FigureDefRef) -> Option<&FootprintDef> {
+    /// A figure entry of a unit, and the footprint it stands on.
+    fn figure_def(&self, figure: &FigureDefRef) -> Option<(&FigureDef, &FootprintDef)> {
         let unit = self.registry.get::<UnitDef>(figure.unit)?;
         let entry = unit.figures.iter().find(|f| f.id == figure.figure)?;
-        self.registry.get::<FootprintDef>(entry.footprint)
+        Some((entry, self.registry.get::<FootprintDef>(entry.footprint)?))
     }
 
     /// Forces the dice of the next command and counts its rolls from the first.
@@ -336,7 +340,7 @@ impl RuleHost for Host {
     }
 
     fn footprint(&self, figure: &FigureDefRef) -> Option<&FootprintDef> {
-        self.footprint_of(figure)
+        self.figure_def(figure).map(|(_, footprint)| footprint)
     }
 
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
@@ -476,9 +480,7 @@ impl LosWorld for StateLos<'_> {
         let at = fig
             .location
             .filter(|_| fig.status == FigureStatus::OnBoard)?;
-        let unit = self.host.registry.get::<UnitDef>(fig.def.unit)?;
-        let entry = unit.figures.iter().find(|f| f.id == fig.def.figure)?;
-        let footprint = self.host.footprint_of(&fig.def)?;
+        let (entry, footprint) = self.host.figure_def(&fig.def)?;
         let shape = footprint.cells.rotated(fig.rotation).translated(at.hex());
         let floor = i64::from(at.z) * SUB_LEVELS;
         let height = |sub: u16| floor + i64::from(sub);

@@ -1,15 +1,22 @@
 use std::sync::Arc;
 
-use strata_kernel::{DefId, Rotation, Space, Sym, Value};
+use strata_kernel::{DefId, Hex, Rotation, Space, Sym, Value};
+use strata_model::board::{BoardDefs, CompiledBoard, compile};
 use strata_model::{
-    DieKind, FigureId, FigureState, FigureStatus, GameState, MatchSetup, PlayerId, PlayerRange,
-    PlayerSetup, ScenarioDef, ScenarioSlot, UnitId, UnitState,
+    DieKind, FeatureDef, FigureId, FigureState, FigureStatus, GameState, MapConstraints, MapDef,
+    MatchSetup, PlayerId, PlayerRange, PlayerSetup, ScenarioDef, ScenarioSlot, SourceLoc, Text,
+    TileDef, UnitId, UnitState,
 };
 use strata_rules::{LogicError, NativeEnv};
 
 use super::{PlaceUnit, deploying, placement_event};
 
-struct Env(ScenarioDef);
+/// A scenario, and optionally the start zone `zone` and a board. No figure has a footprint.
+struct Env {
+    scenario: ScenarioDef,
+    zone: Option<Vec<Hex>>,
+    board: Option<CompiledBoard>,
+}
 
 impl NativeEnv for Env {
     fn stat(&self, _: &GameState, _: FigureId, _: &str) -> Result<i64, LogicError> {
@@ -21,8 +28,46 @@ impl NativeEnv for Env {
     }
 
     fn scenario(&self) -> Option<&ScenarioDef> {
-        Some(&self.0)
+        Some(&self.scenario)
     }
+
+    fn zone(&self, name: &str) -> Option<&[Hex]> {
+        self.zone.as_deref().filter(|_| name == "zone")
+    }
+
+    fn board(&self) -> Option<&CompiledBoard> {
+        self.board.as_ref()
+    }
+}
+
+struct NoDefs;
+
+impl BoardDefs for NoDefs {
+    fn tile(&self, _: &Sym) -> Option<&TileDef> {
+        None
+    }
+    fn feature(&self, _: &Sym) -> Option<&FeatureDef> {
+        None
+    }
+}
+
+/// A board with no pieces on it.
+fn empty_board() -> CompiledBoard {
+    let map = MapDef {
+        id: DefId(0),
+        name: Text::default(),
+        authors: Vec::new(),
+        orientation: "pointy".into(),
+        pieces: Vec::new(),
+        features: Vec::new(),
+        zones: Default::default(),
+        relic_spots: Default::default(),
+        constraints: MapConstraints::default(),
+        tags: Default::default(),
+        meta: Default::default(),
+        source: SourceLoc::default(),
+    };
+    compile(&map, &NoDefs).unwrap()
 }
 
 fn slot(id: &str, deploy_order: u8) -> ScenarioSlot {
@@ -75,7 +120,12 @@ fn setup() -> (Env, GameState) {
             ..FigureState::default()
         });
     }
-    (Env(scenario), state)
+    let env = Env {
+        scenario,
+        zone: None,
+        board: None,
+    };
+    (env, state)
 }
 
 #[test]
@@ -153,4 +203,27 @@ fn a_placement_needs_a_start_zone_and_a_board() {
     };
     let err = placement_event(&state, &env, PlayerId(1), &place).unwrap_err();
     assert!(err.contains("no zone `zone`"), "{err}");
+    let env = Env {
+        zone: Some(vec![Hex::new(0, 0)]),
+        ..env
+    };
+    let err = placement_event(&state, &env, PlayerId(1), &place).unwrap_err();
+    assert!(err.contains("no board"), "{err}");
+}
+
+#[test]
+fn a_placement_needs_a_footprint() {
+    let (env, state) = setup();
+    let env = Env {
+        zone: Some(vec![Hex::new(0, 0)]),
+        board: Some(empty_board()),
+        ..env
+    };
+    let place = PlaceUnit {
+        unit: UnitId(1),
+        at: Space::new(0, 0, 1),
+        rotation: Rotation::default(),
+    };
+    let err = placement_event(&state, &env, PlayerId(1), &place).unwrap_err();
+    assert!(err.contains("figure 1 has no footprint"), "{err}");
 }

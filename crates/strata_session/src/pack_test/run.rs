@@ -125,7 +125,8 @@ impl PackTests {
         });
         let los = rt.service::<Arc<dyn LineOfSight>>().cloned();
         let host = Host::new(&self.registry, pack, modifiers.collect(), board).with_los(los);
-        let host = host.with_scenario(scenario);
+        let zones = map.map(|m| m.zones.clone()).unwrap_or_default();
+        let host = host.with_scenario(scenario, zones);
         let host = Arc::new(host);
         let lua_modules = rt
             .configs()
