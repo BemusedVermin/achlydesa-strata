@@ -9,6 +9,7 @@ use clap::{Args, Parser, Subcommand};
 use miette::{IntoDiagnostic, MietteHandlerOpts, Result, WrapErr};
 
 mod lint;
+mod map_check;
 mod pack_test;
 mod package;
 mod replay;
@@ -27,6 +28,9 @@ enum Command {
     /// Work with packs.
     #[command(subcommand)]
     Pack(PackCommand),
+    /// Work with maps.
+    #[command(subcommand)]
+    Map(MapCommand),
     /// Write LuaLS type stubs for editor autocomplete.
     Stubs {
         /// Directory to write the stub files into.
@@ -80,6 +84,18 @@ enum PackCommand {
 }
 
 #[derive(Subcommand)]
+enum MapCommand {
+    /// Validate a map file and print its findings and fairness report.
+    Check {
+        /// The map's Lua file, inside a pack folder.
+        file: PathBuf,
+        /// Figures in the largest army; start zones with fewer standable spaces are errors.
+        #[arg(long)]
+        army_size: Option<u32>,
+    },
+}
+
+#[derive(Subcommand)]
 enum ReplayCommand {
     /// Replay every command and report the first state hash that differs.
     Verify {
@@ -126,6 +142,13 @@ fn main() -> ExitCode {
         Command::Pack(PackCommand::Validate { paths }) => validate::run(&paths),
         Command::Pack(PackCommand::Test { paths, filter }) => {
             pack_test::run(&paths, filter.as_deref())
+        }
+        Command::Map(MapCommand::Check { file, army_size }) => {
+            let options = strata_editor::ValidationOptions { army_size };
+            match map_check::run(&file, &options) {
+                Ok(code) => code,
+                Err(report) => finish(Err(report)),
+            }
         }
         Command::Stubs { out } => finish(write_stubs(&out)),
         Command::Lint { paths } => lint::run(&paths),

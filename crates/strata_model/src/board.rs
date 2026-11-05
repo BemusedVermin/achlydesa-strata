@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use strata_kernel::{Blocker, BlockerFootprint, DefId, Hex, SUB_LEVELS};
 
-pub use self::compile::{BoardDefs, compile};
+pub use self::compile::{BoardDefs, compile, compile_all};
 pub use self::error::BoardError;
 
 mod compile;
