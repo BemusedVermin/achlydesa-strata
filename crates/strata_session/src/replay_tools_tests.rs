@@ -147,6 +147,7 @@ impl CommandHandler for Deploy {
             figure: FigureId(0),
             to: Space::new(0, 0, 1),
             rotation: Default::default(),
+            path: Vec::new(),
         })
     }
 }

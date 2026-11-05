@@ -5,7 +5,7 @@ use std::sync::Arc;
 use strata_kernel::Sym;
 use strata_lua::{LuaRules, ModuleBinding};
 use strata_model::{GameState, MatchSetup, RuleModuleDef, RulesetDef, ScenarioDef};
-use strata_rules::{Engine, LineOfSight, RulesRuntime, SourcedModifier, resolve};
+use strata_rules::{Engine, LineOfSight, Movement, RulesRuntime, SourcedModifier, resolve};
 
 use super::PackTests;
 use super::host::Host;
@@ -42,7 +42,8 @@ impl MatchRig {
         });
         let los = rt.service::<Arc<dyn LineOfSight>>().cloned();
         let host = Host::new(registry, pack, modifiers.collect(), Some(built.board));
-        let host = Arc::new(host.with_los(los));
+        let movement = rt.service::<Arc<dyn Movement>>().cloned();
+        let host = Arc::new(host.with_los(los).with_movement(movement));
         let lua = rt
             .configs()
             .iter()

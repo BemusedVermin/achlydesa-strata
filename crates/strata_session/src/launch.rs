@@ -9,7 +9,7 @@ use strata_model::{
     ArmyList, MatchSetup, PlayerId, PlayerSetup, RuleModuleDef, RulesetDef, ScenarioDef, SeedSource,
 };
 use strata_modules::native_modules;
-use strata_rules::{Engine, PhaseTree, RulesetSource, SourcedModifier, resolve};
+use strata_rules::{Engine, Movement, PhaseTree, RulesetSource, SourcedModifier, resolve};
 
 use crate::controller::Controller;
 use crate::names::Names;
@@ -96,7 +96,9 @@ fn play(spec: &LaunchSpec, link: &SimLink) -> Result<(), String> {
         priority: 0,
         def: m.clone(),
     });
+    let movement = rt.service::<Arc<dyn Movement>>().cloned();
     let host = Host::new(registry, pack, modifiers.collect(), Some(built.board));
+    let host = host.with_movement(movement);
     let phases = PhaseTree::build(rt.phases()).map(|t| t.phases().to_vec());
     let _ = host
         .names
