@@ -33,6 +33,7 @@ use strata_model::{
     TerrainDef, TestDef, TileDef, TraitsDef, UnitDef,
 };
 
+use crate::convert::sorted_keys;
 use crate::data::{DataStage, Record};
 use crate::error::LoadError;
 use walk::{Fault, Walk};
@@ -77,7 +78,7 @@ macro_rules! definitions {
         )*
 
         fn decode(kind: &str, value: Value) -> Option<Result<FrozenDef, Error<mlua::Error>>> {
-            let source = mlua::serde::Deserializer::new(value);
+            let source = mlua::serde::Deserializer::new_with_options(value, sorted_keys());
             Some(match kind {
                 $($kind => serde_path_to_error::deserialize(source).map(FrozenDef::$variant),)*
                 _ => return None,

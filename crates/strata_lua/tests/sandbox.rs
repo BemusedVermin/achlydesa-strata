@@ -346,6 +346,18 @@ fn rejects_functions_and_other_types() {
 }
 
 #[test]
+fn a_table_with_two_faults_reports_the_same_one_in_every_fresh_state() {
+    let src = "return { a = 1.5, b = print, c = 2.5, d = print }";
+    for _ in 0..16 {
+        assert_eq!(eval(&host(), src), Err(ConvertError::Float), "{src}");
+    }
+    let src = "return { a = print, b = 1.5, c = print, d = 2.5 }";
+    for _ in 0..16 {
+        assert_eq!(eval(&host(), src), Err(ConvertError::Function), "{src}");
+    }
+}
+
+#[test]
 fn rejects_ambiguous_tables() {
     let host = host();
     for src in [

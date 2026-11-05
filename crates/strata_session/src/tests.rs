@@ -210,8 +210,26 @@ fn a_replay_that_no_longer_matches_is_refused() {
     let got = wrong_seed.play(&mut rig.engine());
     assert_eq!(got, Err(ReplayError::WrongStart));
 
-    let junk = Replay::load(&[1, 2, 3]);
+    // Too short to hold even the version string.
+    let junk = Replay::load(&[9, 1, 2]);
     assert!(matches!(junk, Err(ReplayError::Format(_))));
+}
+
+#[test]
+fn a_replay_from_an_older_format_fails_on_its_version_before_decoding() {
+    let tests = pack_tests();
+    let (replay, _) = play(&tests, 3);
+    assert_eq!(replay.engine_version, engine_version());
+    let saved = replay.save().unwrap();
+    assert_eq!(Replay::load(&saved).unwrap(), replay);
+
+    // An older file records the bare engine version, then a body this engine cannot decode.
+    let mut old = postcard::to_allocvec(env!("CARGO_PKG_VERSION")).unwrap();
+    old.extend_from_slice(&[0xff; 8]);
+    let got = Replay::load(&old).unwrap_err();
+    let current = engine_version();
+    let recorded = env!("CARGO_PKG_VERSION").to_owned();
+    assert_eq!(got, ReplayError::Version { recorded, current });
 }
 
 fn token(kind: u32, visibility: Visibility) -> Token {

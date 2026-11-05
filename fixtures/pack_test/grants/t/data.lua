@@ -1,5 +1,6 @@
 -- Needs the native `t:grants` module the Rust tests register: `attach` and `detach` take
--- { what = 'sharp' | 'fury', owner = <player> } and emit the matching ability events.
+-- { what = 'sharp' | 'fury' | 'drill', owner = <player or unit> } and emit the matching ability
+-- events. `drill` is the soldier's own first ability, attached to a unit.
 stat { id = 'attack', name = 'Attack', min = 0, max = 9 }
 footprint { id = 'one', name = 'One', cells = {{ q = 0, r = 0 }}, move = 'rigid', max_spread = 1 }
 unit {
@@ -8,6 +9,10 @@ unit {
   figures = {{
     id = 's', count = 1, footprint = 'one', height = 1,
     los = { target = 10, hit_zone = {0, 12}, samples = {'center'} },
+  }},
+  abilities = {{
+    name = 'Drill', text = 'Add 2 attack.', scope = 'unit',
+    modifiers = {{ query = 'attack', layer = 'add', value = 2 }},
   }},
 }
 ability {
@@ -54,6 +59,17 @@ test {
     expect.stat('p0.test_soldier#1', 'attack', 3),
     act.command(0, 'detach', { what = 'fury', owner = 1 }),
     expect.stat('p1.test_soldier#1', 'attack', 3),
+  },
+}
+test {
+  id = 'unit_ability', name = 'a unit ability attached to its unit applies to that unit only',
+  ruleset = 'rs', place = board(),
+  steps = {
+    act.command(0, 'attach', { what = 'drill', owner = 0 }),
+    expect.stat('p0.test_soldier#1', 'attack', 5),
+    expect.stat('p1.test_soldier#1', 'attack', 3),
+    act.command(0, 'detach', { what = 'drill', owner = 0 }),
+    expect.stat('p0.test_soldier#1', 'attack', 3),
   },
 }
 test {
