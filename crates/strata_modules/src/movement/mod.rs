@@ -4,6 +4,7 @@
 //! `can_climb` and `can_enter` queries, asked once per terrain and level change. Stop-on-enter
 //! terrain and falls end a move; occupied spaces can be passed through but not stopped on.
 
+mod api;
 mod search;
 
 use std::collections::BTreeMap;
@@ -12,7 +13,8 @@ use std::sync::{Arc, OnceLock};
 use strata_kernel::{ModuleId, SlotId, Sym, Value};
 use strata_model::{ConfigField, FigureId};
 use strata_rules::{
-    ConfigSchema, LogicError, ModuleError, MoveWorld, Movement, Reach, Registrar, RuleModule,
+    ConfigSchema, LogicError, LuaApi, ModuleError, MoveWorld, Movement, Reach, Registrar,
+    RuleModule,
 };
 
 pub use self::search::{Headroom, Limits, reachable};
@@ -90,6 +92,8 @@ impl RuleModule for MovementModule {
         };
         let service: Arc<dyn Movement> = Arc::new(Service { limits });
         r.service(Box::new(service));
+        let functions = ["reachable", "move"].map(Sym::new).to_vec();
+        r.lua_api_native("movement", LuaApi { functions }, Box::new(api::Api));
         Ok(())
     }
 }

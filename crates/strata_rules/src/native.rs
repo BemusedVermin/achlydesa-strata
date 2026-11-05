@@ -8,6 +8,7 @@ use strata_model::{
 
 use crate::engine::{Ctx, Halt};
 use crate::flow::PhaseTree;
+use crate::movement::Reach;
 use crate::query::LogicError;
 
 /// The most dice one pool may hold.
@@ -46,6 +47,10 @@ pub trait NativeEnv: Send + Sync {
     /// Runs a relic's `on_claim` effect for `event`, as a trigger's effect would run.
     fn run_effect(&self, _ctx: &mut dyn Ctx, _effect: &Logic, _event: &Event) -> Result<(), Halt> {
         Ok(())
+    }
+    /// Every space `figure` can reach, as the ruleset's `movement` module defines it.
+    fn reachable(&self, _state: &GameState, _figure: FigureId) -> Result<Vec<Reach>, LogicError> {
+        Err(LogicError("the ruleset has no `movement` module".into()))
     }
     /// Results that replace the next roll of `count` dice named `die`, for tests that rig the
     /// dice, as in the script host. `None` leaves the roll to the command's random stream.

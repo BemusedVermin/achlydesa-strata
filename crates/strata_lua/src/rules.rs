@@ -12,7 +12,8 @@ use strata_model::{
     ReplacementDef, ScriptRef, TriggerDef,
 };
 use strata_rules::{
-    ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, PhaseTree, RulesRuntime,
+    ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, PhaseTree, Reach,
+    RulesRuntime,
 };
 
 use crate::convert::{lua_to_value, value_to_lua};
@@ -217,6 +218,9 @@ impl NativeEnv for LuaRules {
 
     fn run_effect(&self, ctx: &mut dyn Ctx, effect: &Logic, event: &Event) -> Result<(), Halt> {
         self.value(effect, ctx, &with_event(event)).map(drop)
+    }
+    fn reachable(&self, state: &GameState, figure: FigureId) -> Result<Vec<Reach>, LogicError> {
+        self.host.reachable(state, figure)
     }
 
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
