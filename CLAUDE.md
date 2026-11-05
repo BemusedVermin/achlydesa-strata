@@ -28,6 +28,12 @@ If something is ambiguous, do not guess on design decisions. Comment on the issu
    cargo test -p strata_client -p strata_render -p strata_scene --locked   # only if the PR touches client or render code
    python scripts/line_budget.py --base origin/master
    ```
+   **Run these one at a time, never concurrently.** Liam develops on the same laptop, and parallel cargo builds slow it to a crawl. Concretely:
+   - Run at most one `cargo` command at a time, and do not start another until the previous one has finished. Never start a second copy of a build or test run that is still going.
+   - Pass `-j 2` to every `cargo` command that compiles.
+   - Prefer the narrowest check while iterating (`cargo check -p <crate> --locked`, `cargo test -p <crate> --locked`). Run the full commands above once, at the end.
+   - A command that moves to the background after the tool timeout is still running. Wait for its notification. Stopping the task does not always stop its child processes, so check for stray `cargo`, `rustc` and `clippy-driver` processes and kill them before running anything else.
+   - Do not work around a slow build by running more builds. If a check is taking too long, say so and ask.
 6. Open a PR to `master` titled `T-NNN: <issue title>`, fill in the PR template, and include `Closes #<issue number>`.
 7. Address every comment from the automated review: fix it, or reply explaining why not. Then leave the PR for Liam.
 
