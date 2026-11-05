@@ -2,7 +2,8 @@
 
 use std::collections::BTreeMap;
 
-use mlua::{Lua, Table};
+use mlua::{DeserializeOptions, Lua, LuaSerdeExt, Table};
+use serde::de::DeserializeOwned;
 use strata_kernel::{Sym, Value};
 
 use crate::error::ConvertError;
@@ -46,6 +47,17 @@ pub fn value_to_lua(lua: &Lua, value: &Value) -> Result<mlua::Value, ConvertErro
             mlua::Value::Table(table)
         }
     })
+}
+
+/// Deserialization that visits table keys in sorted order. Lua seeds string hashing per state,
+/// so with raw order a table with two bad fields would report either one (design §9.4, §16.5).
+pub(crate) fn sorted_keys() -> DeserializeOptions {
+    DeserializeOptions::new().sort_keys(true)
+}
+
+/// Deserializes `value` into a `T`, visiting table keys in sorted order.
+pub(crate) fn from_lua<T: DeserializeOwned>(lua: &Lua, value: mlua::Value) -> mlua::Result<T> {
+    lua.from_value_with(value, sorted_keys())
 }
 
 fn convert(lua: &Lua, value: &mlua::Value, depth: usize) -> Result<Value, ConvertError> {

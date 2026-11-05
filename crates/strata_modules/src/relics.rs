@@ -10,8 +10,8 @@ use std::collections::BTreeMap;
 
 use strata_kernel::{ModuleId, SlotId, Sym, Value};
 use strata_model::{
-    AbilityOwner, Descriptor, Event, FigureStatus, GameState, Logic, PlayerId, RelicDef, RelicId,
-    RelicMode, TriggerDef,
+    AbilityKey, AbilityOwner, Descriptor, Event, FigureStatus, GameState, Logic, PlayerId,
+    RelicDef, RelicId, RelicMode, TriggerDef,
 };
 use strata_rules::{
     ConfigSchema, Ctx, Halt, ModuleError, NativeEnv, NativeLogic, Registrar, RuleModule,
@@ -105,11 +105,15 @@ fn follow(
         return Ok(());
     }
     let relic_def = state.relics[relic.index()].def;
+    let key = |index: u16| AbilityKey::Relic {
+        relic: relic_def,
+        index,
+    };
     if let Some(old) = held {
-        for _ in grants(def) {
+        for grant in grants(def) {
             let owner = AbilityOwner::Player(old);
             ctx.emit(Event::AbilityDetached {
-                def: relic_def,
+                def: key(grant),
                 owner,
             })?;
         }
@@ -120,11 +124,10 @@ fn follow(
     };
     claim(ctx, relic, new)?;
     for grant in grants(def) {
-        let params = BTreeMap::from([(Sym::new("grant"), Value::Int(grant as i64))]);
         ctx.emit(Event::AbilityAttached {
-            def: relic_def,
+            def: key(grant),
             owner: AbilityOwner::Player(new),
-            params,
+            params: BTreeMap::new(),
         })?;
     }
     Ok(())
@@ -159,9 +162,11 @@ fn claim(ctx: &mut dyn Ctx, relic: RelicId, player: PlayerId) -> Result<(), Halt
 }
 
 /// The positions of the relic's granted abilities. Only grants to the occupant's army exist.
-fn grants(def: &RelicDef) -> std::ops::Range<usize> {
+fn grants(def: &RelicDef) -> std::ops::Range<u16> {
     match &def.grants {
-        Some(g) if g.to.as_str() == OCCUPANT_ARMY => 0..g.abilities.len(),
+        Some(g) if g.to.as_str() == OCCUPANT_ARMY => {
+            0..u16::try_from(g.abilities.len()).unwrap_or(u16::MAX)
+        }
         _ => 0..0,
     }
 }

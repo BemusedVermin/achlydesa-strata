@@ -151,6 +151,9 @@ impl<'a> Walk<'a> {
         if schema::is_value(self.kind, &self.route) {
             return self.tagged(value, depth);
         }
+        if schema::is_logic(self.kind, &self.route) && !matches!(value, Value::Function(_)) {
+            return self.native(value, depth);
+        }
         Ok(match value {
             Value::Function(_) => self.script()?,
             Value::Table(table) => Value::Table(self.table(&table, &[], depth + 1)?),
@@ -197,6 +200,15 @@ impl<'a> Walk<'a> {
             }
             other => Err(self.fault(format!("a {} is not plain data", other.type_name()))),
         }
+    }
+
+    /// Wraps plain data in a `Logic` field as `Logic::Native`, the descriptor the Rust evaluator
+    /// reads: `{ sel = 'allies' }`, `true` or `1` as written, or `{ native = 'name' }` for logic
+    /// a module registered in Rust.
+    fn native(&mut self, value: Value, depth: usize) -> Result<Value, Fault> {
+        let logic = self.lua.create_table()?;
+        logic.raw_set("native", self.tagged(value, depth)?)?;
+        Ok(Value::Table(logic))
     }
 
     /// Replaces the function at the current route with a `ScriptRef`, wrapped as

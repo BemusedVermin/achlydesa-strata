@@ -11,9 +11,9 @@ use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::{BoardDefs, CompiledBoard};
 use strata_model::{
-    AbilityDef, AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus,
-    FootprintDef, GameState, MarkerDef, PlayerId, RelicDef, StatDef, TerrainDef, TileDef, UnitDef,
-    UnitId, UnitState,
+    AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus, FootprintDef,
+    GameState, MarkerDef, PlayerId, RelicDef, StatDef, TerrainDef, TileDef, UnitDef, UnitId,
+    UnitState,
 };
 use strata_rules::{
     Ctx, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics, LosWorld,
@@ -184,7 +184,7 @@ impl Host {
     }
 
     /// The modifiers of attached abilities that reach `figure`: those owned by its controller,
-    /// its unit, or both. A relic's grant is named by its relic and `grant` index.
+    /// its unit, or both.
     fn granted(&self, state: &GameState, figure: FigureId) -> Vec<SourcedModifier> {
         let Some(fig) = state.figures.get(figure.index()) else {
             return Vec::new();
@@ -196,27 +196,14 @@ impl Host {
                 AbilityOwner::Unit(u) => u == fig.unit,
                 AbilityOwner::Relic(_) => false,
             };
-            let grant = instance.params.get("grant").and_then(|v| v.as_int().ok());
-            let named = match grant {
-                Some(n) => {
-                    let relic = self.registry.get::<RelicDef>(instance.def);
-                    let relic = relic.zip(self.registry.name::<RelicDef>(instance.def));
-                    relic.and_then(|(r, name)| {
-                        let abilities = &r.grants.as_ref()?.abilities;
-                        Some((abilities.get(usize::try_from(n).ok()?)?, name))
-                    })
-                }
-                None => {
-                    let ability = self.registry.get::<AbilityDef>(instance.def);
-                    ability.zip(self.registry.name::<AbilityDef>(instance.def))
-                }
-            };
-            let Some((ability, name)) = named.filter(|_| reaches) else {
+            let ability = self.registry.ability(instance.def);
+            let name = self.registry.ability_name(instance.def);
+            let Some((ability, name)) = ability.zip(name).filter(|_| reaches) else {
                 continue;
             };
             let modifiers = ability.modifiers.iter();
             found.extend(modifiers.map(|m| SourcedModifier {
-                source: Sym::new(name),
+                source: Sym::new(&name),
                 priority: 0,
                 def: m.clone(),
             }));

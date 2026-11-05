@@ -1,5 +1,6 @@
-use strata_kernel::{DefId, PackId, Sym};
+use strata_kernel::{DefId, PackId, Sym, Value};
 use strata_lua::{DataStage, FrozenDef, FrozenRecord, LoadError, PackSource, freeze};
+use strata_model::{AbilityDef, Descriptor, Logic};
 
 /// Runs `data.lua` of a single pack `t` and freezes the result.
 fn run(data: &str) -> Result<Vec<FrozenRecord>, Vec<LoadError>> {
@@ -133,4 +134,58 @@ unit {
 fn freezing_twice_gives_identical_records_and_paths() {
     let (first, second) = (run(UNIT).unwrap(), run(UNIT).unwrap());
     assert_eq!(first, second);
+}
+
+const NATIVE: &str = r#"
+local function drill(id)
+  return {
+    id = id, name = 'Drill', text = 'Add 1 near a friend.', scope = 'unit',
+    modifiers = {{ query = 'defense', layer = 'add', when = { cond = 'adjacent' }, value = 1 }},
+  }
+end
+ability(drill('drill'))
+relic {
+  id = 'fury', name = 'Fury', mode = 'on_claim', claim = 'ends_move_on',
+  grants = { to = 'occupant_army', abilities = { drill() } },
+  effect = { native = 'boom' },
+}
+"#;
+
+#[test]
+fn plain_data_in_a_logic_field_freezes_as_a_native_descriptor() {
+    let records = run(NATIVE).unwrap();
+    let native = |entries: &[(&str, &str)]| {
+        let entries = entries
+            .iter()
+            .map(|(k, v)| (Sym::new(k), Value::Str(Sym::new(v))));
+        Logic::Native(Descriptor(Value::Map(entries.collect())))
+    };
+    let check = |ability: &AbilityDef| {
+        let modifier = &ability.modifiers[0];
+        assert_eq!(modifier.when, Some(native(&[("cond", "adjacent")])));
+        assert_eq!(modifier.value, Logic::Native(Descriptor(Value::Int(1))));
+        assert_eq!(modifier.query, Sym::new("defense"));
+    };
+    for record in &records {
+        match &record.def {
+            FrozenDef::Ability(ability) => check(ability),
+            FrozenDef::Relic(relic) => {
+                check(&relic.grants.as_ref().unwrap().abilities[0]);
+                assert_eq!(relic.effect, Some(native(&[("native", "boom")])));
+                let effect = relic.effect.as_ref().unwrap();
+                assert_eq!(strata_rules::native_name(effect), Some("boom"));
+            }
+            other => panic!("unexpected record {other:?}"),
+        }
+        assert!(record.scripts.is_empty());
+    }
+}
+
+#[test]
+fn a_record_with_two_faults_reports_the_same_one_in_every_fresh_state() {
+    let data = "stat { id = 'two', name = 'B', min = 'low', max = 'high', zz = 1 }";
+    let first = errors(data);
+    for _ in 0..16 {
+        assert_eq!(errors(data), first);
+    }
 }
