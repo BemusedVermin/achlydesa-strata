@@ -22,13 +22,19 @@ impl ContentRegistry {
 
     /// A stable name for the ability `key` names, such as `t:shield` for a record or
     /// `t:soldier/abilities/1` for a unit's first ability. Inline abilities are named by their
-    /// route, as `ScriptRef` paths are.
+    /// route, in the route grammar `ScriptRef` paths use; the prefix differs, since a
+    /// `ScriptRef` path starts with the record kind and bare name rather than the full ID.
     pub fn ability_name(&self, key: AbilityKey) -> Option<String> {
-        self.ability(key)?;
+        self.ability_with_name(key).map(|(_, name)| name)
+    }
+
+    /// The ability `key` names, with its [`ability_name`](Self::ability_name).
+    pub fn ability_with_name(&self, key: AbilityKey) -> Option<(&AbilityDef, String)> {
+        let ability = self.ability(key)?;
         let route = |record: &str, list: &str, index: u16| {
             format!("{record}/{list}/{}", u32::from(index) + 1)
         };
-        Some(match key {
+        let name = match key {
             AbilityKey::Def(id) => self.name::<AbilityDef>(id)?.to_owned(),
             AbilityKey::Unit { unit, index } => {
                 route(self.name::<UnitDef>(unit)?, "abilities", index)
@@ -36,6 +42,7 @@ impl ContentRegistry {
             AbilityKey::Relic { relic, index } => {
                 route(self.name::<RelicDef>(relic)?, "grants/abilities", index)
             }
-        })
+        };
+        Some((ability, name))
     }
 }

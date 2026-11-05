@@ -189,3 +189,38 @@ fn a_record_with_two_faults_reports_the_same_one_in_every_fresh_state() {
         assert_eq!(errors(data), first);
     }
 }
+
+const LISTS: &str = r#"
+scenario {
+  id = 'duel', name = 'Duel', map = 'flat', players = { min = 2, max = 2 }, slots = {},
+  army = { { max_points = 100 } },
+  victory = { { cond = 'eliminate_all' }, function() end },
+}
+format {
+  id = 'open', name = 'Open', ruleset = 'core', selection = 'build',
+  scenarios = { pool = { 'duel' }, pick = 'alternate_veto' },
+  army = { { max_copies = 2 } },
+}
+"#;
+
+#[test]
+fn plain_data_in_scenario_and_format_lists_freezes_as_native_logic() {
+    let records = run(LISTS).unwrap();
+    let native = |key: &str, value: Value| {
+        Logic::Native(Descriptor(Value::Map([(Sym::new(key), value)].into())))
+    };
+    for record in &records {
+        match &record.def {
+            FrozenDef::Scenario(scenario) => {
+                assert_eq!(scenario.army, [native("max_points", Value::Int(100))]);
+                let cond = Value::Str(Sym::new("eliminate_all"));
+                assert_eq!(scenario.victory[0], native("cond", cond));
+                assert!(matches!(scenario.victory[1], Logic::Script(_)));
+            }
+            FrozenDef::Format(format) => {
+                assert_eq!(format.army, [native("max_copies", Value::Int(2))]);
+            }
+            other => panic!("unexpected record {other:?}"),
+        }
+    }
+}

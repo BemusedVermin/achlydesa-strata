@@ -196,9 +196,8 @@ impl Host {
                 AbilityOwner::Unit(u) => u == fig.unit,
                 AbilityOwner::Relic(_) => false,
             };
-            let ability = self.registry.ability(instance.def);
-            let name = self.registry.ability_name(instance.def);
-            let Some((ability, name)) = ability.zip(name).filter(|_| reaches) else {
+            let named = reaches.then(|| self.registry.ability_with_name(instance.def));
+            let Some((ability, name)) = named.flatten() else {
                 continue;
             };
             let modifiers = ability.modifiers.iter();

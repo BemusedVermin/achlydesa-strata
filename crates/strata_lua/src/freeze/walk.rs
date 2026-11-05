@@ -6,7 +6,7 @@ use strata_kernel::{DefId, PackId, Sym};
 use strata_model::ScriptRef;
 
 use super::schema::{self, Site};
-use crate::convert::contents;
+use crate::convert::{EntryError, Key, sorted_entries};
 
 const MAX_DEPTH: usize = 64;
 
@@ -37,13 +37,6 @@ impl From<mlua::Error> for Fault {
             message: error.to_string(),
         }
     }
-}
-
-/// Map keys sort integers before strings, so every walk visits fields in the same order.
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
-enum Key {
-    Int(i64),
-    Str(String),
 }
 
 pub(super) struct Walk<'a> {
@@ -110,21 +103,11 @@ impl<'a> Walk<'a> {
         if depth >= MAX_DEPTH {
             return Err(self.fault("table nesting is too deep or cyclic".into()));
         }
-        let mut entries = Vec::new();
-        for pair in contents(self.lua, source).pairs::<Value, Value>() {
-            let (key, value) = pair?;
-            let key = match &key {
-                Value::Integer(i) => Key::Int(*i),
-                Value::String(s) => Key::Str(s.to_str()?.to_owned()),
-                other => return Err(self.fault(format!("a {} cannot be a key", other.type_name()))),
-            };
-            if !matches!(&key, Key::Str(s) if depth == 0 && reserved.contains(&s.as_str())) {
-                entries.push((key, value));
-            }
-        }
-        entries.sort_by(|a, b| a.0.cmp(&b.0));
         let copy = self.lua.create_table()?;
-        for (key, value) in entries {
+        for (key, value) in self.entries(source)? {
+            if matches!(&key, Key::Str(s) if depth == 0 && reserved.contains(&s.as_str())) {
+                continue;
+            }
             let segment = match &key {
                 Key::Int(i) => i.to_string(),
                 Key::Str(s) => s.clone(),
@@ -137,14 +120,30 @@ impl<'a> Walk<'a> {
         Ok(copy)
     }
 
-    fn key(&mut self, key: Key) -> Result<Value, Fault> {
+    /// The entries of `table` in key order, or a fault naming a key that cannot be one.
+    fn entries(&self, table: &Table) -> Result<Vec<(Key, Value)>, Fault> {
+        sorted_entries(self.lua, table).map_err(|error| match error {
+            EntryError::Lua(error) => error.into(),
+            EntryError::BadKey(kind) => self.fault(format!("a {kind} cannot be a key")),
+            EntryError::NotUtf8 => self.fault("a key is not valid UTF-8".into()),
+        })
+    }
+
+    /// `key` as a Lua value, as authored.
+    fn plain_key(&self, key: Key) -> Result<Value, Fault> {
         Ok(match key {
             Key::Int(i) => Value::Integer(i),
-            Key::Str(s) => match schema::reference(self.kind, &self.route) {
-                Some((Site::Key, target)) => self.reference(self.route.join("/"), s, true, target),
-                _ => Value::String(self.lua.create_string(&s)?),
-            },
+            Key::Str(s) => Value::String(self.lua.create_string(&s)?),
         })
+    }
+
+    fn key(&mut self, key: Key) -> Result<Value, Fault> {
+        match (key, schema::reference(self.kind, &self.route)) {
+            (Key::Str(s), Some((Site::Key, target))) => {
+                Ok(self.reference(self.route.join("/"), s, true, target))
+            }
+            (key, _) => self.plain_key(key),
+        }
     }
 
     fn value(&mut self, value: Value, depth: usize) -> Result<Value, Fault> {
@@ -186,12 +185,11 @@ impl<'a> Walk<'a> {
             Value::Table(table) if depth < MAX_DEPTH => {
                 let items = self.lua.create_table()?;
                 let (mut list, mut map) = (true, false);
-                for pair in contents(self.lua, &table).pairs::<Value, Value>() {
-                    let (key, item) = pair?;
+                for (key, item) in self.entries(&table)? {
                     let item = self.tagged(item, depth + 1)?;
-                    map |= matches!(key, Value::String(_));
-                    list &= matches!(key, Value::Integer(_));
-                    items.raw_set(key, item)?;
+                    map |= matches!(key, Key::Str(_));
+                    list &= matches!(key, Key::Int(_));
+                    items.raw_set(self.plain_key(key)?, item)?;
                 }
                 wrap(
                     if map && !list { "Map" } else { "List" },

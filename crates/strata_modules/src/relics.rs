@@ -162,6 +162,8 @@ fn claim(ctx: &mut dyn Ctx, relic: RelicId, player: PlayerId) -> Result<(), Halt
 }
 
 /// The positions of the relic's granted abilities. Only grants to the occupant's army exist.
+/// `AbilityKey` indexes entries with a `u16`, so a relic attaches at most its first 65,535
+/// grants; no real relic comes near that.
 fn grants(def: &RelicDef) -> std::ops::Range<u16> {
     match &def.grants {
         Some(g) if g.to.as_str() == OCCUPANT_ARMY => {

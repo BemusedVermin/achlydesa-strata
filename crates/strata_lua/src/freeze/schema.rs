@@ -90,6 +90,14 @@ const LOGIC_FIELDS: [&str; 8] = [
     "select", "when", "value", "targets", "resolve", "filter", "effect", "replace",
 ];
 
+/// Lists whose entries are each typed as `Logic`: a scenario's or format's army rules and a
+/// scenario's victory conditions.
+const LOGIC_LISTS: &[(&str, &str)] = &[
+    ("scenario", "army/*"),
+    ("scenario", "victory/*"),
+    ("format", "army/*"),
+];
+
 /// Whether `route` holds a hook: an entry of an ability's hook list, or a module's registration.
 fn is_hook(kind: &str, route: &[String]) -> bool {
     if kind == "rule_module" {
@@ -103,8 +111,13 @@ fn is_hook(kind: &str, route: &[String]) -> bool {
 }
 
 /// Whether `route` is a field typed as `Logic`, where plain data is a native descriptor: a
-/// hook's `select`, `when`, `value` and so on, or an `on_claim` relic's `effect`.
+/// hook's `select`, `when`, `value` and so on, an `on_claim` relic's `effect`, or an entry of
+/// a scenario's or format's `Logic` lists.
 pub(super) fn is_logic(kind: &str, route: &[String]) -> bool {
+    let listed = |(k, pattern): &(&str, &str)| *k == kind && matches(pattern, route);
+    if LOGIC_LISTS.iter().any(listed) {
+        return true;
+    }
     let Some((field, hook)) = route.split_last() else {
         return false;
     };

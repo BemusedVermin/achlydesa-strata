@@ -93,17 +93,60 @@ pub(crate) fn contents(lua: &Lua, table: &Table) -> Table {
     shadow.unwrap_or_else(|| table.clone())
 }
 
+/// A table key, ordered integers before strings so every walk visits fields in the same order.
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Key {
+    /// An integer key.
+    Int(i64),
+    /// A string key.
+    Str(String),
+}
+
+/// Why a table's entries could not be listed.
+pub(crate) enum EntryError {
+    /// Lua failed while iterating.
+    Lua(mlua::Error),
+    /// A key was neither an integer nor a string; holds its type name.
+    BadKey(&'static str),
+    /// A string key was not valid UTF-8.
+    NotUtf8,
+}
+
+/// The entries of `table` (or of its frozen contents) sorted by [`Key`]. Lua seeds string
+/// hashing per state, so raw `pairs()` order would make the first error found vary between
+/// runs (design §9.4, §16.5).
+pub(crate) fn sorted_entries(
+    lua: &Lua,
+    table: &Table,
+) -> Result<Vec<(Key, mlua::Value)>, EntryError> {
+    let mut entries = Vec::new();
+    for pair in contents(lua, table).pairs::<mlua::Value, mlua::Value>() {
+        let (key, value) = pair.map_err(EntryError::Lua)?;
+        let key = match &key {
+            mlua::Value::Integer(i) => Key::Int(*i),
+            mlua::Value::String(s) => {
+                Key::Str(s.to_str().map_err(|_| EntryError::NotUtf8)?.to_owned())
+            }
+            other => return Err(EntryError::BadKey(other.type_name())),
+        };
+        entries.push((key, value));
+    }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(entries)
+}
+
 fn convert_table(lua: &Lua, table: &Table, depth: usize) -> Result<Value, ConvertError> {
-    let source = contents(lua, table);
+    let entries = sorted_entries(lua, table).map_err(|error| match error {
+        EntryError::NotUtf8 => ConvertError::NotUtf8,
+        EntryError::Lua(_) | EntryError::BadKey(_) => ConvertError::BadTable,
+    })?;
     let mut list = BTreeMap::new();
     let mut map = BTreeMap::new();
-    for pair in source.pairs::<mlua::Value, mlua::Value>() {
-        let (key, item) = pair.map_err(|_| ConvertError::BadTable)?;
+    for (key, item) in entries {
         let item = convert(lua, &item, depth + 1)?;
         match key {
-            mlua::Value::Integer(i) => list.insert(i, item),
-            mlua::Value::String(s) => map.insert(sym(&s)?, item),
-            _ => return Err(ConvertError::BadTable),
+            Key::Int(i) => list.insert(i, item),
+            Key::Str(s) => map.insert(Sym::new(&s), item),
         };
     }
     match (list.is_empty(), map.is_empty()) {

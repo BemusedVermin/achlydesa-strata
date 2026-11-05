@@ -101,6 +101,13 @@ rule_module {
     r.modifier { query = 'q', layer = 'sideways', value = 1, override = 'yes', when = 'x', zz = 1 }
   end,
 }
+
+rule_module {
+  id = 'two_bad_natives',
+  register = function(r)
+    r.modifier { query = 'q', layer = 'add', value = 1, when = { a = 1.5, b = function() end } }
+  end,
+}
 "#;
 
 fn pack() -> (tempfile::TempDir, Vec<PackSource>) {
@@ -617,6 +624,22 @@ fn a_bad_registration_reports_the_same_error_in_every_fresh_state() {
     };
     let first = message();
     assert!(first.contains("r.modifier"), "{first}");
+    for _ in 0..16 {
+        assert_eq!(message(), first);
+    }
+}
+
+#[test]
+fn a_native_descriptor_with_two_faults_reports_the_same_one_in_every_fresh_state() {
+    let (_dir, packs) = pack();
+    let message = || {
+        let module = module("two_bad_natives", &packs);
+        let error = module.register(&mut Registrar::default(), &map(&[]));
+        let ModuleError::Invalid(message) = error.unwrap_err();
+        message
+    };
+    let first = message();
+    assert!(first.contains("a number is not plain data"), "{first}");
     for _ in 0..16 {
         assert_eq!(message(), first);
     }
