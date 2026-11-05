@@ -264,7 +264,7 @@ fn relic_claimed_sets_holder_once() {
     };
     applied(&mut s, &claim(1));
     assert_eq!(s.relics[0].holder, Some(PlayerId(1)));
-    assert_eq!(s.relics[0].location, None);
+    assert_eq!(s.relics[0].location, Some(Space::new(2, 0, 0)));
     assert_eq!(rejected(&s, &claim(0)), ApplyError::RelicHeld(RelicId(0)));
     assert_eq!(
         rejected(&base(), &claim(9)),
@@ -516,4 +516,33 @@ fn an_ability_cannot_attach_to_a_missing_owner() {
     assert_eq!(unit, ApplyError::NoUnit(UnitId(5)));
     let relic = rejected(&s, &bad(AbilityOwner::Relic(RelicId(5))));
     assert_eq!(relic, ApplyError::NoRelic(RelicId(5)));
+}
+
+#[test]
+fn a_held_relic_can_be_released_once_and_claimed_again() {
+    let mut s = base();
+    let id = RelicId(0);
+    assert_eq!(
+        rejected(&s, &Event::RelicReleased(id)),
+        ApplyError::RelicNotHeld(id)
+    );
+    applied(
+        &mut s,
+        &Event::RelicClaimed {
+            relic: id,
+            by: PlayerId(0),
+        },
+    );
+    applied(&mut s, &Event::RelicReleased(id));
+    assert_eq!(s.relics[0].holder, None);
+    applied(
+        &mut s,
+        &Event::RelicClaimed {
+            relic: id,
+            by: PlayerId(1),
+        },
+    );
+    assert_eq!(s.relics[0].holder, Some(PlayerId(1)));
+    let missing = rejected(&s, &Event::RelicReleased(RelicId(8)));
+    assert_eq!(missing, ApplyError::NoRelic(RelicId(8)));
 }

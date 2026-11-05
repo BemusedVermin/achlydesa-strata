@@ -37,6 +37,10 @@ pub trait RuleHost: Send + Sync {
     fn marker(&self, _name: &str) -> Option<strata_kernel::DefId> {
         None
     }
+    /// The relic with this definition ID.
+    fn relic(&self, _id: strata_kernel::DefId) -> Option<strata_model::RelicDef> {
+        None
+    }
     /// Calls `name` of the namespace a module exported with `Registrar::lua_api`.
     fn call(
         &self,

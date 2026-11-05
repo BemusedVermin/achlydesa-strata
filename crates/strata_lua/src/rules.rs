@@ -211,6 +211,14 @@ impl NativeEnv for LuaRules {
         self.host.marker(name)
     }
 
+    fn relic(&self, id: DefId) -> Option<strata_model::RelicDef> {
+        self.host.relic(id)
+    }
+
+    fn run_effect(&self, ctx: &mut dyn Ctx, effect: &Logic, event: &Event) -> Result<(), Halt> {
+        self.value(effect, ctx, &with_event(event)).map(drop)
+    }
+
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
         self.host.forced_roll(die, count)
     }

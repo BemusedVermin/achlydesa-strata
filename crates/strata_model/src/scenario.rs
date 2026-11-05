@@ -43,6 +43,9 @@ pub struct RelicPlacement {
     pub relic: Sym,
     /// Name of the map's relic spot.
     pub spot: Sym,
+    /// Whether it starts face down.
+    #[serde(default)]
+    pub face_down: bool,
 }
 
 /// A map plus deployment, objectives and scripted events.
@@ -168,6 +171,9 @@ pub struct TestDef {
     /// Name of the map.
     #[serde(default)]
     pub map: Option<Sym>,
+    /// Name of a scenario whose relics are put on its map's spots before the first step.
+    #[serde(default)]
+    pub scenario: Option<Sym>,
     /// Figures put on the board before the first step.
     #[serde(default)]
     pub place: Vec<Placement>,

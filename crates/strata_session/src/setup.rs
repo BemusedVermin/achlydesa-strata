@@ -67,6 +67,21 @@ pub fn build_match(
             deploy(&mut state, registry, pack, PlayerId(seat as u8), army)?;
         }
     }
+    place_relics(&mut state, registry, pack, scenario, map, &board)?;
+    state.setup = Arc::new(setup);
+    Ok(MatchBuild { state, board })
+}
+
+/// Puts the scenario's relics on the map's spots, face up or face down as it says.
+pub(crate) fn place_relics(
+    state: &mut GameState,
+    registry: &ContentRegistry,
+    pack: &str,
+    scenario: &ScenarioDef,
+    map: &MapDef,
+    board: &CompiledBoard,
+) -> Result<(), SetupError> {
+    let err = |m: String| SetupError(m);
     for placed in &scenario.relics {
         let (id, _) = find::<RelicDef>(registry, pack, placed.relic.as_str())
             .ok_or_else(|| err(format!("unknown relic `{}`", placed.relic)))?;
@@ -77,11 +92,11 @@ pub fn build_match(
         state.relics.push(RelicState {
             def: id,
             location: Some(Space::at(*hex, top.z)),
+            face_down: placed.face_down,
             ..RelicState::default()
         });
     }
-    state.setup = Arc::new(setup);
-    Ok(MatchBuild { state, board })
+    Ok(())
 }
 
 /// Checks the seat count, that `players[i]` has `PlayerId(i)`, and that slots are real and unique.

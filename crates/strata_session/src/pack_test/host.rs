@@ -299,6 +299,10 @@ impl RuleHost for Host {
         find::<MarkerDef>(&self.registry, &self.pack, name).map(|(id, _)| id)
     }
 
+    fn relic(&self, id: DefId) -> Option<RelicDef> {
+        self.registry.get::<RelicDef>(id).cloned()
+    }
+
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
         let mut rig = self.rig.lock().unwrap();
         if rig.rolls.is_empty() {

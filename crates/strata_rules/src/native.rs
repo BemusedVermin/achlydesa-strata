@@ -3,7 +3,7 @@
 use strata_kernel::{DefId, Sym};
 use strata_model::{
     Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureId, GameState, Logic,
-    PlayerId,
+    PlayerId, RelicDef,
 };
 
 use crate::engine::{Ctx, Halt};
@@ -38,6 +38,14 @@ pub trait NativeEnv: Send + Sync {
     /// the environment cannot tell.
     fn marker(&self, _name: &str) -> Option<DefId> {
         None
+    }
+    /// The relic with this definition ID.
+    fn relic(&self, _id: DefId) -> Option<RelicDef> {
+        None
+    }
+    /// Runs a relic's `on_claim` effect for `event`, as a trigger's effect would run.
+    fn run_effect(&self, _ctx: &mut dyn Ctx, _effect: &Logic, _event: &Event) -> Result<(), Halt> {
+        Ok(())
     }
     /// Results that replace the next roll of `count` dice named `die`, for tests that rig the
     /// dice, as in the script host. `None` leaves the roll to the command's random stream.
