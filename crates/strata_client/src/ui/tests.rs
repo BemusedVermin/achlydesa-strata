@@ -25,8 +25,9 @@ fn army() -> Option<ArmyList> {
     })
 }
 
-/// The first view of a match on the `cards` fixture, whose ruleset adds 1 to every defense.
-fn launched_view() -> PlayerView {
+/// The first view of a match on the `cards` fixture, whose ruleset adds 1 to every defense from
+/// a Lua function.
+pub(crate) fn launched_view() -> PlayerView {
     let root = env!("CARGO_MANIFEST_DIR");
     let handle = launch(LaunchSpec {
         roots: vec![PathBuf::from(root).join("../../fixtures/packs/cards")],
