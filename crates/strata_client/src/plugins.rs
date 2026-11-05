@@ -5,6 +5,7 @@
 use bevy::prelude::*;
 use strata_render::RenderPlugins;
 
+use crate::input::CommandInputPlugin;
 use crate::ui::UiPlugin;
 
 macro_rules! skeleton {
@@ -35,6 +36,7 @@ impl Plugin for ClientPlugins {
         app.add_plugins((
             RenderPlugins,
             UiPlugin,
+            CommandInputPlugin,
             EditorPlugin,
             AssetsPlugin,
             DevPlugin,
