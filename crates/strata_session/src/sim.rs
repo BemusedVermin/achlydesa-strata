@@ -103,6 +103,7 @@ impl SimLink {
     fn send_view(&self, session: &Session<'_>, viewer: PlayerId, cards: &dyn CardSource) -> bool {
         let mut view = PlayerView::of(session.state(), viewer);
         view.cards = cards.cards(session.state());
+        view.names = cards.names();
         self.send(SimMessage::View(Box::new(view)))
     }
 

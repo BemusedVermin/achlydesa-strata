@@ -1,7 +1,11 @@
 //! Unit cards: what a player reads off a unit, computed on the simulation thread where the
 //! rules can be asked (design §13.1, §8.4).
 
+use std::sync::Arc;
+
 use strata_model::{FigureId, GameState, UnitId};
+
+use crate::names::Names;
 
 /// One stat on a card.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,6 +59,11 @@ pub struct UnitCard {
 pub trait CardSource {
     /// A card for each unit of `state` it knows, in unit order.
     fn cards(&self, state: &GameState) -> Vec<UnitCard>;
+
+    /// Names for the IDs in events; none by default.
+    fn names(&self) -> Arc<Names> {
+        Arc::default()
+    }
 }
 
 /// A source with no content, for runs that have no cards to show.

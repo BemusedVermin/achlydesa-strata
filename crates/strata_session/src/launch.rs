@@ -9,9 +9,10 @@ use strata_model::{
     ArmyList, MatchSetup, PlayerId, PlayerSetup, RuleModuleDef, RulesetDef, ScenarioDef, SeedSource,
 };
 use strata_modules::native_modules;
-use strata_rules::{Engine, RulesetSource, SourcedModifier, resolve};
+use strata_rules::{Engine, PhaseTree, RulesetSource, SourcedModifier, resolve};
 
 use crate::controller::Controller;
+use crate::names::Names;
 use crate::pack_test::PackTests;
 use crate::pack_test::host::{Host, find};
 use crate::session::Session;
@@ -96,6 +97,10 @@ fn play(spec: &LaunchSpec, link: &SimLink) -> Result<(), String> {
         def: m.clone(),
     });
     let host = Host::new(registry, pack, modifiers.collect(), Some(built.board));
+    let phases = PhaseTree::build(rt.phases()).map(|t| t.phases().to_vec());
+    let _ = host
+        .names
+        .set(Arc::new(Names::of(registry, &phases.unwrap_or_default())));
     let host = Arc::new(host);
     let bindings = rt
         .configs()

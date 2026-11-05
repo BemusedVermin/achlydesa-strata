@@ -139,3 +139,12 @@ fn cards_are_the_same_on_every_launch() {
         first_view(cards_spec()).cards
     );
 }
+
+#[test]
+fn a_view_carries_the_names_of_dice_and_markers() {
+    let names = first_view(cards_spec()).names;
+    let ids = || (0..64).map(strata_kernel::DefId);
+    assert!(ids().any(|id| names.die(id) == Some("Combat")));
+    assert!(ids().any(|id| names.marker(id) == Some("Wound")));
+    assert!(!ids().any(|id| names.die(id) == Some("Wound")));
+}
