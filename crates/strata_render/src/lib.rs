@@ -9,7 +9,9 @@ mod board;
 mod camera;
 mod plugins;
 
-pub use board::{BoardPlugin, DirtyChunks, LevelSlice, TerrainChunk};
+pub use board::{
+    BoardPlugin, DirtyChunks, FeatureNames, LevelSlice, RemovedFeatures, TerrainChunk,
+};
 pub use camera::{CameraPlugin, ClientBoard, HoveredSpace, IsoCamera, IsoCameraMarker};
 pub use plugins::{
     FigurePlugin, InputPlugin, OcclusionPlugin, PlaybackPlugin, PreviewPlugin, RenderPlugins,

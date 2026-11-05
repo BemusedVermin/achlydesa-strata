@@ -19,6 +19,15 @@ pub enum Orientation {
 }
 
 impl Orientation {
+    /// The orientation a map names, `pointy` or `flat`; anything else draws pointy.
+    pub fn from_name(name: &str) -> Self {
+        if name == "flat" {
+            Self::Flat
+        } else {
+            Self::Pointy
+        }
+    }
+
     /// The ground position `(x, z)` of the center of `hex`, with a hex corner one unit from it.
     pub fn center(self, hex: Hex) -> (f32, f32) {
         let (q, r) = (hex.q as f32, hex.r as f32);

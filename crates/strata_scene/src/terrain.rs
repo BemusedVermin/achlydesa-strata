@@ -34,6 +34,33 @@ pub fn chunks(board: &SceneBoard) -> BTreeSet<ChunkKey> {
     board.board.hexes().map(chunk_of).collect()
 }
 
+/// What a mesh is made of; each material gets its own mesh per chunk.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Material {
+    /// A terrain definition.
+    Terrain(DefId),
+    /// The placed feature with this index in the map.
+    Feature(u32),
+}
+
+/// What to leave out of a chunk's meshes.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct MeshOptions<'a> {
+    /// Levels at or above this are hidden; the editor's level-slicing hook.
+    pub hide_from: Option<u32>,
+    /// Placed features that have been removed during play.
+    pub removed: Option<&'a BTreeSet<u32>>,
+}
+
+/// The chunks holding any span of the features in `indices`.
+pub fn feature_chunks(board: &SceneBoard, indices: &BTreeSet<u32>) -> BTreeSet<ChunkKey> {
+    let holds = |hex: &Hex| {
+        let column = board.board.column(*hex);
+        column.is_some_and(|c| c.features.iter().any(|f| indices.contains(&f.feature)))
+    };
+    board.board.hexes().filter(holds).map(chunk_of).collect()
+}
+
 /// Flat-shaded triangle soup for one terrain material.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MeshData {
@@ -82,22 +109,31 @@ impl MeshData {
 
 type Span = (u32, u32);
 
-/// The terrain spans of `hex`, clipped to levels below `limit`.
-fn spans(board: &SceneBoard, hex: Hex, limit: Option<u32>) -> Vec<(Span, DefId)> {
+/// The solid spans of `hex` that are still standing, clipped to the visible levels.
+fn spans(board: &SceneBoard, hex: Hex, options: MeshOptions) -> Vec<(Span, Material)> {
     let Some(column) = board.board.column(hex) else {
         return Vec::new();
     };
-    let cap = limit.unwrap_or(u32::MAX);
-    column
+    let cap = options.hide_from.unwrap_or(u32::MAX);
+    let removed = |index: &u32| options.removed.is_some_and(|r| r.contains(index));
+    let terrain = column
         .segments
         .iter()
-        .filter(|s| s.z0 < cap)
-        .map(|s| ((s.z0, s.z1.min(cap)), s.terrain))
+        .map(|s| ((s.z0, s.z1), Material::Terrain(s.terrain)));
+    let features = column
+        .features
+        .iter()
+        .filter(|f| !removed(&f.feature))
+        .map(|f| ((f.z0, f.z1), Material::Feature(f.feature)));
+    terrain
+        .chain(features)
+        .filter(|((z0, _), _)| *z0 < cap)
+        .map(|((z0, z1), material)| ((z0, z1.min(cap)), material))
         .collect()
 }
 
 /// The parts of `[z0, z1)` not covered by any of `covers`.
-fn uncovered((z0, z1): Span, covers: &[(Span, DefId)]) -> Vec<Span> {
+fn uncovered((z0, z1): Span, covers: &[(Span, Material)]) -> Vec<Span> {
     let mut open = vec![(z0, z1)];
     for ((c0, c1), _) in covers {
         open = open
@@ -142,25 +178,25 @@ fn level_y(z: u32) -> f32 {
 ///
 /// A top face is emitted where nothing sits on the segment, an underside where nothing
 /// holds it up (an overhang or a bridge deck), and a side wall for the part of the
-/// segment its neighbor does not cover. Levels at or above `hide_from` are dropped,
-/// which is the editor's level-slicing hook.
+/// segment its neighbor does not cover. Terrain and feature spans hide each other's shared
+/// faces. `options` drops hidden levels and removed features.
 pub fn chunk_meshes(
     board: &SceneBoard,
     chunk: ChunkKey,
-    hide_from: Option<u32>,
-) -> BTreeMap<DefId, MeshData> {
-    let mut out: BTreeMap<DefId, MeshData> = BTreeMap::new();
+    options: MeshOptions,
+) -> BTreeMap<Material, MeshData> {
+    let mut out: BTreeMap<Material, MeshData> = BTreeMap::new();
     let o = board.orientation;
     for hex in board.board.hexes().filter(|h| chunk_of(*h) == chunk) {
-        let mine = spans(board, hex, hide_from);
+        let mine = spans(board, hex, options);
         let ring = corners(o, hex);
         let around: Vec<_> = hex
             .neighbors()
             .iter()
-            .map(|n| (*n, spans(board, *n, hide_from)))
+            .map(|n| (*n, spans(board, *n, options)))
             .collect();
-        for &((z0, z1), terrain) in &mine {
-            let mesh = out.entry(terrain).or_default();
+        for &((z0, z1), material) in &mine {
+            let mesh = out.entry(material).or_default();
             let covered = |z: u32| mine.iter().any(|((a, b), _)| (*a..*b).contains(&z));
             let at = |k: usize, z: u32| Vec3::new(ring[k % 6].0, level_y(z), ring[k % 6].1);
             if !covered(z1) {

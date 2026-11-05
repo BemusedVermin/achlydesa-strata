@@ -25,6 +25,10 @@ pub struct MatchBuild {
     pub state: GameState,
     /// The compiled map, which the state does not carry.
     pub board: CompiledBoard,
+    /// The map's rendering orientation.
+    pub orientation: strata_kernel::Sym,
+    /// The name of each placed feature of the map.
+    pub features: Vec<strata_kernel::Sym>,
 }
 
 /// The identity of every pack in `registry`, as a [`MatchSetup`] records it.
@@ -81,7 +85,12 @@ pub fn build_match(
         });
     }
     state.setup = Arc::new(setup);
-    Ok(MatchBuild { state, board })
+    Ok(MatchBuild {
+        state,
+        board,
+        orientation: map.orientation.clone(),
+        features: map.features.iter().map(|f| f.feature.clone()).collect(),
+    })
 }
 
 /// Checks the seat count, that `players[i]` has `PlayerId(i)`, and that slots are real and unique.

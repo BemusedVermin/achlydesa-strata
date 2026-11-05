@@ -5,6 +5,8 @@ use std::sync::Mutex;
 
 use bevy::prelude::*;
 use strata_model::{Command, Event};
+use strata_render::{ClientBoard, FeatureNames, RemovedFeatures};
+use strata_scene::{Orientation, SceneBoard};
 use strata_session::{PlayerView, SimHandle, SimMessage};
 
 /// The running simulation. Dropping it stops the thread.
@@ -67,6 +69,8 @@ impl Plugin for SimLinkPlugin {
             .init_resource::<EventLog>()
             .init_resource::<LatestView>()
             .init_resource::<SimStatus>()
+            .init_resource::<RemovedFeatures>()
+            .init_resource::<FeatureNames>()
             .add_message::<SendCommand>()
             .add_systems(PreUpdate, drain_sim)
             .add_systems(Update, forward_commands);
@@ -75,6 +79,8 @@ impl Plugin for SimLinkPlugin {
 
 /// Moves everything the simulation has sent into resources without blocking.
 fn drain_sim(
+    mut commands: Commands,
+    mut removed: ResMut<RemovedFeatures>,
     sim: Option<Res<Sim>>,
     mut pending: ResMut<PendingEvents>,
     mut log: ResMut<EventLog>,
@@ -91,7 +97,21 @@ fn drain_sim(
                 log.0.drain(..excess);
                 pending.0.push_back(events);
             }
-            SimMessage::View(latest) => view.0 = Some(latest),
+            SimMessage::Board(info) => {
+                let orientation = Orientation::from_name(info.orientation.as_str());
+                commands.insert_resource(FeatureNames(info.features));
+                commands.insert_resource(ClientBoard(SceneBoard {
+                    board: info.board,
+                    orientation,
+                }));
+            }
+            SimMessage::View(latest) => {
+                let now = &latest.state.board_changes.removed_features;
+                if *now != removed.0 {
+                    removed.0.clone_from(now);
+                }
+                view.0 = Some(latest);
+            }
             SimMessage::Finished => {
                 info!("the match finished");
                 *status = SimStatus::Finished;

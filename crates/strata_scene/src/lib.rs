@@ -8,7 +8,9 @@
 
 pub use self::layout::{LEVEL_HEIGHT, Orientation, surface_point};
 pub use self::pick::{SceneBoard, pick};
-pub use self::terrain::{ChunkKey, MeshData, chunk_meshes, chunk_of, chunks};
+pub use self::terrain::{
+    ChunkKey, Material, MeshData, MeshOptions, chunk_meshes, chunk_of, chunks, feature_chunks,
+};
 pub use self::view::IsoView;
 
 mod layout;
