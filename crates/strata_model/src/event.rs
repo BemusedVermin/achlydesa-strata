@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use strata_kernel::{DefId, Rotation, Space, StableHash, Sym, Value};
 
 use crate::ids::{FigureId, PlayerId, RelicId, UnitId, VarKey};
-use crate::state::Token;
+use crate::state::{AbilityOwner, Token};
 
 /// Who may see a command, event or token.
 #[derive(
@@ -109,6 +109,27 @@ pub enum Event {
         relic: RelicId,
         /// The claimant.
         by: PlayerId,
+    },
+    /// A relic was turned face up.
+    RelicRevealed(RelicId),
+    /// An ability instance was attached to a unit, player or relic.
+    ///
+    /// An `ability` record is named by `def`. A relic's granted ability has the relic as `def`
+    /// and the position in its `grants.abilities` as the `grant` param.
+    AbilityAttached {
+        /// The ability, or the relic whose grant this is.
+        def: DefId,
+        /// What it is attached to.
+        owner: AbilityOwner,
+        /// Parameters resolved at attach time.
+        params: BTreeMap<Sym, Value>,
+    },
+    /// The first matching ability instance was removed from its owner.
+    AbilityDetached {
+        /// The ability, or the relic whose grant this is.
+        def: DefId,
+        /// What it was attached to.
+        owner: AbilityOwner,
     },
     /// A variable was set; a nil value removes it.
     VarSet {

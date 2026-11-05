@@ -6,8 +6,8 @@ use thiserror::Error;
 use crate::event::{Event, Visibility};
 use crate::ids::{FigureId, PlayerId, RelicId, UnitId};
 use crate::state::{
-    Activation, FigureState, FigureStatus, GameState, Marker, PhaseFrame, PlayerState, Token,
-    UnitState,
+    AbilityInstance, AbilityOwner, Activation, FigureState, FigureStatus, GameState, Marker,
+    PhaseFrame, PlayerState, Token, UnitState,
 };
 
 /// An event that cannot be applied to the state it was given. The state is unchanged.
@@ -52,6 +52,12 @@ pub enum ApplyError {
     /// The figure has no slot budget in the activation.
     #[error("figure {0:?} has no slots in this activation")]
     NoSlots(FigureId),
+    /// The relic is already face up.
+    #[error("relic {0:?} is already face up")]
+    RelicFaceUp(RelicId),
+    /// No attached ability instance matches.
+    #[error("no attached ability {0:?}")]
+    NoAbility(DefId),
     /// The relic already has a holder.
     #[error("relic {0:?} is already held")]
     RelicHeld(RelicId),
@@ -174,6 +180,30 @@ impl GameState {
                 r.holder = Some(*by);
                 r.location = None;
             }
+            Event::RelicRevealed(relic) => {
+                let r = self.relics.get_mut(relic.index());
+                let r = r.ok_or(ApplyError::NoRelic(*relic))?;
+                if !r.face_down {
+                    return Err(ApplyError::RelicFaceUp(*relic));
+                }
+                r.face_down = false;
+            }
+            Event::AbilityAttached { def, owner, params } => {
+                self.check_owner(*owner)?;
+                self.abilities.push(AbilityInstance {
+                    def: *def,
+                    owner: *owner,
+                    params: params.clone(),
+                });
+            }
+            Event::AbilityDetached { def, owner } => {
+                let at = self
+                    .abilities
+                    .iter()
+                    .position(|a| a.def == *def && a.owner == *owner);
+                self.abilities
+                    .remove(at.ok_or(ApplyError::NoAbility(*def))?);
+            }
             Event::VarSet { key, value } => {
                 if *value == Value::Nil {
                     self.vars.remove(key);
@@ -227,6 +257,17 @@ impl GameState {
 
     fn player(&self, id: PlayerId) -> Result<&PlayerState, ApplyError> {
         self.players.get(id.index()).ok_or(ApplyError::NoPlayer(id))
+    }
+
+    fn check_owner(&self, owner: AbilityOwner) -> Result<(), ApplyError> {
+        match owner {
+            AbilityOwner::Unit(u) => self.unit(u).map(drop),
+            AbilityOwner::Player(p) => self.player(p).map(drop),
+            AbilityOwner::Relic(r) => match self.relics.get(r.index()) {
+                Some(_) => Ok(()),
+                None => Err(ApplyError::NoRelic(r)),
+            },
+        }
     }
 
     fn place_token(&mut self, unit: UnitId, token: &Token) -> Result<(), ApplyError> {
