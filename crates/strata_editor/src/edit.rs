@@ -146,15 +146,18 @@ pub enum Edit {
 
 impl Edit {
     /// Returns whether this edit can change the compiled board.
+    ///
+    /// Constraints count because `require_support` changes what compiles.
     pub fn affects_board(&self) -> bool {
-        !matches!(
+        let off_board = matches!(
             self,
             Self::PaintZone { .. }
                 | Self::EraseZone { .. }
                 | Self::SetZone { .. }
                 | Self::SetRelicSpot { .. }
                 | Self::SetMetadata(_)
-        )
+        );
+        !off_board || matches!(self, Self::SetMetadata(Metadata::Constraints(_)))
     }
 
     /// Applies the edit to `map` and returns the edit that undoes it.

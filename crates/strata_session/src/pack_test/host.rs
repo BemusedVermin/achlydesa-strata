@@ -9,11 +9,10 @@ use crate::names::Names;
 use strata_content::ContentRegistry;
 use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
-use strata_model::board::{BoardDefs, CompiledBoard};
+use strata_model::board::CompiledBoard;
 use strata_model::{
-    AbilityDef, AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus,
-    FootprintDef, GameState, MarkerDef, PlayerId, RelicDef, StatDef, TerrainDef, TileDef, UnitDef,
-    UnitId, UnitState,
+    AbilityDef, AbilityOwner, Descriptor, DieDef, DieKind, FigureId, FigureStatus, FootprintDef,
+    GameState, MarkerDef, PlayerId, RelicDef, StatDef, TerrainDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
     Ctx, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics, LosWorld,
@@ -39,22 +38,6 @@ pub(crate) fn find<'a, T: Def>(
     name: &str,
 ) -> Option<(DefId, &'a T)> {
     registry.lookup::<T>(pack, name)
-}
-
-/// Resolves the tile and feature names of a map against the registry.
-pub(crate) struct RegistryDefs<'a> {
-    pub(crate) registry: &'a ContentRegistry,
-    pub(crate) pack: &'a str,
-}
-
-impl BoardDefs for RegistryDefs<'_> {
-    fn tile(&self, name: &Sym) -> Option<&TileDef> {
-        find::<TileDef>(self.registry, self.pack, name.as_str()).map(|(_, def)| def)
-    }
-
-    fn feature(&self, name: &Sym) -> Option<&FeatureDef> {
-        find::<FeatureDef>(self.registry, self.pack, name.as_str()).map(|(_, def)| def)
-    }
 }
 
 /// The faces a command's dice are forced to, one list per roll.

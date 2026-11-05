@@ -346,3 +346,32 @@ fn compile_all_reports_every_error_and_compile_reports_the_first() {
     );
     assert_eq!(compile(&m, &defs()), Err(errors[0].clone()));
 }
+
+#[test]
+fn a_hex_with_an_overlap_reports_no_cascaded_support_error() {
+    // The block's cell at (0, 0) clashes with the grass and is left out, so the deck on top of
+    // it looks unsupported only because of that overlap. The deck at (5, 5) really floats.
+    let pieces = vec![
+        piece("one", (0, 0), 0, 0),
+        piece("block", (0, 0), 0, 0),
+        piece("deck", (0, 0), 0, 3),
+        piece("deck", (5, 5), 0, 2),
+    ];
+    let m = map(pieces, Vec::new(), true);
+    let errors = compile_all(&m, &defs()).unwrap_err();
+    assert_eq!(
+        errors,
+        vec![
+            BoardError::Overlap {
+                piece: 1,
+                other: 0,
+                hex: Hex::new(0, 0),
+            },
+            BoardError::Unsupported {
+                piece: 3,
+                hex: Hex::new(5, 5),
+            },
+        ]
+    );
+    assert_eq!(compile(&m, &defs()), Err(errors[0].clone()));
+}

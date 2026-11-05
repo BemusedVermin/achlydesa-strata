@@ -1,6 +1,6 @@
 //! The definitions validation needs beyond the board's tiles and features.
 
-use strata_content::ContentRegistry;
+use strata_content::RegistryDefs;
 use strata_kernel::{DefId, Sym};
 use strata_model::board::BoardDefs;
 use strata_model::{FeatureDef, InventoryDef, TerrainDef, TileDef};
@@ -12,48 +12,26 @@ pub trait EditorDefs: BoardDefs {
     fn terrain(&self, id: DefId) -> Option<&TerrainDef>;
     /// Returns the inventory called `name`.
     fn inventory(&self, name: &Sym) -> Option<&InventoryDef>;
-}
-
-/// Resolves a map's names against a loaded pack set, as the map's own pack sees them.
-#[derive(Clone, Debug)]
-pub struct RegistryDefs {
-    registry: ContentRegistry,
-    pack: String,
-}
-
-impl RegistryDefs {
-    /// Resolves names for a map authored in `pack`.
-    pub fn new(registry: ContentRegistry, pack: impl Into<String>) -> Self {
-        Self {
-            registry,
-            pack: pack.into(),
-        }
-    }
-}
-
-impl BoardDefs for RegistryDefs {
-    fn tile(&self, name: &Sym) -> Option<&TileDef> {
-        let found = self.registry.lookup::<TileDef>(&self.pack, name.as_str());
-        found.map(|(_, def)| def)
-    }
-
-    fn feature(&self, name: &Sym) -> Option<&FeatureDef> {
-        let found = self
-            .registry
-            .lookup::<FeatureDef>(&self.pack, name.as_str());
-        found.map(|(_, def)| def)
-    }
+    /// Returns the handle of the tile called `name`, so different spellings count as one tile.
+    fn tile_id(&self, name: &Sym) -> Option<DefId>;
+    /// Returns the handle of the feature called `name`.
+    fn feature_id(&self, name: &Sym) -> Option<DefId>;
 }
 
 impl EditorDefs for RegistryDefs {
     fn terrain(&self, id: DefId) -> Option<&TerrainDef> {
-        self.registry.get::<TerrainDef>(id)
+        self.registry().get::<TerrainDef>(id)
     }
 
     fn inventory(&self, name: &Sym) -> Option<&InventoryDef> {
-        let found = self
-            .registry
-            .lookup::<InventoryDef>(&self.pack, name.as_str());
-        found.map(|(_, def)| def)
+        self.lookup::<InventoryDef>(name).map(|(_, def)| def)
+    }
+
+    fn tile_id(&self, name: &Sym) -> Option<DefId> {
+        self.lookup::<TileDef>(name).map(|(id, _)| id)
+    }
+
+    fn feature_id(&self, name: &Sym) -> Option<DefId> {
+        self.lookup::<FeatureDef>(name).map(|(id, _)| id)
     }
 }

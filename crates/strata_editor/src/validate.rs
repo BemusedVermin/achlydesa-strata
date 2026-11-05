@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use strata_kernel::{Hex, Sym};
+use strata_kernel::{DefId, Hex, Sym};
 use strata_model::MapDef;
 use strata_model::board::{BoardError, CompiledBoard};
 
@@ -79,23 +79,39 @@ fn check_inventory(map: &MapDef, defs: &impl EditorDefs, findings: &mut Vec<Find
         return;
     };
     let pieces = map.pieces.iter().map(|p| (&p.piece, p.at));
-    overruns(pieces, &inventory.tiles, findings);
+    let tile = |name: &Sym| defs.tile_id(name);
+    overruns(pieces, &inventory.tiles, tile, findings);
     let features = map.features.iter().map(|f| (&f.feature, f.at));
-    overruns(features, &inventory.features, findings);
+    let feature = |name: &Sym| defs.feature_id(name);
+    overruns(features, &inventory.features, feature, findings);
 }
 
-/// Reports each name in `placed` used more often than `caps` allows, at the anchors using it.
+/// What a name counts against: its definition, or the name itself when it does not resolve.
+type Key<'a> = Result<DefId, &'a Sym>;
+
+/// Reports each definition in `placed` used more often than `caps` allows, at the anchors using
+/// it. Names are compared by what `resolve` makes of them, so `grass` and `pack:grass` are one
+/// tile; the finding names it as the map first spells it.
 fn overruns<'a>(
     placed: impl Iterator<Item = (&'a Sym, Hex)>,
-    caps: &BTreeMap<Sym, u32>,
+    caps: &'a BTreeMap<Sym, u32>,
+    resolve: impl Fn(&Sym) -> Option<DefId>,
     findings: &mut Vec<Finding>,
 ) {
-    let mut uses: BTreeMap<&Sym, Vec<Hex>> = BTreeMap::new();
-    for (name, at) in placed {
-        uses.entry(name).or_default().push(at);
+    let key = |name: &'a Sym| -> Key<'a> { resolve(name).ok_or(name) };
+    let mut available: BTreeMap<Key<'a>, u32> = BTreeMap::new();
+    for (name, &cap) in caps {
+        *available.entry(key(name)).or_default() += cap;
     }
-    for (name, cells) in uses {
-        let available = caps.get(name).copied().unwrap_or(0);
+    let mut uses: BTreeMap<Key<'a>, (&Sym, Vec<Hex>)> = BTreeMap::new();
+    for (name, at) in placed {
+        uses.entry(key(name))
+            .or_insert((name, Vec::new()))
+            .1
+            .push(at);
+    }
+    for (key, (name, cells)) in uses {
+        let available = available.get(&key).copied().unwrap_or(0);
         let used = u32::try_from(cells.len()).unwrap_or(u32::MAX);
         if used > available {
             let name = name.clone();

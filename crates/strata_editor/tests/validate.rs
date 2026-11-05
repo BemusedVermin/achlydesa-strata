@@ -18,7 +18,7 @@ fn document(name: &str) -> MapDocument<RegistryDefs> {
     let registry = registry();
     let (_, map) = registry.find::<MapDef>(&format!("t:{name}")).unwrap();
     let map = map.clone();
-    MapDocument::new(map, RegistryDefs::new(registry, "t"))
+    MapDocument::new(map, RegistryDefs::new(registry, "t".to_owned()))
 }
 
 fn check(name: &str, army_size: Option<u32>) -> Arc<Validation> {
@@ -79,14 +79,56 @@ fn inventory_overruns() {
         used: 1,
         available: 0,
     };
+    let tree = FindingKind::InventoryOverrun {
+        name: sym("tree"),
+        used: 2,
+        available: 1,
+    };
+    // `grass_1` and `t:grass_1` count as one tile, and `water_1` matches the box's `t:water_1`,
+    // so neither spelling gets an overrun of its own.
     let grass_cells = hexes(&[(0, 0), (1, 0), (2, 0), (3, 0)]);
     assert_eq!(
         findings(&validation),
         vec![
             (Severity::Error, grass, grass_cells),
             (Severity::Error, hill, hexes(&[(4, 0)])),
+            (Severity::Error, tree, hexes(&[(1, 0), (2, 0)])),
         ]
     );
+}
+
+fn set_require_support(document: &mut MapDocument<RegistryDefs>, require_support: bool) {
+    let constraints = strata_model::MapConstraints {
+        inventory: None,
+        require_support,
+    };
+    let edit = Edit::SetMetadata(strata_editor::Metadata::Constraints(constraints));
+    document.apply(edit).unwrap();
+}
+
+fn is_unsupported(document: &mut MapDocument<RegistryDefs>) -> bool {
+    let validation = document.validate(&ValidationOptions::default());
+    let mut kinds = validation.findings.iter().map(|f| &f.kind);
+    kinds.any(|kind| matches!(kind, FindingKind::Unsupported { .. }))
+}
+
+#[test]
+fn toggling_require_support_recompiles_the_board() {
+    let mut document = document("unsupported");
+    assert!(is_unsupported(&mut document));
+    assert!(document.board().is_err());
+
+    set_require_support(&mut document, false);
+    assert!(!is_unsupported(&mut document));
+    assert!(document.board().is_ok());
+
+    document.undo().unwrap();
+    assert!(is_unsupported(&mut document));
+    document.redo().unwrap();
+    assert!(!is_unsupported(&mut document));
+
+    set_require_support(&mut document, true);
+    assert!(is_unsupported(&mut document));
 }
 
 #[test]
@@ -172,6 +214,26 @@ fn validation_of_an_unchanged_document_is_cached() {
     let undone = document.validate(&sized);
     assert!(!Arc::ptr_eq(&edited, &undone));
     assert_eq!(*undone, *other);
+
+    document.redo().unwrap();
+    let redone = document.validate(&sized);
+    assert!(!Arc::ptr_eq(&undone, &redone));
+    assert_eq!(*redone, *edited);
+    assert!(Arc::ptr_eq(&redone, &document.validate(&sized)));
+
+    // Removing the grass under (0, 0) changes the board, so the zone there becomes unstandable.
+    document.apply(Edit::RemovePiece { index: 0 }).unwrap();
+    let removed = document.validate(&sized);
+    assert!(!Arc::ptr_eq(&redone, &removed));
+    let kind = FindingKind::UnstandableZone {
+        zone: sym("start_a"),
+    };
+    let found = removed.findings.iter().find(|f| f.kind == kind).unwrap();
+    assert_eq!(found.cells, vec![Hex::new(0, 0)]);
+    assert!(Arc::ptr_eq(&removed, &document.validate(&sized)));
+
+    document.undo().unwrap();
+    assert_eq!(*document.validate(&sized), *edited);
 }
 
 #[test]

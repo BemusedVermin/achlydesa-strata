@@ -8,8 +8,17 @@ use strata_content::{ContentRegistry, discover_packs, load};
 use strata_editor::{MapDocument, RegistryDefs, Severity, ValidationOptions};
 use strata_model::MapDef;
 
-/// Validates the map defined in `file`, prints every finding, and exits non-zero if any finding
-/// is an error.
+/// The exit code when the map has errors.
+const HAS_ERRORS: u8 = 1;
+
+/// The exit code when the map cannot be checked at all, for any error `run` returns.
+pub const CANNOT_CHECK: u8 = 2;
+
+/// Validates the map defined in `file`, prints every finding, and returns [`HAS_ERRORS`] if any
+/// finding is an error.
+///
+/// An `Err` means the map could not be checked: the file cannot be read, is not inside a pack,
+/// the packs do not load, or the file defines no map. The caller exits with [`CANNOT_CHECK`].
 pub fn run(file: &Path, options: &ValidationOptions) -> Result<ExitCode> {
     let file = file
         .canonicalize()
@@ -40,7 +49,7 @@ pub fn run(file: &Path, options: &ValidationOptions) -> Result<ExitCode> {
     Ok(if errors == 0 {
         ExitCode::SUCCESS
     } else {
-        ExitCode::from(1)
+        ExitCode::from(HAS_ERRORS)
     })
 }
 

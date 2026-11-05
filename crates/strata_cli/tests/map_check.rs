@@ -32,8 +32,31 @@ fn findings_are_printed_with_severity_and_cells_and_errors_exit_one() {
     insta::assert_snapshot!(text);
 }
 
+fn stderr(assert: &assert_cmd::assert::Assert) -> String {
+    String::from_utf8_lossy(&assert.get_output().stderr).into_owned()
+}
+
+/// Runs `map check` on `file`, expects the "cannot check" exit code, and returns stderr.
+fn cannot_check(file: &str) -> String {
+    let out = strata(&["map", "check", file]).code(2);
+    assert_eq!(stdout(&out), "", "{file}");
+    stderr(&out)
+}
+
 #[test]
 fn a_file_that_defines_no_map_is_an_error() {
-    strata(&["map", "check", "t/data.lua"]).code(1);
-    strata(&["map", "check", "nowhere.lua"]).code(1);
+    let err = cannot_check("t/data.lua");
+    assert!(err.contains("t/data.lua defines no map"), "{err}");
+}
+
+#[test]
+fn a_map_that_cannot_be_checked_exits_two() {
+    let err = cannot_check("nowhere.lua");
+    assert!(err.contains("cannot read nowhere.lua"), "{err}");
+
+    let dir = tempfile::tempdir().unwrap();
+    let loose = dir.path().join("loose.lua");
+    std::fs::write(&loose, "return 1\n").unwrap();
+    let err = cannot_check(loose.to_str().unwrap());
+    assert!(err.contains("is not inside a pack"), "{err}");
 }

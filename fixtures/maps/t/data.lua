@@ -9,7 +9,10 @@ feature {
   id = 'tree', name = 'Tree', blocks_los = true,
   cells = {{ at = { q = 0, r = 0 }, segments = {{ from = 0, to = 2 }} }},
 }
-inventory { id = 'box', name = 'Box', tiles = { grass_1 = 3, water_1 = 1 }, features = { tree = 1 } }
+-- One key is written with its pack, to check that counts compare definitions, not spellings.
+inventory {
+  id = 'box', name = 'Box', tiles = { grass_1 = 3, ['t:water_1'] = 1 }, features = { tree = 1 },
+}
 
 for _, name in ipairs({ 'fair', 'overlap', 'unsupported', 'inventory', 'unstandable_zone',
                         'small_zone' }) do

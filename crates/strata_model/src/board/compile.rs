@@ -1,6 +1,6 @@
 //! Compiling a `MapDef` into a `CompiledBoard`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use strata_kernel::{Hex, Sym};
 
@@ -28,13 +28,16 @@ pub fn compile(map: &MapDef, defs: &impl BoardDefs) -> Result<CompiledBoard, Boa
     compile_all(map, defs).map_err(|mut errors| errors.swap_remove(0))
 }
 
-/// Compiles `map` like [`compile`], but reports every error, in map order, instead of the first.
+/// Compiles `map` like [`compile`], but reports every error instead of the first.
 ///
-/// A piece cell that clashes with an earlier one is left out and the search goes on, so each
-/// overlapping cell and each unsupported cell is reported once. The error list is never empty.
+/// Piece errors come first in map order, then support errors by hex, then feature errors in map
+/// order. A piece cell that clashes with an earlier one is left out and the search goes on, so
+/// each overlapping cell is reported once. A hex with an overlap gets no support error, since
+/// the cell left out may be what would have supported it. The error list is never empty.
 pub fn compile_all(map: &MapDef, defs: &impl BoardDefs) -> Result<CompiledBoard, Vec<BoardError>> {
     let mut errors = Vec::new();
     let mut placed: BTreeMap<Hex, Placed> = BTreeMap::new();
+    let mut overlaps = BTreeSet::new();
     for (index, piece) in map.pieces.iter().enumerate() {
         let Some(tile) = defs.tile(&piece.piece) else {
             errors.push(BoardError::UnknownTile {
@@ -59,6 +62,7 @@ pub fn compile_all(map: &MapDef, defs: &impl BoardDefs) -> Result<CompiledBoard,
                 .iter()
                 .find(|(_, s)| s.z0 < segment.z1 && segment.z0 < s.z1);
             if let Some(&(other, _)) = clash {
+                overlaps.insert(hex);
                 errors.push(BoardError::Overlap {
                     piece: index,
                     other,
@@ -70,7 +74,7 @@ pub fn compile_all(map: &MapDef, defs: &impl BoardDefs) -> Result<CompiledBoard,
         }
     }
     if map.constraints.require_support {
-        check_support(&placed, &mut errors);
+        check_support(&placed, &overlaps, &mut errors);
     }
     let mut columns: BTreeMap<Hex, Column> = placed
         .into_iter()
@@ -93,9 +97,14 @@ pub fn compile_all(map: &MapDef, defs: &impl BoardDefs) -> Result<CompiledBoard,
     }
 }
 
-/// Requires every raised piece cell to rest on the top of another segment.
-fn check_support(placed: &BTreeMap<Hex, Placed>, errors: &mut Vec<BoardError>) {
-    for (&hex, column) in placed {
+/// Requires every raised piece cell to rest on the top of another segment, except in the
+/// `skipped` hexes, which already have an overlap error.
+fn check_support(
+    placed: &BTreeMap<Hex, Placed>,
+    skipped: &BTreeSet<Hex>,
+    errors: &mut Vec<BoardError>,
+) {
+    for (&hex, column) in placed.iter().filter(|(hex, _)| !skipped.contains(hex)) {
         for &(piece, segment) in column {
             let supported = segment.z0 == 0 || column.iter().any(|(_, s)| s.z1 == segment.z0);
             if !supported {

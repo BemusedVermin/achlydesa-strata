@@ -86,6 +86,10 @@ enum PackCommand {
 #[derive(Subcommand)]
 enum MapCommand {
     /// Validate a map file and print its findings.
+    ///
+    /// Exits 0 when the map has no errors (warnings are fine), 1 when it has errors, and 2 when
+    /// it cannot be checked: the file cannot be read, is not inside a pack, the packs do not
+    /// load, or the file defines no map.
     Check {
         /// The map's Lua file, inside a pack folder.
         file: PathBuf,
@@ -147,7 +151,10 @@ fn main() -> ExitCode {
             let options = strata_editor::ValidationOptions { army_size };
             match map_check::run(&file, &options) {
                 Ok(code) => code,
-                Err(report) => finish(Err(report)),
+                Err(report) => {
+                    eprintln!("{report:?}");
+                    ExitCode::from(map_check::CANNOT_CHECK)
+                }
             }
         }
         Command::Stubs { out } => finish(write_stubs(&out)),
