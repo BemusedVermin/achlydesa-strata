@@ -32,7 +32,7 @@ pub use apply::ApplyError;
 pub use command::{Command, TokenPlacement};
 pub use decision::{Answer, Decision, DecisionKind, PendingDecision};
 pub use event::{Event, Visibility};
-pub use footprint::{FootprintDef, MoveMode};
+pub use footprint::{FootprintDef, FootprintError, MoveMode};
 pub use ids::{FigureId, PlayerId, RelicId, UnitId, VarKey};
 pub use map::{InventoryDef, MapConstraints, MapDef, PlacedFeature, PlacedPiece};
 pub use pack_test::{Placement, Step, TokenAt};

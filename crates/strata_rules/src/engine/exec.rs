@@ -13,7 +13,7 @@ use super::halt::Halt;
 use super::hooks::HookRunner;
 use super::names::{affected_player, answer_fits, command_kind, event_kind, is_kind};
 use crate::flow::{ActivationGate, ActivationRules, take_action};
-use crate::native::native_name;
+use crate::native::{NativeEnv, native_name};
 use crate::runtime::RulesRuntime;
 
 mod window;
@@ -235,6 +235,10 @@ fn limit_key(index: usize) -> VarKey {
 impl Ctx for Exec<'_> {
     fn state(&self) -> &GameState {
         &self.state
+    }
+
+    fn env(&self) -> &dyn NativeEnv {
+        self.hooks.env()
     }
 
     fn may_activate(&self, player: PlayerId, unit: UnitId) -> bool {

@@ -32,6 +32,7 @@ impl MatchRig {
             .name::<RulesetDef>(setup.ruleset)
             .ok_or_else(|| err("the ruleset is not in the registry".into()))?
             .to_owned();
+        let scenario_def = registry.get::<ScenarioDef>(setup.scenario);
         let built = build_match(registry, setup)?;
         let rulesets = Rulesets { tests, pack };
         let rt = resolve(&name, &rulesets, &tests.catalog).map_err(|e| err(e.to_string()))?;
@@ -42,7 +43,8 @@ impl MatchRig {
         });
         let los = rt.service::<Arc<dyn LineOfSight>>().cloned();
         let host = Host::new(registry, pack, modifiers.collect(), Some(built.board));
-        let host = Arc::new(host.with_los(los));
+        let host = host.with_los(los).with_scenario(scenario_def, built.zones);
+        let host = Arc::new(host);
         let lua = rt
             .configs()
             .iter()

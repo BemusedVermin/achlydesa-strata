@@ -9,6 +9,7 @@ use strata_model::{
     Command, Event, FigureId, FigureStatus, MapDef, RuleModuleDef, RulesetDef, ScenarioDef, Step,
     TestDef, TokenAt, TokenPlacement,
 };
+use strata_modules::deployment::{PLACE_UNIT, PlaceUnit};
 use strata_rules::{
     Engine, LineOfSight, Outcome, RulesetSource, SourcedModifier, event_kind, resolve,
 };
@@ -83,11 +84,11 @@ impl PackTests {
         let scenario = match &def.scenario {
             Some(s) => Some(
                 find::<ScenarioDef>(&self.registry, pack, s.as_str())
-                    .ok_or_else(|| setup(format!("unknown scenario `{s}`")))?
-                    .1,
+                    .ok_or_else(|| setup(format!("unknown scenario `{s}`")))?,
             ),
             None => None,
         };
+        let (scenario_id, scenario) = (scenario.map(|(id, _)| id), scenario.map(|(_, s)| s));
         let map = def.map.as_ref().or(scenario.map(|s| &s.map));
         let map = match map {
             Some(map) => Some(
@@ -109,6 +110,9 @@ impl PackTests {
         let (ruleset_id, _) = find::<RulesetDef>(&self.registry, pack, name.as_str())
             .ok_or_else(|| setup(format!("unknown ruleset `{name}`")))?;
         let mut start = state::build(&self.registry, pack, ruleset_id, def).map_err(setup)?;
+        if let (Some(id), Some(scenario)) = (scenario_id, scenario) {
+            state::seat(&mut start, id, scenario);
+        }
         if let (Some(scenario), Some(map), Some(board)) = (scenario, map, &board) {
             place_relics(&mut start, &self.registry, pack, scenario, map, board)
                 .map_err(|e| setup(e.to_string()))?;
@@ -121,6 +125,8 @@ impl PackTests {
         });
         let los = rt.service::<Arc<dyn LineOfSight>>().cloned();
         let host = Host::new(&self.registry, pack, modifiers.collect(), board).with_los(los);
+        let zones = map.map(|m| m.zones.clone()).unwrap_or_default();
+        let host = host.with_scenario(scenario, zones);
         let host = Arc::new(host);
         let lua_modules = rt
             .configs()
@@ -187,6 +193,23 @@ impl PackTests {
                     host.set_rig(Vec::new());
                     let outcome = engine.submit(*player, Command::ActivateUnit(unit));
                     events = settle(outcome, "activate_unit").map_err(at)?;
+                    log.extend(events.iter().cloned());
+                }
+                Step::Deploy {
+                    player,
+                    figure: handle,
+                    at: space,
+                    rotation,
+                } => {
+                    let found = figure(handle).map_err(at)?;
+                    let place = PlaceUnit {
+                        unit: engine.state().figures[found.index()].unit,
+                        at: *space,
+                        rotation: *rotation,
+                    };
+                    host.set_rig(Vec::new());
+                    let outcome = engine.submit(*player, place.command());
+                    events = settle(outcome, PLACE_UNIT).map_err(at)?;
                     log.extend(events.iter().cloned());
                 }
                 Step::EndActivation { player } => {

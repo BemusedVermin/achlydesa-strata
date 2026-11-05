@@ -1,9 +1,10 @@
 //! Rust logic that a registered trigger runs in place of a Lua script.
 
-use strata_kernel::{DefId, Sym};
+use strata_kernel::{DefId, Hex, Sym};
+use strata_model::board::CompiledBoard;
 use strata_model::{
-    Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureId, GameState, Logic,
-    PlayerId, RelicDef,
+    Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureDefRef, FigureId,
+    FootprintDef, GameState, Logic, PlayerId, RelicDef, ScenarioDef,
 };
 
 use crate::engine::{Ctx, Halt};
@@ -41,6 +42,22 @@ pub trait NativeEnv: Send + Sync {
     }
     /// The relic with this definition ID.
     fn relic(&self, _id: DefId) -> Option<RelicDef> {
+        None
+    }
+    /// The board the match is played on.
+    fn board(&self) -> Option<&CompiledBoard> {
+        None
+    }
+    /// The scenario the match is played under.
+    fn scenario(&self) -> Option<&ScenarioDef> {
+        None
+    }
+    /// The columns of the map zone called `name`.
+    fn zone(&self, _name: &str) -> Option<&[Hex]> {
+        None
+    }
+    /// The footprint a figure stands on.
+    fn footprint(&self, _figure: &FigureDefRef) -> Option<&FootprintDef> {
         None
     }
     /// Runs a relic's `on_claim` effect for `event`, as a trigger's effect would run.

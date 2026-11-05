@@ -1,11 +1,11 @@
 //! Match setup: the fixed inputs become the first `GameState` and the compiled board
 //! (design §12.2).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use strata_content::ContentRegistry;
-use strata_kernel::{DefId, Space};
+use strata_kernel::{DefId, Hex, Space, Sym};
 use strata_model::board::{CompiledBoard, compile};
 use strata_model::{
     ArmyList, FigureDefRef, FigureId, FigureState, GameState, MapDef, MatchSetup, PackIdentity,
@@ -25,6 +25,8 @@ pub struct MatchBuild {
     pub state: GameState,
     /// The compiled map, which the state does not carry.
     pub board: CompiledBoard,
+    /// The named zones of the same map.
+    pub zones: BTreeMap<Sym, Vec<Hex>>,
 }
 
 /// The identity of every pack in `registry`, as a [`MatchSetup`] records it.
@@ -69,7 +71,12 @@ pub fn build_match(
     }
     place_relics(&mut state, registry, pack, scenario, map, &board)?;
     state.setup = Arc::new(setup);
-    Ok(MatchBuild { state, board })
+    let zones = map.zones.clone();
+    Ok(MatchBuild {
+        state,
+        board,
+        zones,
+    })
 }
 
 /// Puts the scenario's relics on the map's spots, face up or face down as it says.

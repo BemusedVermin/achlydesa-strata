@@ -6,7 +6,7 @@ use strata_content::ContentRegistry;
 use strata_kernel::DefId;
 use strata_model::{
     FigureDefRef, FigureId, FigureState, FigureStatus, GameState, MatchSetup, PlayerId,
-    PlayerState, TestDef, UnitDef, UnitId, UnitState,
+    PlayerSetup, PlayerState, ScenarioDef, TestDef, UnitDef, UnitId, UnitState,
 };
 
 use super::host::find;
@@ -87,6 +87,21 @@ pub(super) fn build(
         state.units.push(unit_state);
     }
     Ok(state)
+}
+
+/// Seats the test's players under `scenario`: player N fills its Nth slot, as far as it has slots.
+pub(super) fn seat(state: &mut GameState, id: DefId, scenario: &ScenarioDef) {
+    let setup = Arc::make_mut(&mut state.setup);
+    setup.scenario = id;
+    let seats = (0..state.players.len()).zip(&scenario.slots);
+    setup.players = seats
+        .map(|(seat, slot)| PlayerSetup {
+            id: PlayerId(seat as u8),
+            slot: slot.id.clone(),
+            team: state.players[seat].team,
+            army: None,
+        })
+        .collect();
 }
 
 /// Resolves a handle such as `p0.soldier.trooper#2` or `p1.dummy#1` to a figure.
