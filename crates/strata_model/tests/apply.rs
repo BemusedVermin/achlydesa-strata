@@ -467,3 +467,53 @@ fn dealing_to_a_missing_player_or_discarding_a_missing_unit_is_refused() {
     assert_eq!(state.apply(&discard), Err(ApplyError::NoUnit(UnitId(9))));
     assert_eq!(state.hash(), before);
 }
+
+#[test]
+fn relic_revealed_turns_a_face_down_relic_up_once() {
+    let mut s = base();
+    s.relics[0].face_down = true;
+    applied(&mut s, &Event::RelicRevealed(RelicId(0)));
+    assert!(!s.relics[0].face_down);
+    let again = rejected(&s, &Event::RelicRevealed(RelicId(0)));
+    assert_eq!(again, ApplyError::RelicFaceUp(RelicId(0)));
+    let missing = rejected(&s, &Event::RelicRevealed(RelicId(4)));
+    assert_eq!(missing, ApplyError::NoRelic(RelicId(4)));
+}
+
+#[test]
+fn abilities_attach_and_detach_one_instance_at_a_time() {
+    let mut s = base();
+    let owner = AbilityOwner::Player(PlayerId(1));
+    let attach = Event::AbilityAttached {
+        def: DefId(7),
+        owner,
+        params: Default::default(),
+    };
+    applied(&mut s, &attach);
+    applied(&mut s, &attach);
+    assert_eq!(s.abilities.len(), 2);
+    let detach = Event::AbilityDetached {
+        def: DefId(7),
+        owner,
+    };
+    applied(&mut s, &detach);
+    assert_eq!(s.abilities.len(), 1);
+    applied(&mut s, &detach);
+    assert_eq!(rejected(&s, &detach), ApplyError::NoAbility(DefId(7)));
+}
+
+#[test]
+fn an_ability_cannot_attach_to_a_missing_owner() {
+    let bad = |owner| Event::AbilityAttached {
+        def: DefId(0),
+        owner,
+        params: Default::default(),
+    };
+    let s = base();
+    let player = rejected(&s, &bad(AbilityOwner::Player(PlayerId(9))));
+    assert_eq!(player, ApplyError::NoPlayer(PlayerId(9)));
+    let unit = rejected(&s, &bad(AbilityOwner::Unit(UnitId(5))));
+    assert_eq!(unit, ApplyError::NoUnit(UnitId(5)));
+    let relic = rejected(&s, &bad(AbilityOwner::Relic(RelicId(5))));
+    assert_eq!(relic, ApplyError::NoRelic(RelicId(5)));
+}

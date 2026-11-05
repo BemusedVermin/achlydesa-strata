@@ -11,8 +11,9 @@ use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::{BoardDefs, CompiledBoard};
 use strata_model::{
-    Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus, FootprintDef, GameState,
-    MarkerDef, PlayerId, StatDef, TerrainDef, TileDef, UnitDef, UnitId, UnitState,
+    AbilityDef, AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus,
+    FootprintDef, GameState, MarkerDef, PlayerId, RelicDef, StatDef, TerrainDef, TileDef, UnitDef,
+    UnitId, UnitState,
 };
 use strata_rules::{
     Ctx, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics, LosWorld,
@@ -182,6 +183,47 @@ impl Host {
         self.rig.lock().unwrap().next = 0;
     }
 
+    /// The modifiers of attached abilities that reach `figure`: those owned by its controller,
+    /// its unit, or both. A relic's grant is named by its relic and `grant` index.
+    fn granted(&self, state: &GameState, figure: FigureId) -> Vec<SourcedModifier> {
+        let Some(fig) = state.figures.get(figure.index()) else {
+            return Vec::new();
+        };
+        let mut found = Vec::new();
+        for instance in &state.abilities {
+            let reaches = match instance.owner {
+                AbilityOwner::Player(p) => p == fig.controller,
+                AbilityOwner::Unit(u) => u == fig.unit,
+                AbilityOwner::Relic(_) => false,
+            };
+            let grant = instance.params.get("grant").and_then(|v| v.as_int().ok());
+            let named = match grant {
+                Some(n) => {
+                    let relic = self.registry.get::<RelicDef>(instance.def);
+                    let relic = relic.zip(self.registry.name::<RelicDef>(instance.def));
+                    relic.and_then(|(r, name)| {
+                        let abilities = &r.grants.as_ref()?.abilities;
+                        Some((abilities.get(usize::try_from(n).ok()?)?, name))
+                    })
+                }
+                None => {
+                    let ability = self.registry.get::<AbilityDef>(instance.def);
+                    ability.zip(self.registry.name::<AbilityDef>(instance.def))
+                }
+            };
+            let Some((ability, name)) = named.filter(|_| reaches) else {
+                continue;
+            };
+            let modifiers = ability.modifiers.iter();
+            found.extend(modifiers.map(|m| SourcedModifier {
+                source: Sym::new(name),
+                priority: 0,
+                def: m.clone(),
+            }));
+        }
+        found
+    }
+
     /// A figure's stat after every modifier.
     pub(super) fn stat(
         &self,
@@ -205,12 +247,14 @@ impl Host {
         let rules = rules.ok_or_else(|| fail("the rules are not running".into()))?;
         let world = StateWorld { host: self, state };
         let evaluator = NativeEvaluator { world: &world };
+        let mut modifiers = self.modifiers.clone();
+        modifiers.extend(self.granted(state, figure));
         let asked = rules.with_state(|scripts| {
             let logics = Logics {
                 evaluator: &evaluator,
                 scripts,
             };
-            QueryEngine::new(&self.modifiers, &self.bounds, logics).query(&query)
+            QueryEngine::new(&modifiers, &self.bounds, logics).query(&query)
         });
         let asked = asked.map_err(|_| fail("the script state failed".into()))?;
         asked.map_err(|e| fail(e.to_string()))
