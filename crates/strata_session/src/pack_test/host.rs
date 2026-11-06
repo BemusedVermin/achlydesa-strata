@@ -12,12 +12,12 @@ use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::{BoardDefs, CompiledBoard};
 use strata_model::{
     AbilityDef, AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus,
-    FootprintDef, GameState, MarkerDef, PlayerId, RelicDef, StatDef, TerrainDef, TileDef, UnitDef,
-    UnitId, UnitState,
+    FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef, StatDef,
+    TerrainDef, TileDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
-    Ctx, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics, LosWorld,
-    NativeEvaluator, QueryEngine, SourcedModifier, StatBounds, StatQuery, World,
+    Ctx, DeploySlot, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics,
+    LosWorld, NativeEvaluator, QueryEngine, SourcedModifier, StatBounds, StatQuery, World,
 };
 
 impl CardSource for Host {
@@ -297,6 +297,25 @@ impl RuleHost for Host {
 
     fn marker(&self, name: &str) -> Option<DefId> {
         find::<MarkerDef>(&self.registry, &self.pack, name).map(|(id, _)| id)
+    }
+
+    fn deployment(&self, state: &GameState, player: PlayerId) -> Option<DeploySlot> {
+        let setup = &state.setup;
+        let scenario = self.registry.get::<ScenarioDef>(setup.scenario)?;
+        let seat = setup.players.get(player.index())?;
+        let slot = scenario.slots.iter().find(|s| s.id == seat.slot)?;
+        let (_, map) = find::<MapDef>(&self.registry, &self.pack, scenario.map.as_str())?;
+        Some(DeploySlot {
+            order: slot.deploy_order,
+            zone: map.zones.get(&slot.start)?.clone(),
+        })
+    }
+
+    fn standable(&self, space: Space) -> bool {
+        let surfaces = self.board.as_ref().map(|b| b.surfaces(space.hex()));
+        let surface = surfaces.and_then(|all| all.iter().find(|s| s.z == space.z));
+        let terrain = surface.and_then(|s| self.registry.get::<TerrainDef>(s.terrain));
+        terrain.is_some_and(|t| t.standable)
     }
 
     fn relic(&self, id: DefId) -> Option<RelicDef> {
