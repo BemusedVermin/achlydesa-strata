@@ -1,6 +1,6 @@
 //! Rust logic that a registered trigger runs in place of a Lua script.
 
-use strata_kernel::{DefId, Sym};
+use strata_kernel::{DefId, Hex, Space, Sym};
 use strata_model::{
     Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureId, GameState, Logic,
     PlayerId, RelicDef,
@@ -39,6 +39,14 @@ pub trait NativeEnv: Send + Sync {
     fn marker(&self, _name: &str) -> Option<DefId> {
         None
     }
+    /// The start zone and deployment order of `player`'s scenario slot.
+    fn deployment(&self, _state: &GameState, _player: PlayerId) -> Option<DeploySlot> {
+        None
+    }
+    /// Whether a figure can stand at `space`: it is a standable surface of the board.
+    fn standable(&self, _space: Space) -> bool {
+        false
+    }
     /// The relic with this definition ID.
     fn relic(&self, _id: DefId) -> Option<RelicDef> {
         None
@@ -52,6 +60,15 @@ pub trait NativeEnv: Send + Sync {
     fn forced_roll(&self, _die: &str, _count: usize) -> Option<Result<Vec<u32>, String>> {
         None
     }
+}
+
+/// Where a player may deploy and when their turn to place comes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeploySlot {
+    /// Position in the deployment order; lower places first.
+    pub order: u8,
+    /// The columns of the player's start zone.
+    pub zone: Vec<Hex>,
 }
 
 /// The environment of a runner that has no content: every question fails.

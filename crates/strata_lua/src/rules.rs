@@ -211,6 +211,14 @@ impl NativeEnv for LuaRules {
         self.host.marker(name)
     }
 
+    fn deployment(&self, state: &GameState, player: PlayerId) -> Option<strata_rules::DeploySlot> {
+        self.host.deployment(state, player)
+    }
+
+    fn standable(&self, space: strata_kernel::Space) -> bool {
+        self.host.standable(space)
+    }
+
     fn relic(&self, id: DefId) -> Option<strata_model::RelicDef> {
         self.host.relic(id)
     }
