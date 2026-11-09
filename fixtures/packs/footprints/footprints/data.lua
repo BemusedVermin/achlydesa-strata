@@ -1,5 +1,6 @@
 -- Pack tests for multi-space footprints and falling in `core:movement`: snake turns, rigid
--- translation, the level-spread limit, cells over empty space, and falling damage.
+-- translation, turning in place, the level-spread limit, cells over empty space, and falling
+-- damage.
 --
 -- Two-space figures start with their anchor on (0, 0) and rotation 0, so their rear cell is on
 -- (1, 0), east of the anchor. Rotation o puts the rear in direction o: 0 E, 1 SE, 2 SW, 3 W,
@@ -103,12 +104,21 @@ local moved = { expect.event('figure_moved') }
 
 -- Snake: the rear follows the leader, so a step south-east swings the rear to the north-west.
 walk('snake_turn', 'a snake turns as its rear follows the leader', 'rs', 'field', 'test_wyrm', { 0, 1, 1, 4 }, moved)
-walk('snake_no_slide', 'a snake cannot slide sideways', 'rs', 'field', 'test_wyrm', { 0, 1, 1, 0 })
 walk('snake_reverse', 'a snake reverses by stepping onto its rear', 'rs', 'field', 'test_wyrm', { 1, 0, 1, 3 }, moved)
 
--- Rigid: the shape translates and keeps its rotation.
+-- Rigid: a step translates the shape and keeps its rotation.
 walk('rigid_slide', 'a rigid shape translates', 'rs', 'field', 'test_cart', { 0, 1, 1, 0 }, moved)
-walk('rigid_no_turn', 'a rigid shape cannot turn', 'rs', 'field', 'test_cart', { 0, 1, 1, 4 })
+
+-- Turning in place (#187): a two-space figure pivots about its anchor at no cost, one 60-degree
+-- turn at a time, and every rotation the rear sweeps through must be a legal placement.
+walk('rigid_pivot', 'a rigid two-space figure turns in place at no cost', 'rs', 'field', 'test_cart', { 0, 0, 1, 2 }, moved)
+-- Facing west takes three free turns; the cart's one point of movement then pays for the step.
+walk('rigid_pivot_move', 'a rigid two-space figure turns in place and then moves', 'rs', 'field', 'test_cart', { 0, 1, 1, 3 }, moved)
+walk('snake_pivot', 'a snake turns in place at no cost', 'rs', 'field', 'test_wyrm', { 0, 0, 1, 1 }, moved)
+-- After its step south-east, the snake turns its rear from (0, 0) round to (1, 1).
+walk('snake_step_pivot', 'a snake steps and then turns in place', 'rs', 'field', 'test_wyrm', { 0, 1, 1, 0 }, moved)
+-- North-east of the anchor, (1, -1), is off the map.
+walk('pivot_no_surface', 'a turn cannot put the rear cell where there is no surface', 'rs', 'field', 'test_cart', { 0, 0, 1, 5 })
 
 -- No cell may end over empty space: from (2, 0) a step east would leave the rear on (4, 0).
 walk('edge', 'a rear cell cannot end over empty space', 'rs', 'field', 'test_cart', { 3, 0, 1, 0 }, nil, nil, 2)
@@ -273,3 +283,19 @@ test {
     expect.event('figure_moved'),
   },
 }
+
+-- Turning in place, blocked and refused (#187). The soldier on (0, 1), south-east of the cart's
+-- anchor, is in the way of the rear's first clockwise turn, and north-east of the anchor is off
+-- the map, so the rear cannot sweep round to the south-west either.
+test {
+  id = 'pivot_occupied', name = 'a turn cannot sweep the rear cell through another figure', ruleset = 'rs', map = 'field',
+  place = {
+    { unit = 'test_cart', player = 0, at = {{ q = 0, r = 0, z = 1 }} },
+    { unit = 'test_soldier', player = 1, at = {{ q = 0, r = 1, z = 1 }} },
+  },
+  steps = { act.activate(0, 'p0.test_cart#1'), act.action('p0.test_cart#1', 'walk', { 0, 0, 1, 2 }) },
+}
+-- A three-space rigid shape never pivots, though every cell of the turned shape stands on the field.
+footprint { id = 'tri', name = 'Tri', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }, { q = 0, r = 1 }}, move = 'rigid', max_spread = 1 }
+unit_of('test_wain', 'tri', 1, 2)
+walk('tri_no_pivot', 'a three-space rigid shape cannot turn in place', 'rs', 'field', 'test_wain', { 0, 0, 1, 1 })

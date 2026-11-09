@@ -2,10 +2,11 @@
 //!
 //! A one-cell figure is just its anchor. A larger footprint is placed with
 //! [`FootprintDef::spaces_where`], each cell on the nearest surface it [`fits`] on, and its move
-//! mode decides how it may turn: a `rigid` shape only
-//! translates, while a `snake` shape turns so its rear follows the path its anchor, the leader,
+//! mode decides how a step may turn it: a `rigid` shape's step only
+//! translates it, while a `snake` shape turns so its rear follows the path its anchor, the leader,
 //! has walked. Content loading allows `snake` only for two-cell footprints, since a fixed
-//! rotation of three or more offsets cannot follow a bend.
+//! rotation of three or more offsets cannot follow a bend. Turning in place is a separate edge,
+//! open to two-cell footprints of either mode (see [`Body::pivots`]).
 
 use std::collections::BTreeSet;
 
@@ -60,7 +61,7 @@ impl<'a> Body<'a> {
     ///
     /// A `snake` may take any rotation that covers the anchor's old hex and otherwise only the
     /// new anchor or cells the body already covered, so the rear walks where the leader walked
-    /// rather than pivoting in place. Rotations that cover the same
+    /// rather than swinging out sideways. Rotations that cover the same
     /// cells are kept once, preferring the one nearest the current rotation clockwise.
     pub fn turns(&self, at: (Space, Rotation), to: Hex) -> Vec<Rotation> {
         let def = match self {
@@ -160,7 +161,7 @@ impl<'a> Body<'a> {
 
 /// Where each cell of `def` stands with its anchor on `anchor`: on the nearest surface of its
 /// column that the figure [`fits`] on (see [`FootprintDef::spaces_where`]).
-fn stand(
+pub(super) fn stand(
     def: &FootprintDef,
     cache: &mut Cache<'_>,
     limits: Limits,

@@ -3,14 +3,16 @@
 //!
 //! A figure with a one-cell footprint is listed as `{ q, r, z }` and moved without `o`, since it
 //! keeps its rotation. A larger footprint can reach a space in several rotations, so it is listed
-//! as `{ q, r, z, o }`; `move` without `o` takes the cheapest rotation, the lowest on a tie. A
-//! move that ends in a fall emits `figure_fell` with `{ figure, levels }`, the levels dropped.
+//! as `{ q, r, z, o }`; `move` without `o` takes the cheapest rotation, then the one reached with
+//! the fewest pivots in place, then the lowest. A two-cell figure can also be listed on its own
+//! space in another rotation, reached by pivoting at no cost. A move that ends in a fall emits
+//! `figure_fell` with `{ figure, levels }`, the levels dropped.
 //!
 //! A move first resolves the reprisals for leaving engagement along its route, and does not move
 //! a figure they take out of play. `preview(figure)` lists the same stops as `reachable`, as
 //! `{ q, r, z, o, cost, path, stops_here, falls, provokes_reprisal }` tables, `o` only for larger
 //! footprints. `path` lists the spaces the anchor steps through, as `{ q, r, z }` tables ending on
-//! the stop, the same route `move` would walk.
+//! the stop, the same route `move` would walk; a pivot in place repeats the anchor's space.
 
 use strata_kernel::{Rotation, Space, Sym, Value, ValueError};
 use strata_model::{Event, FigureId};
@@ -107,12 +109,30 @@ fn previewed(reach: &Reach) -> Value {
     Value::Map(fields.collect())
 }
 
-/// The stop `move` asked for: the given rotation, or else the cheapest one.
-fn chosen(reach: Vec<Reach>, to: Space, turn: Option<Rotation>) -> Option<Reach> {
+/// How many times the route of `reach`, starting with the anchor on `from`, pivots in place: a
+/// step always changes column, so each repeated anchor in its path is a pivot.
+fn pivots(reach: &Reach, from: Option<Space>) -> usize {
+    let mut last = from;
+    let mut count = 0;
+    for &at in &reach.path {
+        count += usize::from(last == Some(at));
+        last = Some(at);
+    }
+    count
+}
+
+/// The stop `move` asked for: the given rotation, or else the cheapest one, then the one whose
+/// route pivots least, so a figure keeps its facing unless turning is needed, then the lowest.
+fn chosen(
+    reach: Vec<Reach>,
+    from: Option<Space>,
+    to: Space,
+    turn: Option<Rotation>,
+) -> Option<Reach> {
     let mut hits = stops(reach).into_iter().filter(|r| r.space == to);
     match turn {
         Some(turn) => hits.find(|r| r.rotation == turn),
-        None => hits.min_by_key(|r| (r.cost, r.rotation)),
+        None => hits.min_by_key(|r| (r.cost, pivots(r, from), r.rotation)),
     }
 }
 
@@ -138,11 +158,10 @@ impl ApiHandler for Api {
             "preview" => Ok(Value::List(stops(reach).iter().map(previewed).collect())),
             "move" => {
                 let to = space(args)?;
-                let found = chosen(reach, to, rotation(args)?);
+                let from = ctx.state().figures[who.index()].location;
+                let found = chosen(reach, from, to, rotation(args)?);
                 let found =
                     found.ok_or_else(|| Halt::reject("that figure cannot reach that space"))?;
-                let state = ctx.state();
-                let from = state.figures[who.index()].location;
                 let before = found.path.iter().rev().nth(1).copied().or(from);
                 // Reprisals resolve first, and a figure they take out of play does not move.
                 ctx.leave_engagement(who, &found.walk)?;

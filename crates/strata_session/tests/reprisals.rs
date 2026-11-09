@@ -280,3 +280,23 @@ fn an_enemy_engaged_only_through_its_rear_cell_gets_a_reprisal() {
     assert_eq!(reprisals(report), [i64::from(FigureId(1).0)]);
     assert_eq!(rolls(report), 1);
 }
+
+#[test]
+fn a_turn_in_place_is_judged_like_any_step() {
+    let reports = run();
+    let leaves = passed(
+        &reports,
+        "a turn in place that takes the rear away from an enemy gives it a reprisal",
+    );
+    assert_eq!(reprisals(leaves), [i64::from(FigureId(1).0)]);
+    assert_eq!(rolls(leaves), 1);
+    // The pivot keeps the anchor where it stands.
+    assert_eq!(moves(leaves), [vec![Space::new(0, 0, 1)]]);
+    let keeps = passed(
+        &reports,
+        "a turn in place that keeps the rear next to an enemy gives it none",
+    );
+    assert!(reprisals(keeps).is_empty());
+    assert_eq!(rolls(keeps), 0);
+    assert_eq!(moves(keeps).len(), 1);
+}

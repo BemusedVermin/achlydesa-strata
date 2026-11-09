@@ -39,7 +39,19 @@ pub(super) struct Cache<'a> {
     terrain: BTreeMap<DefId, TerrainRules>,
 }
 
-impl Cache<'_> {
+impl<'a> Cache<'a> {
+    /// An empty cache for one query about `figure`.
+    pub(super) fn new(world: &'a dyn MoveWorld, figure: FigureId) -> Self {
+        Self {
+            world,
+            figure,
+            costs: BTreeMap::new(),
+            climbs: BTreeMap::new(),
+            enters: BTreeMap::new(),
+            terrain: BTreeMap::new(),
+        }
+    }
+
     fn cost(&mut self, terrain: DefId, dz: i32) -> Result<i64, LogicError> {
         if let Some(&hit) = self.costs.get(&(terrain, dz)) {
             return Ok(hit);
@@ -80,14 +92,27 @@ impl Cache<'_> {
 /// A search node: the anchor space and the rotation.
 type Key = (Space, Rotation);
 
+/// How good a route is: its cost, then how many times it pivots in place. Lower is better.
+type Rank = (i64, u32);
+
 /// A node found by the search, with how it was reached.
 struct Node {
     cost: i64,
+    /// How many times the route pivots in place.
+    pivots: u32,
     from: Option<Key>,
     stops_here: bool,
     falls: bool,
     provokes_reprisal: bool,
     /// The spaces the footprint covers here.
+    cells: Vec<Space>,
+}
+
+/// An edge into a node: what the node costs and causes, and where the body stands there.
+struct Edge {
+    rank: Rank,
+    stops_here: bool,
+    falls: bool,
     cells: Vec<Space>,
 }
 
@@ -105,10 +130,14 @@ struct Step {
 /// column, priced and checked as a one-space step; the footprint's move mode then gives the
 /// rotations it may end with, and every cell must stand there (see [`Body`]). Each cell of a
 /// `rigid` shape may rise at most `max_climb` levels in a step, while the anchor's step alone
-/// prices it and answers `can_climb`.
+/// prices it and answers `can_climb`. A two-cell footprint may also pivot: a free edge that keeps
+/// the anchor and turns the rotation one step either way (see [`Body::pivots`]). A pivot repeats
+/// the anchor in the route's `path`, so `walk` still holds the body after every edge.
 ///
-/// Ties between equal-cost routes go to whichever node settles first, which orders by cost, then
-/// space, then rotation, so the answer never depends on the cache or on query order.
+/// Routes are ranked by cost, then by how many pivots they make, so a figure turns in place only
+/// when that is cheaper or the only way. Ties go to whichever node settles first, which orders by
+/// rank, then space, then rotation, so the answer never depends on the cache or on query order.
+/// A node is settled once, so free pivots cannot loop.
 pub fn reachable(
     world: &dyn MoveWorld,
     figure: FigureId,
@@ -133,17 +162,11 @@ pub(super) fn search(
     let start = (anchor, world.rotation(figure));
     let allowance = world.allowance(figure)?;
     let height = world.height(figure);
-    let mut cache = Cache {
-        world,
-        figure,
-        costs: BTreeMap::new(),
-        climbs: BTreeMap::new(),
-        enters: BTreeMap::new(),
-        terrain: BTreeMap::new(),
-    };
+    let mut cache = Cache::new(world, figure);
     let cells = body.origin(&mut cache, limits, height, start);
     let origin = Node {
         cost: 0,
+        pivots: 0,
         from: None,
         stops_here: false,
         falls: false,
@@ -152,8 +175,8 @@ pub(super) fn search(
     };
     let mut found = BTreeMap::from([(start, origin)]);
     let mut settled = BTreeSet::new();
-    let mut heap = BinaryHeap::from([Reverse((0i64, start))]);
-    while let Some(Reverse((cost, at))) = heap.pop() {
+    let mut heap = BinaryHeap::from([Reverse(((0i64, 0u32), start))]);
+    while let Some(Reverse(((cost, turned), at))) = heap.pop() {
         if !settled.insert(at) || found[&at].stops_here || found[&at].falls {
             continue;
         }
@@ -165,8 +188,7 @@ pub(super) fn search(
                 }
                 for rotation in body.turns(at, hex) {
                     let key = (step.to, rotation);
-                    let better = found.get(&key).is_none_or(|n| total < n.cost);
-                    if !better || settled.contains(&key) {
+                    if !improves(&found, &settled, key, (total, turned)) {
                         continue;
                     }
                     let placed = body.place(&mut cache, limits, height, step.to, rotation)?;
@@ -176,22 +198,34 @@ pub(super) fn search(
                     if !body.climbs(limits, &found[&at].cells, &placed.cells) {
                         continue;
                     }
-                    // Asked only for steps that improve a route, so each edge is asked at most
-                    // once.
-                    let provokes = found[&at].provokes_reprisal
-                        || leaves_engagement(world, figure, &found[&at].cells, &placed.cells)?;
-                    let node = Node {
-                        cost: total,
-                        from: Some(at),
+                    let edge = Edge {
+                        rank: (total, turned),
                         stops_here: step.stops_here || placed.stops_here,
                         falls: step.falls,
-                        provokes_reprisal: provokes,
                         cells: placed.cells,
                     };
-                    found.insert(key, node);
-                    heap.push(Reverse((total, key)));
+                    reach_by(world, figure, &mut found, &mut heap, (at, key), edge)?;
                 }
             }
+        }
+        // Turning in place is free, so a pivot reaches its node at this node's cost.
+        if cost > allowance {
+            continue;
+        }
+        let before = found[&at].cells.clone();
+        let rank = (cost, turned.saturating_add(1));
+        for pivot in body.pivots(&mut cache, limits, height, at, &before)? {
+            let key = (at.0, pivot.rotation);
+            if !improves(&found, &settled, key, rank) {
+                continue;
+            }
+            let edge = Edge {
+                rank,
+                stops_here: pivot.stops_here,
+                falls: false,
+                cells: pivot.cells,
+            };
+            reach_by(world, figure, &mut found, &mut heap, (at, key), edge)?;
         }
     }
     let origin = found.remove(&start).map(|n| n.cells).unwrap_or_default();
@@ -222,6 +256,41 @@ pub(super) fn search(
         }
     };
     Ok(found.iter().map(reach).collect())
+}
+
+/// Whether reaching `key` at `rank` beats the best route found there so far.
+fn improves(found: &BTreeMap<Key, Node>, settled: &BTreeSet<Key>, key: Key, rank: Rank) -> bool {
+    let better = found.get(&key).is_none_or(|n| rank < (n.cost, n.pivots));
+    better && !settled.contains(&key)
+}
+
+/// Records `edge`, from the node `link.0` to the node `link.1`, as the best route there, and
+/// queues the node. Asked only for edges that improve a route, so each edge asks about
+/// reprisals at most once.
+fn reach_by(
+    world: &dyn MoveWorld,
+    figure: FigureId,
+    found: &mut BTreeMap<Key, Node>,
+    heap: &mut BinaryHeap<Reverse<(Rank, Key)>>,
+    link: (Key, Key),
+    edge: Edge,
+) -> Result<(), LogicError> {
+    let (at, key) = link;
+    let from = &found[&at];
+    let provokes =
+        from.provokes_reprisal || leaves_engagement(world, figure, &from.cells, &edge.cells)?;
+    let node = Node {
+        cost: edge.rank.0,
+        pivots: edge.rank.1,
+        from: Some(at),
+        stops_here: edge.stops_here,
+        falls: edge.falls,
+        provokes_reprisal: provokes,
+        cells: edge.cells,
+    };
+    found.insert(key, node);
+    heap.push(Reverse((edge.rank, key)));
+    Ok(())
 }
 
 /// Whether the body leaves engagement with some enemy as it moves from `before` to `after`.

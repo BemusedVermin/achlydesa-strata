@@ -62,7 +62,6 @@ fn a_snake_turns_and_reverses_as_its_rear_follows_the_leader() {
             "a snake reverses by stepping onto its rear",
         ],
     );
-    refused(&reports, &["a snake cannot slide sideways"]);
     let turn = last_move(report(
         &reports,
         "a snake turns as its rear follows the leader",
@@ -79,12 +78,47 @@ fn a_snake_turns_and_reverses_as_its_rear_follows_the_leader() {
 }
 
 #[test]
-fn a_rigid_shape_translates_without_turning() {
+fn a_rigid_shape_translates_when_it_steps() {
     let reports = run();
     allowed(&reports, &["a rigid shape translates"]);
-    refused(&reports, &["a rigid shape cannot turn"]);
     let slid = last_move(report(&reports, "a rigid shape translates"));
     assert_eq!(slid.1, turned(0));
+}
+
+#[test]
+fn a_two_space_figure_turns_in_place_at_no_cost() {
+    let reports = run();
+    let start = Space::new(0, 0, 1);
+    // Two free pivots: the rear swings from the east to the south-west.
+    let cart = last_move(report(
+        &reports,
+        "a rigid two-space figure turns in place at no cost",
+    ));
+    assert_eq!(cart, (start, turned(2), vec![start, start]));
+    let wyrm = last_move(report(&reports, "a snake turns in place at no cost"));
+    assert_eq!(wyrm, (start, turned(1), vec![start]));
+    // The cart has one point of movement: three pivots, then the step that spends it.
+    let moved = last_move(report(
+        &reports,
+        "a rigid two-space figure turns in place and then moves",
+    ));
+    let se = Space::new(0, 1, 1);
+    assert_eq!(moved, (se, turned(3), vec![start, start, start, se]));
+    // A snake turns after its step too: from facing north-west round to the east.
+    let stepped = last_move(report(&reports, "a snake steps and then turns in place"));
+    assert_eq!(stepped, (se, turned(0), vec![se, se, se]));
+}
+
+#[test]
+fn a_turn_needs_room_and_two_cells() {
+    refused(
+        &run(),
+        &[
+            "a turn cannot put the rear cell where there is no surface",
+            "a turn cannot sweep the rear cell through another figure",
+            "a three-space rigid shape cannot turn in place",
+        ],
+    );
 }
 
 #[test]
@@ -111,7 +145,11 @@ fn without_a_rotation_a_move_takes_the_cheapest() {
     let reports = run();
     let what = "without a rotation a move takes the cheapest one";
     allowed(&reports, &[what]);
-    assert_eq!(last_move(report(&reports, what)).1, turned(4));
+    // Every rotation costs the one step, with free pivots after it; the route with the fewest
+    // pivots wins, so the snake does not turn more than its step turns it.
+    let (_, rotation, path) = last_move(report(&reports, what));
+    assert_eq!(rotation, turned(4));
+    assert_eq!(path, [Space::new(0, 1, 1)]);
 }
 
 #[test]
@@ -227,7 +265,7 @@ fn deployment_stands_a_rear_cell_where_movement_would() {
 
 #[test]
 fn every_footprint_test_is_checked_here() {
-    assert_eq!(run().len(), 21, "{}", summary(&run()));
+    assert_eq!(run().len(), 26, "{}", summary(&run()));
 }
 
 #[test]
