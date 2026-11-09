@@ -37,6 +37,18 @@ pub trait RuleHost: Send + Sync {
     fn marker(&self, _name: &str) -> Option<strata_kernel::DefId> {
         None
     }
+    /// The start zone and deployment order of `player`'s scenario slot.
+    fn deployment(
+        &self,
+        _: &GameState,
+        _: strata_model::PlayerId,
+    ) -> Option<strata_rules::DeploySlot> {
+        None
+    }
+    /// Whether a figure can stand at `space`.
+    fn standable(&self, _: Space) -> bool {
+        false
+    }
     /// The relic with this definition ID.
     fn relic(&self, _id: strata_kernel::DefId) -> Option<strata_model::RelicDef> {
         None
