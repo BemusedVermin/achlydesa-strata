@@ -2,7 +2,7 @@
 source: crates/strata_session/src/replay_tools_tests.rs
 expression: "dump(&replay, &events)"
 ---
-engine 0.1.0+replay.1
+engine 0.1.0+replay.2
 pack toy 1.0.0 0xcfef7e30a2fc7078
 ruleset DefId(1)  format None  scenario DefId(0)  seed Plain(7)
 player 0 slot a team 0: 2xtest_soldier

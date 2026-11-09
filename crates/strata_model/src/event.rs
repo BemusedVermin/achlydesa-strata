@@ -35,6 +35,10 @@ pub enum Event {
         /// The spaces walked, excluding the start and ending at `to`; empty for a placement.
         #[serde(default)]
         path: Vec<Space>,
+        /// Every space the figure's footprint covers at `to`, anchor included, in offset order.
+        /// Empty when the figure covers `to` alone.
+        #[serde(default)]
+        cells: Vec<Space>,
     },
     /// Dice were rolled. Presentation and triggers only; no state changes.
     DiceRolled {
@@ -182,5 +186,11 @@ impl Event {
             Event::TokenPlaced { token, .. } => token.visibility,
             _ => Visibility::Public,
         }
+    }
+
+    /// The `cells` a `FigureMoved` onto `to` records for a body covering `covered`: none when
+    /// the body is the anchor alone.
+    pub fn moved_cells(covered: Vec<Space>, to: Space) -> Vec<Space> {
+        if covered == [to] { Vec::new() } else { covered }
     }
 }

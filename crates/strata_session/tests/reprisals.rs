@@ -269,3 +269,14 @@ fn running_twice_gives_identical_reports_and_hashes() {
         |reports: &[TestReport]| reports.iter().map(|r| r.events.clone()).collect::<Vec<_>>();
     assert_eq!(events(&first), events(&second));
 }
+
+#[test]
+fn an_enemy_engaged_only_through_its_rear_cell_gets_a_reprisal() {
+    let reports = run();
+    let report = passed(
+        &reports,
+        "leaving an enemy that is engaged only through its rear cell gives it a reprisal",
+    );
+    assert_eq!(reprisals(report), [i64::from(FigureId(1).0)]);
+    assert_eq!(rolls(report), 1);
+}

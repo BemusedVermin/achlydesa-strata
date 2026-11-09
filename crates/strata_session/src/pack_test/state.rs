@@ -3,21 +3,24 @@
 use std::sync::Arc;
 
 use strata_content::ContentRegistry;
-use strata_kernel::DefId;
+use strata_kernel::{DefId, Rotation};
+use strata_model::board::CompiledBoard;
 use strata_model::{
     FigureDefRef, FigureId, FigureState, FigureStatus, GameState, MatchSetup, PlayerId,
     PlayerState, TestDef, UnitDef, UnitId, UnitState,
 };
 
-use super::host::find;
+use super::host::{body_cells, find};
 
 /// Builds the state a test starts from, for the ruleset `ruleset`. A placement with no spaces
-/// leaves its unit in reserve.
+/// leaves its unit in reserve. A placed figure covers every cell of its footprint on `board`,
+/// facing the default way.
 pub(super) fn build(
     registry: &ContentRegistry,
     pack: &str,
     ruleset: DefId,
     test: &TestDef,
+    board: Option<&CompiledBoard>,
 ) -> Result<GameState, String> {
     let mut state = GameState {
         setup: Arc::new(MatchSetup {
@@ -61,10 +64,19 @@ pub(super) fn build(
         for (nth, figure_name) in kinds.enumerate() {
             let space = placement.at.get(nth).copied();
             let id = FigureId(state.figures.len() as u32);
-            if let Some(space) = space
-                && state.board_changes.occupancy.insert(space, id).is_some()
-            {
-                return Err(format!("place: two figures share space {space:?}"));
+            let def = FigureDefRef {
+                unit: def_id,
+                figure: figure_name.clone(),
+            };
+            if let Some(space) = space {
+                let body = body_cells(registry, board, &def, space, Rotation::default());
+                let body =
+                    body.ok_or_else(|| format!("place: `{name}` cannot stand at {space:?}"))?;
+                for cell in body {
+                    if state.board_changes.occupancy.insert(cell, id).is_some() {
+                        return Err(format!("place: two figures share space {cell:?}"));
+                    }
+                }
             }
             unit_state.figures.push(id);
             let status = if space.is_some() {
@@ -74,10 +86,7 @@ pub(super) fn build(
             };
             state.figures.push(FigureState {
                 unit,
-                def: FigureDefRef {
-                    unit: def_id,
-                    figure: figure_name.clone(),
-                },
+                def,
                 location: space,
                 status,
                 controller: placement.player,

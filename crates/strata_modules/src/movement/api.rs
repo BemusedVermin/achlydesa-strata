@@ -154,6 +154,7 @@ impl ApiHandler for Api {
                     to,
                     rotation: found.rotation,
                     path: found.path,
+                    cells: Event::moved_cells(found.cells, to),
                 };
                 ctx.emit(moved)?;
                 if !found.falls {

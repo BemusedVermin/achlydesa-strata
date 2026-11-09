@@ -4,7 +4,7 @@ use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet, BinaryHeap};
 
 use strata_kernel::{DefId, Hex, Rotation, Space};
-use strata_model::{FigureId, FootprintDef};
+use strata_model::FigureId;
 use strata_rules::{LogicError, MoveWorld, Reach, TerrainRules};
 
 use super::body::{Body, roomy};
@@ -32,7 +32,7 @@ pub struct Limits {
 /// The answers one query has already asked of the rules.
 pub(super) struct Cache<'a> {
     pub(super) world: &'a dyn MoveWorld,
-    figure: FigureId,
+    pub(super) figure: FigureId,
     costs: BTreeMap<(DefId, i32), i64>,
     climbs: BTreeMap<(DefId, i32), bool>,
     enters: BTreeMap<Space, bool>,
@@ -103,7 +103,9 @@ struct Step {
 ///
 /// Nodes are (anchor space, rotation) pairs. A step moves the anchor to a surface of an adjacent
 /// column, priced and checked as a one-space step; the footprint's move mode then gives the
-/// rotations it may end with, and every cell must stand there (see [`Body`]). Ties between
+/// rotations it may end with, and every cell must stand there (see [`Body`]). Each cell of a
+/// `rigid` shape may rise at most `max_climb` levels in a step, while the anchor's step alone
+/// prices it and answers `can_climb`. Ties between
 /// equal-cost routes go to whichever node settles first, which orders by cost, then space, then
 /// rotation, so the answer never depends on the cache or on query order.
 pub fn reachable(
@@ -138,14 +140,7 @@ pub(super) fn search(
         enters: BTreeMap::new(),
         terrain: BTreeMap::new(),
     };
-    let cells = match body {
-        Body::One => vec![anchor],
-        // Where the figure stands now, even if no legal placement is left under it.
-        Body::Shaped(def) => body_spaces(world, def, start).unwrap_or_else(|| {
-            let hexes = def.cells_at(anchor.hex(), start.1).into_iter();
-            hexes.map(|hex| Space::at(hex, anchor.z)).collect()
-        }),
-    };
+    let cells = body.origin(&mut cache, limits, height, start);
     let origin = Node {
         cost: 0,
         from: None,
@@ -177,6 +172,9 @@ pub(super) fn search(
                     let Some(placed) = placed else {
                         continue;
                     };
+                    if !body.climbs(limits, &found[&at].cells, &placed.cells) {
+                        continue;
+                    }
                     // Asked only for steps that improve a route, so each edge is asked at most
                     // once.
                     let provokes = found[&at].provokes_reprisal
@@ -223,12 +221,6 @@ pub(super) fn search(
         }
     };
     Ok(found.iter().map(reach).collect())
-}
-
-/// Where a footprint at `at` stands, if it can stand there at all.
-fn body_spaces(world: &dyn MoveWorld, def: &FootprintDef, at: Key) -> Option<Vec<Space>> {
-    let spaces = def.spaces(world.board(), at.0, at.1)?;
-    Some(spaces.into_iter().map(|(space, _)| space).collect())
 }
 
 /// Whether the body leaves engagement with some enemy as it moves from `before` to `after`.

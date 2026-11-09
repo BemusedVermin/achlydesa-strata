@@ -31,6 +31,18 @@ fn mv(figure: u32, q: i32) -> Event {
         to: Space::new(q, 0, 0),
         rotation: Rotation::from_steps(2),
         path: Vec::new(),
+        cells: Vec::new(),
+    }
+}
+
+/// A move of a two-cell body: the anchor on `(q, 0, 0)` and the rear on `(q + 1, 0, 0)`.
+fn mv_two(figure: u32, q: i32) -> Event {
+    Event::FigureMoved {
+        figure: FigureId(figure),
+        to: Space::new(q, 0, 0),
+        rotation: Rotation::default(),
+        path: Vec::new(),
+        cells: vec![Space::new(q, 0, 0), Space::new(q + 1, 0, 0)],
     }
 }
 
@@ -185,6 +197,88 @@ fn figure_destroyed_leaves_the_board() {
         rejected(&s, &Event::FigureDestroyed(FigureId(0))),
         ApplyError::WrongStatus(FigureId(0), FigureStatus::Destroyed)
     );
+}
+
+#[test]
+fn a_body_covers_every_cell_and_moves_as_a_whole() {
+    let mut s = base();
+    applied(&mut s, &mv_two(0, 1));
+    assert_eq!(s.occupant(Space::new(1, 0, 0)), Some(FigureId(0)));
+    assert_eq!(s.occupant(Space::new(2, 0, 0)), Some(FigureId(0)));
+    applied(&mut s, &mv_two(0, 4));
+    let covered = s.covered(FigureId(0));
+    assert_eq!(covered, [Space::new(4, 0, 0), Space::new(5, 0, 0)]);
+    assert_eq!(
+        s.board_changes.occupancy.len(),
+        2,
+        "the old cells are freed"
+    );
+    // Sliding onto its own rear is fine.
+    applied(&mut s, &mv_two(0, 5));
+    assert_eq!(s.covered(FigureId(0)).len(), 2);
+}
+
+#[test]
+fn no_cell_may_overlap_another_figure() {
+    let mut s = base();
+    applied(&mut s, &mv_two(0, 1));
+    // Onto the other's rear, as one cell or as a body.
+    assert_eq!(rejected(&s, &mv(1, 2)), ApplyError::Occupied(FigureId(0)));
+    assert_eq!(
+        rejected(&s, &mv_two(1, 0)),
+        ApplyError::Occupied(FigureId(0))
+    );
+    assert_eq!(
+        rejected(&s, &mv_two(1, 2)),
+        ApplyError::Occupied(FigureId(0))
+    );
+    applied(&mut s, &mv_two(1, 3));
+}
+
+#[test]
+fn a_body_must_cover_its_anchor() {
+    let s = base();
+    let wrong = Event::FigureMoved {
+        figure: FigureId(0),
+        to: Space::new(1, 0, 0),
+        rotation: Rotation::default(),
+        path: Vec::new(),
+        cells: vec![Space::new(2, 0, 0), Space::new(3, 0, 0)],
+    };
+    assert_eq!(
+        rejected(&s, &wrong),
+        ApplyError::AnchorNotCovered(FigureId(0))
+    );
+}
+
+#[test]
+fn figure_destroyed_frees_every_cell() {
+    let mut s = base();
+    applied(&mut s, &mv_two(0, 1));
+    applied(&mut s, &Event::FigureDestroyed(FigureId(0)));
+    assert!(s.board_changes.occupancy.is_empty());
+    assert!(s.covered(FigureId(0)).is_empty());
+    applied(&mut s, &mv(1, 2));
+}
+
+#[test]
+fn moving_bodies_twice_gives_identical_hashes() {
+    let events = [
+        mv_two(0, 1),
+        mv(1, 4),
+        mv_two(0, 2),
+        Event::FigureDestroyed(FigureId(1)),
+        mv_two(0, 4),
+    ];
+    let run = || {
+        let mut s = base();
+        let hashes = events.iter().map(|e| {
+            s.apply(e).unwrap();
+            s.hash()
+        });
+        hashes.collect::<Vec<_>>()
+    };
+    assert_eq!(run(), run());
 }
 
 fn place(kind: u32, visibility: Visibility) -> Event {

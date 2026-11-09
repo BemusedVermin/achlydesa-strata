@@ -148,6 +148,7 @@ impl CommandHandler for Deploy {
             to: Space::new(0, 0, 1),
             rotation: Default::default(),
             path: Vec::new(),
+            cells: Vec::new(),
         })
     }
 }

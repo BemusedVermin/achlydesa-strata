@@ -32,8 +32,13 @@ pub trait MoveWorld {
     fn footprint(&self, _figure: FigureId) -> Option<&FootprintDef> {
         None
     }
-    /// The figure covering `space`, if any.
+    /// The figure covering `space` with any cell of its footprint, if any.
     fn occupant(&self, space: Space) -> Option<FigureId>;
+    /// The spaces a figure covers where it stands, as the game state records them, in any
+    /// order. Without an answer, movement places the footprint on its anchor itself.
+    fn covered(&self, _figure: FigureId) -> Vec<Space> {
+        Vec::new()
+    }
     /// How many levels of headroom the figure needs.
     fn height(&self, figure: FigureId) -> u32;
     /// The movement allowance the figure starts a move with.

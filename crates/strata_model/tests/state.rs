@@ -99,9 +99,16 @@ fn commands_and_events_round_trip_through_json() {
         to: Space::new(1, 0, 0),
         rotation: Rotation::from_steps(2),
         path: Vec::new(),
+        cells: vec![Space::new(1, 0, 0), Space::new(2, 0, 0)],
     };
     let json = serde_json::to_string(&event).unwrap();
     assert_eq!(serde_json::from_str::<Event>(&json).unwrap(), event);
+    // A move written before bodies covered several cells still reads, covering its anchor.
+    let old = r#"{"FigureMoved":{"figure":0,"to":{"q":1,"r":0,"z":0},"rotation":2}}"#;
+    let Ok(Event::FigureMoved { cells, .. }) = serde_json::from_str::<Event>(old) else {
+        panic!("an old move should read");
+    };
+    assert!(cells.is_empty());
 }
 
 #[test]

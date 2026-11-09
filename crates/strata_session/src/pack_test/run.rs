@@ -106,7 +106,8 @@ impl PackTests {
             resolve(name.as_str(), &rulesets, &self.catalog).map_err(|e| setup(e.to_string()))?;
         let (ruleset_id, _) = find::<RulesetDef>(&self.registry, pack, name.as_str())
             .ok_or_else(|| setup(format!("unknown ruleset `{name}`")))?;
-        let mut start = state::build(&self.registry, pack, ruleset_id, def).map_err(setup)?;
+        let mut start =
+            state::build(&self.registry, pack, ruleset_id, def, board.as_ref()).map_err(setup)?;
         if let Some((scenario_id, scenario)) = scenario {
             // Seat `i` fills the scenario's `i`-th slot, so deployment finds its start zone.
             let mut made = (*start.setup).clone();

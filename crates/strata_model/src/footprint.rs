@@ -70,17 +70,43 @@ impl FootprintDef {
         anchor: Space,
         rotation: Rotation,
     ) -> Option<Vec<(Space, Surface)>> {
+        self.spaces_where(board, anchor, rotation, |_, _| true)
+    }
+
+    /// [`FootprintDef::spaces`], with every cell standing only where `fits` allows, such as on
+    /// passable terrain with headroom.
+    ///
+    /// Each cell tries the surfaces of its column within `max_spread` of the anchor's level,
+    /// nearest first and the lower one on a tie, and stands on the first that fits. The anchor
+    /// cell only ever stands on `anchor`. Each cell chooses on its own, so a cell that could only
+    /// fit by moving another cell is not found.
+    pub fn spaces_where(
+        &self,
+        board: &CompiledBoard,
+        anchor: Space,
+        rotation: Rotation,
+        mut fits: impl FnMut(Space, &Surface) -> bool,
+    ) -> Option<Vec<(Space, Surface)>> {
         if !board.surfaces(anchor.hex()).iter().any(|s| s.z == anchor.z) {
             return None;
         }
+        let spread = u32::from(self.max_spread);
         let mut placed = Vec::with_capacity(self.cells.len());
         for hex in self.cells_at(anchor.hex(), rotation) {
-            let surfaces = board.surfaces(hex).iter();
-            let nearest = surfaces.min_by_key(|s| (s.z.abs_diff(anchor.z), s.z))?;
-            placed.push((Space::at(hex, nearest.z), *nearest));
+            let in_reach = |s: &&Surface| {
+                if hex == anchor.hex() {
+                    s.z == anchor.z
+                } else {
+                    s.z.abs_diff(anchor.z) <= spread
+                }
+            };
+            let mut near: Vec<&Surface> = board.surfaces(hex).iter().filter(in_reach).collect();
+            near.sort_by_key(|s| (s.z.abs_diff(anchor.z), s.z));
+            let found = near.into_iter().find(|s| fits(Space::at(hex, s.z), s))?;
+            placed.push((Space::at(hex, found.z), *found));
         }
         let levels = placed.iter().map(|(s, _)| s.z);
         let (low, high) = (levels.clone().min()?, levels.max()?);
-        (high - low <= u32::from(self.max_spread)).then_some(placed)
+        (high - low <= spread).then_some(placed)
     }
 }

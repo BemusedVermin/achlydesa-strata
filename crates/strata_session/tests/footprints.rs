@@ -147,8 +147,52 @@ fn a_snake_moves_with_engagement_in_the_ruleset() {
 }
 
 #[test]
+fn a_rigid_rear_cell_climbs_no_further_than_the_anchor_may() {
+    refused(
+        &run(),
+        &["a rigid rear cell cannot climb further than the anchor may"],
+    );
+}
+
+#[test]
+fn a_rear_cell_without_headroom_falls_back_to_the_next_surface() {
+    let reports = run();
+    let what = "a rear cell without headroom stands on the next surface up";
+    allowed(&reports, &[what]);
+    let cells = report(&reports, what).events.iter().find_map(|e| match e {
+        Event::FigureMoved { cells, .. } => Some(cells.clone()),
+        _ => None,
+    });
+    assert_eq!(cells, Some(vec![Space::new(0, 0, 2), Space::new(1, 0, 3)]));
+}
+
+#[test]
+fn a_rear_cell_is_occupied_for_moves_and_placements() {
+    let reports = run();
+    refused(
+        &reports,
+        &["a figure cannot stop on another figure's rear cell"],
+    );
+    let what = "a test cannot place a figure on another figure's rear cell";
+    let failed = report(&reports, what).outcome.as_ref().unwrap_err();
+    assert!(failed.message.contains("share space"), "{failed:?}");
+}
+
+#[test]
+fn a_moved_body_records_every_cell() {
+    let reports = run();
+    let slid = report(&reports, "a rigid shape translates").events.iter();
+    let cells = slid.filter_map(|e| match e {
+        Event::FigureMoved { cells, .. } => Some(cells.clone()),
+        _ => None,
+    });
+    let cells: Vec<_> = cells.collect();
+    assert_eq!(cells, [vec![Space::new(0, 1, 1), Space::new(1, 1, 1)]]);
+}
+
+#[test]
 fn every_footprint_test_is_checked_here() {
-    assert_eq!(run().len(), 14, "{}", summary(&run()));
+    assert_eq!(run().len(), 18, "{}", summary(&run()));
 }
 
 #[test]

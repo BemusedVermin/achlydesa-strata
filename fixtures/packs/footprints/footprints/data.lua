@@ -144,3 +144,77 @@ test {
     expect.event('figure_moved', { figure = 'p0.test_wyrm#1' }),
   },
 }
+
+-- Footprint-aware occupancy, per-cell climbing and surface fallback (#186, #190).
+
+-- A rigid cart and a tall rigid cart, each two spaces with a wider spread.
+footprint { id = 'wide', name = 'Wide', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }}, move = 'rigid', max_spread = 2 }
+unit_of('test_wagon', 'wide', 1, 2)
+unit {
+  id = 'test_tall_cart', name = 'test_tall_cart', kind = 'squad', rarity = 'common', stats = { move = 1, life = 2 },
+  figures = {{
+    id = 'f', count = 1, footprint = 'rigid', height = 2,
+    los = { target = 10, hit_zone = {0, 24}, samples = {'center'} },
+  }},
+}
+
+-- (0, 0), (1, 0) and (0, 1) stand at level 1; (1, 1) stands at level 3.
+map {
+  id = 'steep', name = 'Steep', orientation = 'pointy',
+  pieces = { at(0, 0, 0), at(1, 0, 0), at(0, 1, 0), at(1, 1, 0), at(1, 1, 1), at(1, 1, 2), at(-1, 0, 0) },
+}
+
+-- (-1, 0) and (0, 0) stand at level 2. Column (1, 0) has ground at 1 under a shelf with one free
+-- level, and the shelf's top at 3: both a level from the anchor, the ground nearer on a tie.
+map {
+  id = 'shelf', name = 'Shelf', orientation = 'pointy',
+  pieces = { at(-1, 0, 1), at(0, 0, 1), at(1, 0, 0), at(1, 0, 2), at(-2, 0, 0) },
+}
+
+local function solo(id, name, map, unit, from, to, expected)
+  local who = 'p0.' .. unit .. '#1'
+  local steps = { act.activate(0, who), act.action(who, 'walk', to) }
+  for _, e in ipairs(expected or {}) do steps[#steps + 1] = e end
+  test {
+    id = id, name = name, ruleset = 'rs', map = map,
+    place = {
+      { unit = unit, player = 0, at = { from } },
+      { unit = 'test_soldier', player = 1, at = {{ q = -1, r = 0, z = 1 }} },
+    },
+    steps = steps,
+  }
+end
+-- Sliding south-east, the rear would rise two levels: within the spread, beyond `max_climb`.
+solo('rear_climb', 'a rigid rear cell cannot climb further than the anchor may', 'steep', 'test_wagon',
+  { q = 0, r = 0, z = 1 }, { 0, 1, 1, 0 })
+-- A figure two levels tall: the rear's nearest surface is under the shelf, so it stands on top.
+test {
+  id = 'shelf_top', name = 'a rear cell without headroom stands on the next surface up', ruleset = 'rs', map = 'shelf',
+  place = {
+    { unit = 'test_tall_cart', player = 0, at = {{ q = -1, r = 0, z = 2 }} },
+    { unit = 'test_soldier', player = 1, at = {{ q = -2, r = 0, z = 1 }} },
+  },
+  steps = {
+    act.activate(0, 'p0.test_tall_cart#1'),
+    act.action('p0.test_tall_cart#1', 'walk', { 0, 0, 2, 0 }),
+    expect.event('figure_moved'),
+  },
+}
+-- The soldier on (2, 1) cannot stop on the cart's rear cell on (3, 0).
+test {
+  id = 'onto_rear', name = 'a figure cannot stop on another figure\'s rear cell', ruleset = 'rs', map = 'field',
+  place = {
+    { unit = 'test_soldier', player = 0, at = {{ q = 2, r = 1, z = 1 }} },
+    { unit = 'test_cart', player = 1, at = {{ q = 2, r = 0, z = 1 }} },
+  },
+  steps = { act.activate(0, 'p0.test_soldier#1'), act.action('p0.test_soldier#1', 'walk', { 3, 0, 1 }) },
+}
+-- Placing the soldier on the cart's rear cell is refused before the test starts.
+test {
+  id = 'placed_on_rear', name = 'a test cannot place a figure on another figure\'s rear cell', ruleset = 'rs', map = 'field',
+  place = {
+    { unit = 'test_cart', player = 0, at = {{ q = 0, r = 0, z = 1 }} },
+    { unit = 'test_soldier', player = 1, at = {{ q = 1, r = 0, z = 1 }} },
+  },
+  steps = {},
+}

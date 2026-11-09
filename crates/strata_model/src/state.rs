@@ -229,7 +229,8 @@ pub struct FlowState {
 pub struct BoardChanges {
     /// Indices into the map's placed features that have been removed.
     pub removed_features: BTreeSet<u32>,
-    /// Which figure stands on each anchor space.
+    /// Which figure covers each space: every cell of every on-board figure's footprint, not
+    /// only its anchor.
     pub occupancy: BTreeMap<Space, FigureId>,
 }
 
@@ -277,5 +278,18 @@ impl GameState {
     pub fn standing(&self, figure: FigureId) -> Option<Space> {
         let fig = self.figures.get(figure.index())?;
         fig.location.filter(|_| fig.status == FigureStatus::OnBoard)
+    }
+
+    /// The figure covering `space` with any cell of its footprint, if any.
+    pub fn occupant(&self, space: Space) -> Option<FigureId> {
+        self.board_changes.occupancy.get(&space).copied()
+    }
+
+    /// Every space `figure` covers, ordered by space; empty while it is off the board.
+    pub fn covered(&self, figure: FigureId) -> Vec<Space> {
+        let all = self.board_changes.occupancy.iter();
+        all.filter(|(_, f)| **f == figure)
+            .map(|(s, _)| *s)
+            .collect()
     }
 }

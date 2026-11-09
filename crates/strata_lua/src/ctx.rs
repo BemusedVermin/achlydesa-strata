@@ -49,6 +49,18 @@ pub trait RuleHost: Send + Sync {
     fn standable(&self, _: Space) -> bool {
         false
     }
+    /// The spaces `figure`'s footprint covers with its anchor on `anchor` turned by `rotation`,
+    /// in offset order, or `None` when some cell has no standable surface. Without footprints a
+    /// figure covers its anchor alone.
+    fn cells(
+        &self,
+        _state: &GameState,
+        _figure: FigureId,
+        anchor: Space,
+        _rotation: strata_kernel::Rotation,
+    ) -> Option<Vec<Space>> {
+        Some(vec![anchor])
+    }
     /// The relic with this definition ID.
     fn relic(&self, _id: strata_kernel::DefId) -> Option<strata_model::RelicDef> {
         None

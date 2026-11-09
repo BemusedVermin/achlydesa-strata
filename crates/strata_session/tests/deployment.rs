@@ -2,6 +2,8 @@
 
 use std::path::PathBuf;
 
+use strata_kernel::Space;
+use strata_model::Event;
 use strata_modules::native_modules;
 use strata_session::pack_test::{PackTests, TestReport, summary};
 
@@ -85,6 +87,30 @@ fn the_enemy_unit_cannot_be_placed() {
 #[test]
 fn an_occupied_space_is_refused() {
     refused("a space already", "occupied");
+}
+
+#[test]
+fn a_two_space_figure_covers_both_its_cells() {
+    passes("a two-space figure covers");
+    let reports = run();
+    let mut moved = named(&reports, "a two-space figure covers").events.iter();
+    let cells = moved.find_map(|e| match e {
+        Event::FigureMoved { cells, .. } => Some(cells.clone()),
+        _ => None,
+    });
+    assert_eq!(cells, Some(vec![Space::new(2, 0, 1), Space::new(3, 0, 1)]));
+}
+
+#[test]
+fn no_cell_of_a_body_may_overlap_another_figure() {
+    refused("a rear cell cannot be placed on a figure", "occupied");
+    refused("a figure cannot be placed on a rear cell", "occupied");
+}
+
+#[test]
+fn every_cell_must_stand_inside_the_start_zone() {
+    refused("a rear cell cannot stand on water", "cannot stand there");
+    refused("a rear cell cannot leave", "outside your start zone");
 }
 
 #[test]
