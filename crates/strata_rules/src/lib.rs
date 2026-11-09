@@ -29,7 +29,7 @@ pub use engine::{
 };
 pub use flow::{
     ActionRunner, ActivationGate, ActivationRules, Flow, FlowError, OrderingPolicy, PhaseTree,
-    ROOT, take_action,
+    ROOT, TokenRules, take_action,
 };
 pub use los::{FigureVolume, LineOfSight, LosResult, LosWorld};
 pub use module::{ModuleError, RuleModule};

@@ -104,6 +104,8 @@ impl SimLink {
         let mut view = PlayerView::of(session.state(), viewer);
         view.cards = cards.cards(session.state());
         view.names = cards.names();
+        view.legal = session.legal_commands(viewer);
+        view.tokens = session.token_choice(viewer);
         self.send(SimMessage::View(Box::new(view)))
     }
 

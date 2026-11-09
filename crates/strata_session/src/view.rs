@@ -5,7 +5,7 @@ use std::sync::Arc;
 use crate::cards::UnitCard;
 use crate::names::Names;
 use strata_kernel::DefId;
-use strata_model::{Event, GameState, PlayerId, UnitId, Visibility};
+use strata_model::{Command, Event, GameState, PlayerId, TokenChoice, UnitId, Visibility};
 
 /// The kind shown in place of a token the viewer may not see.
 pub const REDACTED: DefId = DefId(u32::MAX);
@@ -23,6 +23,11 @@ pub struct PlayerView {
     /// Names of the dice, markers and phases that events mention; empty when no content was
     /// supplied.
     pub names: Arc<Names>,
+    /// The commands the viewer may submit now, as the rules list them; empty out of turn or
+    /// while a decision is pending.
+    pub legal: Vec<Command>,
+    /// How the viewer may place the tokens in hand, when they have tokens to place.
+    pub tokens: Option<TokenChoice>,
 }
 
 impl PlayerView {
@@ -46,6 +51,8 @@ impl PlayerView {
             state,
             cards: Vec::new(),
             names: Arc::default(),
+            legal: Vec::new(),
+            tokens: None,
         }
     }
 }

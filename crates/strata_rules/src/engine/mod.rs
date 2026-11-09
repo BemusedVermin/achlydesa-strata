@@ -12,12 +12,12 @@ pub use halt::{CommandRecord, Halt, Outcome, RuleViolation};
 pub use hooks::HookRunner;
 pub use names::event_kind;
 
-use strata_model::{Answer, Command, GameState, PendingDecision, PlayerId};
+use strata_model::{Answer, Command, GameState, PendingDecision, PlayerId, TokenChoice};
 
 use exec::Exec;
 use names::answer_fits;
 
-use crate::flow::Flow;
+use crate::flow::{Flow, TokenRules};
 use crate::runtime::RulesRuntime;
 
 /// Drives a game: owns the committed state and the command log.
@@ -85,6 +85,16 @@ impl<'a> Engine<'a> {
         match &self.flow {
             Some(flow) => flow.legal_commands(self.rt, &self.state, player),
             None => Vec::new(),
+        }
+    }
+
+    /// How `player` may place the tokens in hand, from the tokens module's [`TokenRules`]: `None`
+    /// while a decision is pending, without such a module, or with nothing to place.
+    pub fn token_choice(&self, player: PlayerId) -> Option<TokenChoice> {
+        let rules = self.rt.service::<dyn TokenRules>()?;
+        match self.state.pending {
+            Some(_) => None,
+            None => rules.choice(&self.state, player),
         }
     }
 

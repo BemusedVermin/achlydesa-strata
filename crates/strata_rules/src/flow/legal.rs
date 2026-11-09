@@ -1,7 +1,7 @@
 //! Legal commands, derived from the phase, the activation and the actions (design §12.4).
 
 use strata_kernel::{DefId, Sym, Value};
-use strata_model::{Command, FigureStatus, GameState, PlayerId, UnitId};
+use strata_model::{Command, FigureStatus, GameState, PlayerId, TokenChoice, UnitId};
 
 use super::action::ActionRunner;
 use super::activation::ActivationRules;
@@ -13,6 +13,13 @@ use crate::runtime::RulesRuntime;
 pub trait ActivationGate: Send + Sync {
     /// Whether `player` may activate `unit` in the current turn.
     fn may_activate(&self, state: &GameState, player: PlayerId, unit: UnitId) -> bool;
+}
+
+/// Describes how a player may place the tokens in hand. A tokens module provides it as a service,
+/// because the placements of a whole hand are too many to list as legal commands.
+pub trait TokenRules: Send + Sync {
+    /// The placement open to `player` now, or `None` when they have no tokens to place.
+    fn choice(&self, state: &GameState, player: PlayerId) -> Option<TokenChoice>;
 }
 
 /// Everything `legal_commands` needs beyond the registrations.

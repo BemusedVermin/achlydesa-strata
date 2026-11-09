@@ -8,7 +8,7 @@ mod tree;
 
 pub use action::{ActionRunner, take_action};
 pub use activation::{ActivationRules, OrderingPolicy};
-pub use legal::{ActivationGate, Flow};
+pub use legal::{ActivationGate, Flow, TokenRules};
 pub use tree::{FlowError, PhaseTree, ROOT};
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 //! The command loop: asks the right controller, feeds the engine, records the match.
 
-use strata_model::{Event, GameState, PlayerId};
+use strata_model::{Command, Event, GameState, PlayerId, TokenChoice};
 use strata_rules::{Engine, Outcome, RuleViolation};
 
 use crate::controller::Controller;
@@ -44,6 +44,16 @@ impl<'a> Session<'a> {
     /// The committed state.
     pub fn state(&self) -> &GameState {
         self.engine.state()
+    }
+
+    /// The commands `player` may submit now.
+    pub fn legal_commands(&self, player: PlayerId) -> Vec<Command> {
+        self.engine.legal_commands(player)
+    }
+
+    /// How `player` may place the tokens in hand, if they have any to place.
+    pub fn token_choice(&self, player: PlayerId) -> Option<TokenChoice> {
+        self.engine.token_choice(player)
     }
 
     /// Asks whoever must act next, and returns the events that committed (none when the
