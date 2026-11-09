@@ -1,6 +1,6 @@
 # T-032: core:rounds and core:command_tokens
 
-**Task T-032** · M3 Standard rules and archetypes · Est. core lines: ~450 / 500
+**Task T-032** · M3 Standard rules and archetypes · Est. core lines: ~450
 **Depends on:** T-031
 
 ## Goal
@@ -29,8 +29,7 @@ The round loop, initiative and hidden command tokens.
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

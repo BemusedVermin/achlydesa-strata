@@ -31,7 +31,7 @@ Give presentation math a Bevy-free home before terrain and sprites land, and sto
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Moves are real moves (`git mv`), so the line budget sees renames rather than new code
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

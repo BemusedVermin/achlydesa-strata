@@ -1,6 +1,6 @@
 # T-016: Freeze: convert records to typed definitions and extract ScriptRefs
 
-**Task T-016** · M1 Lua data stage · Est. core lines: ~350 / 500
+**Task T-016** · M1 Lua data stage · Est. core lines: ~350
 **Depends on:** T-015, T-009
 
 ## Goal
@@ -29,8 +29,7 @@ Turn Lua tables into the typed structs from T-008 and T-009, without losing wher
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

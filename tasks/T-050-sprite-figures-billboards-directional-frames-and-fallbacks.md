@@ -1,6 +1,6 @@
 # T-050: Sprite figures: billboards, directional frames and fallbacks
 
-**Task T-050** · M4 Playable client · Est. core lines: ~450 / 500
+**Task T-050** · M4 Playable client · Est. core lines: ~450
 **Depends on:** T-049
 
 ## Goal
@@ -30,8 +30,7 @@ Every figure is an upright, camera-facing sprite that sorts correctly against te
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

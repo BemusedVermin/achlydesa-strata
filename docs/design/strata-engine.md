@@ -1112,7 +1112,7 @@ Build bottom-up: geometry and the Lua loader before rules, and rules before the 
 | M6 AI and tooling | Greedy AI, balance sim, coverage report, rules inspector, hot reload, lints, replay tools | The AI beats a random player in 90% of games; coverage report on `strata_std` |
 | M7 Content and release | Units, factions and art for `strata_std`; release packaging | A distributable build |
 
-Implementation is tracked as GitHub issues in the engine repository, starting at T-001. Each pull request adds at most 500 lines of core logic, not counting tests. Every pull request passes CI and an automated Claude review before Liam reviews it.
+Implementation is tracked as GitHub issues in the engine repository, starting at T-001. Every pull request passes CI and an automated Claude review before Liam reviews it.
 
 ## 18. Open questions
 

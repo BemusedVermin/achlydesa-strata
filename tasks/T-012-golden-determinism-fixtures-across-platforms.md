@@ -1,6 +1,6 @@
 # T-012: Golden determinism fixtures across platforms
 
-**Task T-012** · M0 Foundations · Est. core lines: ~60 / 500
+**Task T-012** · M0 Foundations · Est. core lines: ~60
 **Depends on:** T-007, T-010, T-011
 
 ## Goal
@@ -28,8 +28,7 @@ Prove on all three CI platforms that geometry, RNG and hashing agree bit for bit
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

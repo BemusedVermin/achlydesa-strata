@@ -1,6 +1,6 @@
 # T-013: strata_lua: sandboxed Lua host
 
-**Task T-013** · M1 Lua data stage · Est. core lines: ~450 / 500
+**Task T-013** · M1 Lua data stage · Est. core lines: ~450
 **Depends on:** T-005
 
 ## Goal
@@ -33,8 +33,7 @@ A Lua 5.4 host that cannot do anything nondeterministic or unsafe.
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

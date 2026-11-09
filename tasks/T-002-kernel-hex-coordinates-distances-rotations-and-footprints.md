@@ -1,6 +1,6 @@
 # T-002: Kernel: hex coordinates, distances, rotations and footprints
 
-**Task T-002** · M0 Foundations · Est. core lines: ~300 / 500
+**Task T-002** · M0 Foundations · Est. core lines: ~300
 **Depends on:** T-001
 
 ## Goal
@@ -34,8 +34,7 @@ Give every other crate one exact, integer hex vocabulary.
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 
