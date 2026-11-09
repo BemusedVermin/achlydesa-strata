@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use strata_content::RegistryDefs;
 use strata_kernel::DefId;
 use strata_lua::{LuaRules, ModuleBinding};
 use strata_model::board::compile;
@@ -13,7 +14,7 @@ use strata_rules::{
     Engine, LineOfSight, Movement, Outcome, RulesetSource, SourcedModifier, event_kind, resolve,
 };
 
-use super::host::{Host, RegistryDefs, find};
+use super::host::{Host, find};
 use super::report::Failure;
 use super::{PackTests, state};
 use crate::setup::place_relics;
@@ -96,10 +97,7 @@ impl PackTests {
             ),
             None => None,
         };
-        let defs = RegistryDefs {
-            registry: &self.registry,
-            pack,
-        };
+        let defs = RegistryDefs::new(&self.registry, pack);
         let board = map.map(|m| compile(m, &defs).map_err(|e| setup(e.to_string())));
         let board = board.transpose()?;
         let rulesets = Rulesets { tests: self, pack };

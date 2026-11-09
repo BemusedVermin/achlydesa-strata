@@ -3,9 +3,9 @@
 //! A module in the `movement` slot provides [`Movement`]. It asks a [`MoveWorld`], which the host
 //! implements over the board, the loaded content and the rule queries.
 
-use strata_kernel::{DefId, Space};
-use strata_model::FigureId;
+use strata_kernel::{DefId, Rotation, Space};
 use strata_model::board::CompiledBoard;
+use strata_model::{FigureId, FootprintDef};
 
 use crate::query::LogicError;
 
@@ -24,7 +24,15 @@ pub trait MoveWorld {
     fn board(&self) -> &CompiledBoard;
     /// The anchor space of a figure on the board.
     fn location(&self, figure: FigureId) -> Option<Space>;
-    /// The figure standing on `space`, if any.
+    /// The rotation of a figure on the board. Without an answer figures face the default way.
+    fn rotation(&self, _figure: FigureId) -> Rotation {
+        Rotation::default()
+    }
+    /// The footprint of a figure. Without one the figure covers its anchor space only.
+    fn footprint(&self, _figure: FigureId) -> Option<&FootprintDef> {
+        None
+    }
+    /// The figure covering `space`, if any.
     fn occupant(&self, space: Space) -> Option<FigureId>;
     /// How many levels of headroom the figure needs.
     fn height(&self, figure: FigureId) -> u32;
@@ -53,11 +61,15 @@ pub trait MoveWorld {
 /// One space a figure can reach.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Reach {
-    /// The space.
+    /// The anchor space.
     pub space: Space,
+    /// The figure's rotation there.
+    pub rotation: Rotation,
+    /// Every space the footprint covers there, in offset order; just `space` for one cell.
+    pub cells: Vec<Space>,
     /// Total movement cost to get there.
     pub cost: i64,
-    /// The spaces walked, excluding the start and ending at `space`.
+    /// The anchor spaces walked, excluding the start and ending at `space`.
     pub path: Vec<Space>,
     /// Entering the space ends the move.
     pub stops_here: bool,
@@ -65,12 +77,12 @@ pub struct Reach {
     pub falls: bool,
     /// Some step of the path leaves engagement with an enemy who gets a reprisal.
     pub provokes_reprisal: bool,
-    /// Another figure stands here, so the figure can pass through but not stop.
+    /// Another figure covers one of `cells`, so the figure can pass through but not stop.
     pub occupied: bool,
 }
 
 /// Where a figure can move to, as the `movement` slot defines it.
 pub trait Movement: Send + Sync {
-    /// Every space `figure` can reach, ordered by [`Space`].
+    /// Every (space, rotation) `figure` can reach, ordered by space and then rotation.
     fn reachable(&self, world: &dyn MoveWorld, figure: FigureId) -> Result<Vec<Reach>, LogicError>;
 }

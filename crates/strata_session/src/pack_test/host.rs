@@ -7,13 +7,13 @@ use std::sync::{Arc, Mutex, OnceLock, Weak};
 use crate::cards::{AbilityLine, CardSource, FigureLine, StatLine, UnitCard};
 use crate::names::Names;
 use strata_content::ContentRegistry;
-use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
+use strata_kernel::{Blocker, DefId, Hex, Rotation, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
-use strata_model::board::{BoardDefs, CompiledBoard};
+use strata_model::board::CompiledBoard;
 use strata_model::{
-    AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureDef, FigureDefRef, FigureId,
-    FigureStatus, FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef,
-    StatDef, TerrainDef, TileDef, UnitDef, UnitId, UnitState,
+    AbilityOwner, Descriptor, DieDef, DieKind, FigureDef, FigureDefRef, FigureId, FigureStatus,
+    FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef, StatDef,
+    TerrainDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
     Ctx, DeploySlot, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics,
@@ -39,32 +39,7 @@ pub(crate) fn find<'a, T: Def>(
     pack: &str,
     name: &str,
 ) -> Option<(DefId, &'a T)> {
-    let suffix = format!(":{name}");
-    registry
-        .find::<T>(name)
-        .or_else(|| registry.find::<T>(&format!("{pack}:{name}")))
-        .or_else(|| {
-            let mut hits = registry
-                .iter::<T>()
-                .filter(|(_, id, _)| id.ends_with(&suffix));
-            hits.next().map(|(id, _, def)| (id, def))
-        })
-}
-
-/// Resolves the tile and feature names of a map against the registry.
-pub(crate) struct RegistryDefs<'a> {
-    pub(crate) registry: &'a ContentRegistry,
-    pub(crate) pack: &'a str,
-}
-
-impl BoardDefs for RegistryDefs<'_> {
-    fn tile(&self, name: &Sym) -> Option<&TileDef> {
-        find::<TileDef>(self.registry, self.pack, name.as_str()).map(|(_, def)| def)
-    }
-
-    fn feature(&self, name: &Sym) -> Option<&FeatureDef> {
-        find::<FeatureDef>(self.registry, self.pack, name.as_str()).map(|(_, def)| def)
-    }
+    registry.lookup::<T>(pack, name)
 }
 
 /// The faces a command's dice are forced to, one list per roll.
@@ -339,14 +314,13 @@ impl RuleHost for Host {
             service.ok_or_else(|| LogicError("the ruleset has no `movement` module".into()))?;
         let board = self.board.as_ref();
         let board = board.ok_or_else(|| LogicError("the match has no board".into()))?;
-        service.reachable(
-            &StateMove {
-                host: self,
-                state,
-                board,
-            },
-            figure,
-        )
+        let world = StateMove {
+            host: self,
+            state,
+            board,
+            covered: self.covered(state, board),
+        };
+        service.reachable(&world, figure)
     }
 
     fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
@@ -544,11 +518,38 @@ const MOVE_COST: &str = "move_cost";
 /// The stat that is a figure's allowance for one move.
 const MOVE: &str = "move";
 
+impl Host {
+    /// The footprint of a figure, from its unit definition.
+    fn footprint(&self, state: &GameState, figure: FigureId) -> Option<&FootprintDef> {
+        let fig = state.figures.get(figure.index())?;
+        let unit = self.registry.get::<UnitDef>(fig.def.unit)?;
+        let entry = unit.figures.iter().find(|f| f.id == fig.def.figure)?;
+        self.registry.get::<FootprintDef>(entry.footprint)
+    }
+
+    /// Every space covered by a figure on the board: each footprint cell, not only the anchor.
+    fn covered(&self, state: &GameState, board: &CompiledBoard) -> BTreeMap<Space, FigureId> {
+        let mut covered = state.board_changes.occupancy.clone();
+        let on_board = (0u32..).zip(&state.figures).filter_map(|(id, f)| {
+            let at = f.location.filter(|_| f.status == FigureStatus::OnBoard)?;
+            Some((FigureId(id), at, f.rotation))
+        });
+        for (id, at, rotation) in on_board {
+            let footprint = self.footprint(state, id);
+            let cells = footprint.and_then(|f| f.spaces(board, at, rotation));
+            covered.extend(cells.into_iter().flatten().map(|(space, _)| (space, id)));
+        }
+        covered
+    }
+}
+
 /// What movement reads: the state and board, with terrain and figure sizes from the registry.
 struct StateMove<'a> {
     host: &'a Host,
     state: &'a GameState,
     board: &'a CompiledBoard,
+    /// The figure covering each space, footprints included.
+    covered: BTreeMap<Space, FigureId>,
 }
 
 impl StateMove<'_> {
@@ -577,8 +578,17 @@ impl MoveWorld for StateMove<'_> {
         fig.location.filter(|_| fig.status == FigureStatus::OnBoard)
     }
 
+    fn rotation(&self, figure: FigureId) -> Rotation {
+        let fig = self.state.figures.get(figure.index());
+        fig.map(|f| f.rotation).unwrap_or_default()
+    }
+
+    fn footprint(&self, figure: FigureId) -> Option<&FootprintDef> {
+        self.host.footprint(self.state, figure)
+    }
+
     fn occupant(&self, space: Space) -> Option<FigureId> {
-        self.state.board_changes.occupancy.get(&space).copied()
+        self.covered.get(&space).copied()
     }
 
     fn height(&self, figure: FigureId) -> u32 {
