@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use strata_kernel::Space;
+use strata_kernel::{Rotation, Space};
 use strata_model::Event;
 use strata_modules::native_modules;
 use strata_session::pack_test::{PackTests, TestReport, summary};
@@ -111,6 +111,67 @@ fn no_cell_of_a_body_may_overlap_another_figure() {
 fn every_cell_must_stand_inside_the_start_zone() {
     refused("a rear cell cannot stand on water", "cannot stand there");
     refused("a rear cell cannot leave", "outside your start zone");
+}
+
+/// The anchor, rotation and cells of the first figure moved in the test `name`.
+fn first_move(reports: &[TestReport], name: &str) -> (Space, Rotation, Vec<Space>) {
+    let mut events = named(reports, name).events.iter();
+    let moved = events.find_map(|e| match e {
+        Event::FigureMoved {
+            to,
+            rotation,
+            cells,
+            ..
+        } => Some((*to, *rotation, cells.clone())),
+        _ => None,
+    });
+    moved.unwrap_or_else(|| panic!("`{name}` moved no figure"))
+}
+
+#[test]
+fn a_two_space_figure_deploys_at_every_rotation() {
+    let reports = run();
+    let anchor = Space::new(1, 0, 1);
+    let rears = [(2, 0), (1, 1), (0, 1), (0, 0), (1, -1), (2, -1)];
+    for (o, (q, r)) in (0u8..).zip(rears) {
+        let name = format!("a cart deploys turned {o}");
+        let report = named(&reports, &name);
+        assert!(report.outcome.is_ok(), "{}", summary(&reports));
+        let rotation = Rotation::new(o).unwrap();
+        let cells = vec![anchor, Space::new(q, r, 1)];
+        assert_eq!(first_move(&reports, &name), (anchor, rotation, cells));
+    }
+}
+
+#[test]
+fn a_missing_rotation_deploys_facing_the_default_way() {
+    let reports = run();
+    let (_, rotation, _) = first_move(&reports, "a two-space figure covers");
+    assert_eq!(rotation, Rotation::default());
+}
+
+#[test]
+fn a_turned_rear_cell_must_stay_in_the_start_zone() {
+    refused("a turned rear cell cannot leave", "outside your start zone");
+}
+
+#[test]
+fn a_turned_rear_cell_needs_a_surface_within_the_spread() {
+    refused("a turned rear cell cannot hang", "cannot stand there");
+    refused("a turned rear cell cannot spread", "cannot stand there");
+}
+
+#[test]
+fn a_turned_rear_cell_cannot_overlap_another_figure() {
+    refused(
+        "a turned rear cell cannot be placed on a figure",
+        "occupied",
+    );
+}
+
+#[test]
+fn a_rotation_past_five_is_refused() {
+    refused("a rotation past 5", "a rotation is from 0 to 5");
 }
 
 #[test]

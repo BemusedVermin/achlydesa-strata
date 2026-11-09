@@ -24,6 +24,12 @@ globals.act = {
   command = function(player, id, payload, opts)
     return { Custom = { player = player, id = id, payload = payload, rig = opts and opts.rig } }
   end,
+  -- `place_unit` with the deployment slot's payload (design 11.2): `at` holds one
+  -- `{ q, r, z }` or `{ q, r, z, o }` per figure, `o` being the rotation (0 when left out).
+  deploy = function(player, unit, at, opts)
+    local payload = { unit = unit, at = at }
+    return { Custom = { player = player, id = 'place_unit', payload = payload, rig = opts and opts.rig } }
+  end,
   place_tokens = function(player, placements)
     return { PlaceTokens = { player = player, placements = placements } }
   end,

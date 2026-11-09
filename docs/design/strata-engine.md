@@ -776,6 +776,14 @@ scenario {
 
 `win.*` constructors are victory conditions registered by modules. Each is evaluated after every command and at round end, and may supply a `progress(state, player)` estimate for the AI. The first listed condition wins ties.
 
+Players deploy in `deploy_order`, one unit at a time, with the `place_unit` custom command. Its payload is the `deployment` slot's command contract: the UI, the AI and the pack-test `act.deploy` step build it without knowing which module fills the slot, so a replacement module accepts the same shape.
+
+```lua
+{ unit = 3, at = { { 0, 0, 1, 2 }, { 1, 1, 1 } } }   -- unit id; one { q, r, z, o } per figure
+```
+
+`at` lists one spot per figure, in the order the unit lists its figures: the anchor space (q, r, z) and the footprint's rotation o from 0 to 5 (§7.3). A missing o means 0. `core:deployment` accepts a placement only when every cell of every rotated footprint is in the player's start zone, stands on a standable surface the figure fits on as movement would stand it, and is free of other figures, this placement's included. The same check, `check_placement`, serves any list of legal placements.
+
 ### 11.3 Format
 
 A format is everything a tournament organizer decides. A scenario may tighten a format's army rules but never loosen them, because both sets always apply.
@@ -1086,6 +1094,8 @@ test {
   },
 }
 ```
+
+A test that exercises deployment leaves `at` empty to keep a unit in reserve, then places it with `act.deploy(player, unit, at)`, which sends `place_unit` with the payload of §11.2.
 
 On the Rust side, `cargo test` covers the crates, `proptest` checks geometry invariants, and `insta` snapshots the event logs of golden matches. A good invariant: line of sight must not change when the whole board is rotated 60 degrees.
 
