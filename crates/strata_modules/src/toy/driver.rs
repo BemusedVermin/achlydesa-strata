@@ -69,6 +69,7 @@ impl CommandHandler for MoveTo {
             figure,
             to,
             rotation,
+            path: Vec::new(),
         })
     }
 }

@@ -35,7 +35,8 @@ pub use los::{FigureVolume, LineOfSight, LosResult, LosWorld};
 pub use module::{ModuleError, RuleModule};
 pub use movement::{MoveWorld, Movement, Reach, TerrainRules};
 pub use native::{
-    DicePool, MAX_POOL, NativeEnv, NativeLogic, NoEnv, Roll, native_name, reroll, roll_pool,
+    DeploySlot, DicePool, MAX_POOL, NativeEnv, NativeLogic, NoEnv, Roll, native_name, reroll,
+    roll_pool,
 };
 pub use query::{
     EvalCtx, LogicError, LogicEvaluator, Logics, Query, QueryEngine, QueryError, QueryTrace,
