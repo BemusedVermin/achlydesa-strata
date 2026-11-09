@@ -3,8 +3,8 @@
 use std::collections::BTreeMap;
 
 use strata_kernel::{ModuleId, Sym, Value, WindowId};
-use strata_model::{DieKind, Event, FigureId, VarKey};
-use strata_rules::{Ctx, Halt, MAX_POOL, NativeEnv, roll_pool};
+use strata_model::{Event, FigureId, VarKey};
+use strata_rules::{Ctx, DicePool, Halt, MAX_POOL, NativeEnv};
 
 use super::sight::{Sight, height_bonus};
 use super::{AFTER_DEFENSE_ROLL, AFTER_WOUNDS, BEFORE_ATTACK_ROLL, BEFORE_DEFENSE_ROLL, Rules};
@@ -28,10 +28,24 @@ pub(crate) struct Record {
     pub(crate) hits: i64,
     pub(crate) blocks: i64,
     pub(crate) wounds: i64,
+    /// The window open now, or the last one the attack opened.
+    pub(crate) window: Sym,
+    /// Whether the attack ran through every window; false when it ended early because the
+    /// attacker left play.
+    pub(crate) finished: bool,
 }
 
-/// The fields of a record that `ctx.combat.set` may change.
-pub(crate) const SETTABLE: [&str; 4] = ["attack_dice", "defense_dice", "hits", "blocks"];
+/// The fields of a record that `ctx.combat.set` may change in `window`: those the attack has not
+/// yet read for good. A roll replaces its own count, so `hits` and `blocks` are settable only
+/// once rolled, and nothing is settable once the wounds are applied.
+pub(crate) fn settable(window: &str) -> &'static [&'static str] {
+    match window {
+        BEFORE_ATTACK_ROLL => &["attack_dice", "defense_dice"],
+        BEFORE_DEFENSE_ROLL => &["hits", "defense_dice"],
+        AFTER_DEFENSE_ROLL => &["hits", "blocks"],
+        _ => &[],
+    }
+}
 
 /// The variable's key.
 pub(crate) fn record_key() -> VarKey {
@@ -55,6 +69,8 @@ impl Record {
             ("hits", int(self.hits)),
             ("blocks", int(self.blocks)),
             ("wounds", int(self.wounds)),
+            ("window", Value::Str(self.window.clone())),
+            ("finished", Value::Bool(self.finished)),
         ];
         let fields = fields.into_iter().map(|(k, v)| (Sym::new(k), v));
         Value::Map(fields.collect::<BTreeMap<_, _>>())
@@ -76,6 +92,8 @@ impl Record {
             hits: int("hits")?,
             blocks: int("blocks")?,
             wounds: int("wounds")?,
+            window: Sym::new(value.get("window").and_then(Value::as_str).map_err(bad)?),
+            finished: flag("finished")?,
         })
     }
 
@@ -86,33 +104,22 @@ impl Record {
     }
 
     /// Writes the record as the attack in progress.
-    fn save(&self, ctx: &mut dyn Ctx) -> Result<(), Halt> {
+    pub(crate) fn save(&self, ctx: &mut dyn Ctx) -> Result<(), Halt> {
         let key = record_key();
         let value = self.to_value();
         ctx.emit(Event::VarSet { key, value })
     }
 
-    /// Reads back the attack in progress after a window, where reactions may have changed it.
-    fn reload(ctx: &mut dyn Ctx) -> Result<Self, Halt> {
+    /// Opens `window` with this record saved as the attack in progress, then reads it back
+    /// with whatever reactions changed.
+    fn window(&mut self, ctx: &mut dyn Ctx, window: &str) -> Result<(), Halt> {
+        self.window = Sym::new(window);
+        self.save(ctx)?;
+        ctx.window(&WindowId::new(window))?;
         let found = Self::current(ctx)?;
-        found.ok_or_else(|| Halt::reject("the attack in progress was cleared"))
+        *self = found.ok_or_else(|| Halt::reject("the attack in progress was cleared"))?;
+        Ok(())
     }
-}
-
-/// Checks that the configured die exists and has the hit and block faces, naming the config key
-/// at fault if not.
-fn check(rules: &Rules, env: &dyn NativeEnv) -> Result<(), Halt> {
-    let bad = |key: &str, e: String| Halt::reject(format!("core:combat `{key}`: {e}"));
-    let Some((_, kind)) = env.die(&rules.die) else {
-        return Err(bad("die", format!("unknown die `{}`", rules.die)));
-    };
-    for (key, face) in [("hit", &rules.hit), ("block", &rules.block)] {
-        if !matches!(&kind, DieKind::Faces(faces) if faces.contains(face)) {
-            let die = &rules.die;
-            return Err(bad(key, format!("`{face}` is not a face of die `{die}`")));
-        }
-    }
-    Ok(())
 }
 
 /// The record an attack starts from: its pools, before any reaction. `dice` replaces the
@@ -126,16 +133,13 @@ pub(crate) fn start(
     dice: Option<i64>,
 ) -> Result<Record, Halt> {
     let state = ctx.state();
-    let stat = |figure, name| {
-        let found = env.stat(state, figure, name);
-        found.map_err(|e| Halt::reject(e.to_string()))
-    };
+    let pool = |figure, stat| DicePool::for_stat(env, state, &rules.die, figure, stat);
     let attack = match dice {
         Some(dice) => dice,
-        None => stat(attacker, "attack")?,
+        None => pool(attacker, "attack")?.count,
     };
     let (high_attack, high_defense) = height_bonus(rules, state, attacker, target);
-    let defense = stat(target, "defense")? + high_defense + i64::from(sight.cover);
+    let defense = pool(target, "defense")?.count + high_defense + i64::from(sight.cover);
     Ok(Record {
         attacker,
         target,
@@ -146,11 +150,27 @@ pub(crate) fn start(
         hits: 0,
         blocks: 0,
         wounds: 0,
+        window: Sym::new(BEFORE_ATTACK_ROLL),
+        finished: false,
     })
 }
 
+/// Rolls `count` of the configured die and counts the dice showing `face`.
+fn roll(
+    rules: &Rules,
+    ctx: &mut dyn Ctx,
+    env: &dyn NativeEnv,
+    count: i64,
+    face: &Sym,
+) -> Result<i64, Halt> {
+    let die = rules.die.clone();
+    let rolled = DicePool { die, count }.roll(ctx, env)?;
+    Ok(rolled.count(face.as_str()) as i64)
+}
+
 /// Resolves an attack of `attacker` on `target` through every window, then announces it with the
-/// `attack` event. The record of an attack it interrupts is restored afterwards.
+/// `attack` event. An attack cannot start while another is in progress; counter-attacks are
+/// tracked by issue #204.
 pub(crate) fn attack(
     rules: &Rules,
     ctx: &mut dyn Ctx,
@@ -160,41 +180,66 @@ pub(crate) fn attack(
     sight: Sight,
     dice: Option<i64>,
 ) -> Result<(), Halt> {
-    check(rules, env)?;
-    let outer = ctx.state().vars.get(&record_key()).cloned();
-    let mut record = start(rules, ctx, env, (attacker, target), sight, dice)?;
-    record.save(ctx)?;
+    if Record::current(ctx)?.is_some() {
+        return Err(Halt::reject(
+            "core:combat: an attack cannot start while another is in progress \
+             (counter-attacks are not supported yet, see issue #204)",
+        ));
+    }
+    let faces = [("hit", &rules.hit), ("block", &rules.block)];
+    crate::shared::check_faces(env, "core:combat", &rules.die, &faces)?;
+    let record = start(rules, ctx, env, (attacker, target), sight, dice)?;
+    let record = steps(rules, ctx, env, record)?;
+    ctx.emit(Event::Custom {
+        id: Sym::new(ATTACK_EVENT),
+        payload: record.to_value(),
+    })?;
+    ctx.emit(Event::VarSet {
+        key: record_key(),
+        value: Value::Nil,
+    })
+}
 
-    ctx.window(&WindowId::new(BEFORE_ATTACK_ROLL))?;
-    record = Record::reload(ctx)?;
-    let roll = roll_pool(ctx, env, &rules.die, record.attack_dice)?;
-    record.hits = roll.count(rules.hit.as_str()) as i64;
-    record.save(ctx)?;
+/// Runs the windows, rolls and wounds of an attack, and returns its final record. The attack
+/// ends early, unfinished, when the attacker has left play after any window before the wounds.
+fn steps(
+    rules: &Rules,
+    ctx: &mut dyn Ctx,
+    env: &dyn NativeEnv,
+    mut record: Record,
+) -> Result<Record, Halt> {
+    let gone = |ctx: &dyn Ctx, record: &Record| ctx.state().standing(record.attacker).is_none();
 
-    ctx.window(&WindowId::new(BEFORE_DEFENSE_ROLL))?;
-    record = Record::reload(ctx)?;
-    let roll = roll_pool(ctx, env, &rules.die, record.defense_dice)?;
-    record.blocks = roll.count(rules.block.as_str()) as i64;
-    record.save(ctx)?;
+    record.window(ctx, BEFORE_ATTACK_ROLL)?;
+    if gone(ctx, &record) {
+        return Ok(record);
+    }
+    record.hits = roll(rules, ctx, env, record.attack_dice, &rules.hit)?;
 
-    ctx.window(&WindowId::new(AFTER_DEFENSE_ROLL))?;
-    record = Record::reload(ctx)?;
+    record.window(ctx, BEFORE_DEFENSE_ROLL)?;
+    if gone(ctx, &record) {
+        return Ok(record);
+    }
+    record.blocks = roll(rules, ctx, env, record.defense_dice, &rules.block)?;
+
+    record.window(ctx, AFTER_DEFENSE_ROLL)?;
+    if gone(ctx, &record) {
+        return Ok(record);
+    }
+    // Nothing is settable after this window, so the record keeps wounds = hits - blocks.
     record.wounds = (record.hits - record.blocks).max(0);
-    record.save(ctx)?;
     let wounds = u32::try_from(record.wounds).unwrap_or(u32::MAX);
     if wounds > 0 && ctx.state().standing(record.target).is_some() {
         crate::units::wound(ctx, env, record.target, wounds)?;
     }
 
-    ctx.window(&WindowId::new(AFTER_WOUNDS))?;
-    record = Record::reload(ctx)?;
-    ctx.emit(Event::Custom {
-        id: Sym::new(ATTACK_EVENT),
-        payload: record.to_value(),
-    })?;
-    let value = outer.unwrap_or_default();
-    ctx.emit(Event::VarSet {
-        key: record_key(),
-        value,
-    })
+    record.finished = true;
+    let applied = Record {
+        window: Sym::new(AFTER_WOUNDS),
+        ..record.clone()
+    };
+    record.window(ctx, AFTER_WOUNDS)?;
+    // Nothing is settable in the last window: the record announced is the one the wounds came
+    // from, so its wounds are always hits minus blocks.
+    Ok(applied)
 }

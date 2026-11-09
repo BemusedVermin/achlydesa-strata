@@ -6,7 +6,7 @@ use strata_model::{Command, FigureStatus, GameState, PlayerId, UnitId};
 use super::action::ActionRunner;
 use super::activation::ActivationRules;
 use super::tree::PhaseTree;
-use crate::native::NativeActions;
+use crate::native::{NativeActions, NativeEnv};
 use crate::runtime::RulesRuntime;
 
 /// Decides which units a player may activate now. A module provides it as a service; without one,
@@ -29,10 +29,12 @@ pub struct Flow<'a> {
 }
 
 impl Flow<'_> {
-    /// What `player` may submit now: nothing while a decision is pending or out of turn.
+    /// What `player` may submit now: nothing while a decision is pending or out of turn. Native
+    /// actions answer their targets with `env`, the hooks' environment that also resolves them.
     pub(crate) fn legal_commands(
         &self,
         rt: &RulesRuntime,
+        env: &dyn NativeEnv,
         s: &GameState,
         player: PlayerId,
     ) -> Vec<Command> {
@@ -42,7 +44,7 @@ impl Flow<'_> {
         match &s.flow.activation {
             None => self.activations(rt, s, player),
             Some(act) => {
-                let runner = NativeActions::new(rt, Some(self.runner), self.runner.native_env());
+                let runner = NativeActions::new(rt, Some(self.runner), env);
                 let mut out = Vec::new();
                 for &figure in &s.units[act.unit.index()].figures {
                     let fig = &s.figures[figure.index()];

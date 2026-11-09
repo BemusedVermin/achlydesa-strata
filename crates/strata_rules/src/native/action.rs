@@ -90,8 +90,4 @@ impl ActionRunner for NativeActions<'_> {
             None => self.scripts()?.resolve(def, figure, args, ctx),
         }
     }
-
-    fn native_env(&self) -> &dyn NativeEnv {
-        self.env
-    }
 }

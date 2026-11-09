@@ -1,9 +1,11 @@
 //! `core:combat`: the standard attack (design §6.1, §6.7, §7.6).
 //!
 //! The `attack` action targets an enemy within the attacker's `range` stat, measured in hexes
-//! between the nearest cells of the two footprints. An adjacent enemy needs no line of sight; any
-//! other needs the `los` slot to see it. The `can_target` vote, with that answer as its default,
-//! has the last word. The attacker rolls its `attack` stat in dice of `die`, then the target rolls
+//! between the nearest cells of the two footprints. An adjacent enemy, at most one hex away on
+//! levels that overlap as for `core:engagement`, needs no line of sight; any other, even one
+//! straight above or below, needs the `los` slot to see it. Where the `los` slot cannot answer,
+//! such an enemy is not listed as a target, and attacking it fails. The `can_target` vote, with
+//! that answer as its default, has the last word. The attacker rolls its `attack` stat in dice of `die`, then the target rolls
 //! its `defense` stat; each `hit` beyond the `block`s is a wound, applied through `core:units`.
 //!
 //! The figure standing on the higher level adds `height_bonus` dice to its roll. With `cover`
@@ -13,8 +15,10 @@
 //! The attack pauses at four windows: `combat.before_attack_roll`, `combat.before_defense_roll`,
 //! `combat.after_defense_roll` and `combat.after_wounds`. While it runs, the attack in progress
 //! is the variable `attack` of `core:combat`, which reactions read with `ctx.combat.current()`
-//! and change with `ctx.combat.set { ... }`. Once it ends, the custom event `attack` carries the
-//! final record. Special attacks resolve through `ctx.combat.attack { ... }`.
+//! and change with `ctx.combat.set { ... }`. If the attacker leaves play in one of the first three
+//! windows, the attack ends there, with no further rolls and no wounds. Once it ends, the custom
+//! event `attack` carries the final record. Special attacks resolve through
+//! `ctx.combat.attack { ... }`.
 
 mod api;
 mod resolve;
@@ -30,7 +34,8 @@ use strata_rules::{
 };
 
 pub use self::resolve::{ATTACK_EVENT, RECORD};
-use self::sight::Sight;
+use self::sight::{Blind, Sight};
+use crate::shared::id_value;
 
 #[cfg(test)]
 mod tests;
@@ -76,7 +81,8 @@ pub(crate) struct Rules {
 
 impl Rules {
     /// The figures `attacker` may attack within `range`, or within its `range` stat when `None`:
-    /// enemies on the board it reaches and sees, by ID.
+    /// enemies on the board it reaches and sees, by ID. An enemy whose line of sight cannot be
+    /// answered counts as unseen.
     pub(crate) fn targets(
         &self,
         state: &GameState,
@@ -97,7 +103,7 @@ impl Rules {
             if state.team(other.controller) == team || state.standing(id).is_none() {
                 continue;
             }
-            if Sight::of(self, state, env, attacker, id, range)?.is_some() {
+            if Sight::of(self, state, env, (attacker, id), range, Blind::Unseen)?.is_some() {
                 found.push(id);
             }
         }
@@ -116,7 +122,7 @@ impl NativeAction for Attack {
         figure: FigureId,
     ) -> Result<Vec<Value>, Halt> {
         let found = self.0.targets(state, env, figure, None)?;
-        Ok(found.into_iter().map(api::id_value).collect())
+        Ok(found.into_iter().map(id_value).collect())
     }
 
     fn resolve(
@@ -127,7 +133,8 @@ impl NativeAction for Attack {
         args: &Value,
     ) -> Result<(), Halt> {
         let target = api::figure_of(args, "attack")?;
-        let sight = Sight::of(&self.0, ctx.state(), env, figure, target, None)?;
+        let pair = (figure, target);
+        let sight = Sight::of(&self.0, ctx.state(), env, pair, None, Blind::Reject)?;
         let sight = sight.ok_or_else(|| Halt::reject("that figure cannot attack that target"))?;
         resolve::attack(&self.0, ctx, env, figure, target, sight, None)
     }

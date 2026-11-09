@@ -1,10 +1,11 @@
 //! `core:combat` through the `combat` fixture pack: the attack action, range, line of sight, the
-//! height bonus, cover, a reaction in each window and `ctx.combat.attack`.
+//! height bonus, cover, a reaction in each window, `ctx.combat.attack`, the reactions the engine
+//! refuses and an attacker destroyed mid-attack.
 
 use std::path::PathBuf;
 
-use strata_kernel::Value;
-use strata_model::Event;
+use strata_kernel::{Sym, Value};
+use strata_model::{Event, FigureId};
 use strata_modules::native_modules;
 use strata_session::pack_test::{PackTests, TestReport, summary};
 
@@ -54,15 +55,102 @@ fn surveyed(report: &TestReport) -> Vec<i64> {
     targets
 }
 
+/// Whether the test must fail at a step the engine rejects.
+fn refused(report: &TestReport) -> bool {
+    report.name.starts_with("refused: ")
+}
+
 #[test]
 fn every_combat_test_passes() {
     let reports = run();
-    assert_eq!(reports.len(), 21, "{}", summary(&reports));
-    assert!(
-        reports.iter().all(|r| r.outcome.is_ok()),
-        "{}",
-        summary(&reports)
+    assert_eq!(reports.len(), 28, "{}", summary(&reports));
+    let wrong = |r: &TestReport| r.outcome.is_ok() == refused(r);
+    assert!(!reports.iter().any(wrong), "{}", summary(&reports));
+}
+
+#[test]
+fn refused_steps_name_what_went_wrong() {
+    let reports = run();
+    let expected = [
+        (
+            "hits cannot be set before the attack roll",
+            "`hits` cannot change in `combat.before_attack_roll`, only attack_dice, defense_dice",
+        ),
+        (
+            "nothing can be set after the wounds",
+            "nothing can change in `combat.after_wounds`",
+        ),
+        ("an attack cannot start during another", "issue #204"),
+        (
+            "a special attack cannot roll a negative pool",
+            "ctx.combat.attack: `dice` must be 0..=1024, not -3",
+        ),
+        (
+            "a preview cannot roll a negative pool",
+            "ctx.combat.preview: `dice` must be 0..=1024, not -1",
+        ),
+    ];
+    for (name, message) in expected {
+        let name = format!("refused: {name}");
+        let found = reports.iter().find(|r| r.name == name);
+        let found = found.unwrap_or_else(|| panic!("no test `{name}`"));
+        let failure = found.outcome.as_ref().expect_err(&name);
+        assert!(failure.step.is_some(), "{found}");
+        assert!(failure.message.contains("was rejected"), "{found}");
+        assert!(failure.message.contains(message), "{found}");
+    }
+}
+
+/// The field `key` of the only `attack` event of `report`.
+fn attack_field(report: &TestReport, key: &str) -> Value {
+    custom(report, "attack").get(key).cloned().unwrap()
+}
+
+#[test]
+fn an_attacker_destroyed_before_its_roll_ends_the_attack() {
+    let reports = run();
+    let report = passed(
+        &reports,
+        "an attacker destroyed before its roll rolls nothing",
     );
+    let rolled = report
+        .events
+        .iter()
+        .any(|e| matches!(e, Event::DiceRolled { .. }));
+    assert!(!rolled, "{:?}", report.events);
+    assert_eq!(attack_field(report, "finished"), Value::Bool(false));
+    assert_eq!(
+        attack_field(report, "window"),
+        Value::Str(Sym::new("combat.before_attack_roll"))
+    );
+    assert_eq!(attack_field(report, "hits"), Value::Int(0));
+    assert_eq!(attack_field(report, "wounds"), Value::Int(0));
+}
+
+#[test]
+fn an_attacker_destroyed_after_its_roll_wounds_nothing() {
+    let reports = run();
+    let report = passed(
+        &reports,
+        "an attacker destroyed after its roll wounds nothing",
+    );
+    let rolls = report.events.iter();
+    let rolls = rolls.filter(|e| matches!(e, Event::DiceRolled { .. }));
+    assert_eq!(
+        rolls.count(),
+        1,
+        "only the attack roll: {:?}",
+        report.events
+    );
+    assert_eq!(attack_field(report, "finished"), Value::Bool(false));
+    assert_eq!(attack_field(report, "hits"), Value::Int(2));
+    assert_eq!(attack_field(report, "blocks"), Value::Int(0));
+    assert_eq!(attack_field(report, "wounds"), Value::Int(0));
+    let wounded = report
+        .events
+        .iter()
+        .any(|e| matches!(e, Event::WoundsApplied { figure, .. } if *figure == FigureId(1)));
+    assert!(!wounded, "{:?}", report.events);
 }
 
 #[test]
@@ -79,7 +167,7 @@ fn beyond_adjacency_an_enemy_out_of_sight_is_not_a_target() {
         &reports,
         "beyond adjacency only enemies in sight are listed",
     );
-    assert_eq!(surveyed(report), vec![2]);
+    assert_eq!(surveyed(report), vec![2, 3]);
 }
 
 #[test]
@@ -117,6 +205,26 @@ fn the_attack_event_carries_the_final_record() {
         "wounds",
     ];
     assert_eq!(got.map(field), [0, 1, 2, 2, 2, 1, 1], "{attack:?}");
+    assert_eq!(attack.get("finished"), Ok(&Value::Bool(true)), "{attack:?}");
+}
+
+#[test]
+fn the_attack_event_wounds_are_hits_minus_blocks() {
+    for report in run().iter().filter(|r| r.outcome.is_ok()) {
+        for event in &report.events {
+            let Event::Custom { id, payload } = event else {
+                continue;
+            };
+            if id.as_str() != "attack" {
+                continue;
+            }
+            let field = |k: &str| payload.get(k).and_then(Value::as_int).unwrap();
+            let expected = (field("hits") - field("blocks")).max(0);
+            let finished = payload.get("finished") == Ok(&Value::Bool(true));
+            let wounds = if finished { expected } else { 0 };
+            assert_eq!(field("wounds"), wounds, "{}: {payload:?}", report.name);
+        }
+    }
 }
 
 #[test]

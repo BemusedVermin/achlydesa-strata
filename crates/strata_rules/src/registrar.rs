@@ -177,11 +177,13 @@ impl Registrar {
         name: &str,
         action: Box<dyn NativeAction>,
     ) {
-        if self.native_actions.insert(Sym::new(name), action).is_some() {
+        // The first registration stays; a clash is only recorded.
+        if self.native_actions.contains_key(name) {
             self.conflicts
                 .push(format!("native action `{name}` is already provided"));
             return;
         }
+        self.native_actions.insert(Sym::new(name), action);
         let call = [(Sym::new("native"), Value::Str(Sym::new(name)))];
         let logic = Logic::Native(Descriptor(Value::Map(call.into())));
         self.actions.push(ActionDef {

@@ -12,6 +12,7 @@ pub mod los;
 pub mod movement;
 pub mod relics;
 pub mod rounds;
+mod shared;
 pub mod tokens;
 pub mod toy;
 pub mod units;

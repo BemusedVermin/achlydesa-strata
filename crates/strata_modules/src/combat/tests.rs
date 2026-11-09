@@ -12,7 +12,7 @@ use strata_rules::{
     FigureVolume, LogicError, LosResult, ModuleError, NativeEnv, Registrar, RuleModule, VoteQuery,
 };
 
-use super::sight::{Sight, distance, height_bonus};
+use super::sight::{Blind, Sight, distance, height_bonus};
 use super::{CombatModule, Rules};
 
 /// The module's defaults with `name` set to `value`.
@@ -124,10 +124,22 @@ fn state(attacker: Space, target: Space) -> GameState {
     }
 }
 
-fn sight(rules: &Rules, env: &Env, to: (i32, i32)) -> Result<Option<Sight>, String> {
-    let s = state(Space::new(0, 0, 1), Space::new(to.0, to.1, 1));
-    let found = Sight::of(rules, &s, env, FigureId(0), FigureId(1), None);
+/// How figure 0 at (0, 0, `from`) sees figure 1 at `to`, with line-of-sight failures `blind`.
+fn sight_at(
+    rules: &Rules,
+    env: &Env,
+    from: u32,
+    to: Space,
+    blind: Blind,
+) -> Result<Option<Sight>, String> {
+    let s = state(Space::new(0, 0, from), to);
+    let found = Sight::of(rules, &s, env, (FigureId(0), FigureId(1)), None, blind);
     found.map_err(|h| format!("{h:?}"))
+}
+
+/// How figure 0 at (0, 0, 1) sees figure 1 at `to` on level 1, failing on line-of-sight errors.
+fn sight(rules: &Rules, env: &Env, to: (i32, i32)) -> Result<Option<Sight>, String> {
+    sight_at(rules, env, 1, Space::new(to.0, to.1, 1), Blind::Reject)
 }
 
 #[test]
@@ -142,7 +154,16 @@ fn an_adjacent_target_needs_no_line_of_sight() {
 
 #[test]
 fn a_target_beyond_adjacency_needs_line_of_sight() {
-    assert!(sight(&rules(false, 0), &env(None), (2, 0)).is_err());
+    let err = sight(&rules(false, 0), &env(None), (2, 0)).unwrap_err();
+    assert!(err.contains("figure 0 sees figure 1"), "{err}");
+    let unseen = sight_at(
+        &rules(false, 0),
+        &env(None),
+        1,
+        Space::new(2, 0, 1),
+        Blind::Unseen,
+    );
+    assert_eq!(unseen, Ok(None));
     assert_eq!(sight(&rules(false, 0), &env(Some(0)), (2, 0)), Ok(None));
     let found = sight(&rules(false, 0), &env(Some(21)), (3, 0));
     assert_eq!(found.unwrap().map(|s| s.ranged), Some(true));
@@ -181,15 +202,62 @@ fn cover_takes_at_least_half_of_the_samples_blocked() {
 #[test]
 fn a_figure_cannot_attack_itself() {
     let s = state(Space::new(0, 0, 1), Space::new(1, 0, 1));
-    let found = Sight::of(
-        &rules(false, 0),
-        &s,
-        &env(None),
-        FigureId(0),
-        FigureId(0),
-        None,
-    );
+    let pair = (FigureId(0), FigureId(0));
+    let found = Sight::of(&rules(false, 0), &s, &env(None), pair, None, Blind::Reject);
     assert_eq!(found.ok(), Some(None));
+}
+
+#[test]
+fn a_figure_on_a_bridge_deck_above_is_not_adjacent() {
+    // Figure 0 under the deck on level 1, figure 1 on the deck straight above on level 3.
+    let deck = Space::new(0, 0, 3);
+    let blind = sight_at(&rules(false, 0), &env(None), 1, deck, Blind::Reject);
+    assert!(
+        blind.is_err(),
+        "the same column needs line of sight: {blind:?}"
+    );
+    let hidden = sight_at(&rules(false, 0), &env(Some(0)), 1, deck, Blind::Reject);
+    assert_eq!(hidden, Ok(None));
+    let seen = sight_at(&rules(false, 0), &env(Some(21)), 1, deck, Blind::Reject);
+    assert_eq!(seen.unwrap().map(|s| s.ranged), Some(true));
+}
+
+#[test]
+fn a_figure_up_a_cliff_is_not_adjacent() {
+    let top = Space::new(1, 0, 3);
+    let blind = sight_at(&rules(false, 0), &env(None), 1, top, Blind::Reject);
+    assert!(
+        blind.is_err(),
+        "the next column up a cliff needs line of sight: {blind:?}"
+    );
+    assert_eq!(
+        sight_at(&rules(false, 0), &env(Some(0)), 1, top, Blind::Reject),
+        Ok(None)
+    );
+    // One level apart, figures one level tall still do not overlap.
+    let step = sight_at(
+        &rules(false, 0),
+        &env(None),
+        1,
+        Space::new(1, 0, 2),
+        Blind::Reject,
+    );
+    assert!(step.is_err(), "{step:?}");
+}
+
+#[test]
+fn a_failing_line_of_sight_hides_only_that_target() {
+    // Figure 1 is adjacent, figure 2 beyond adjacency; nothing answers line of sight.
+    let mut s = state(Space::new(0, 0, 1), Space::new(1, 0, 1));
+    let far = FigureState {
+        location: Some(Space::new(3, 0, 1)),
+        ..s.figures[1].clone()
+    };
+    s.figures.push(far);
+    let found = rules(false, 0).targets(&s, &env(None), FigureId(0), None);
+    assert_eq!(found.ok(), Some(vec![FigureId(1)]));
+    let found = rules(false, 0).targets(&s, &env(Some(21)), FigureId(0), None);
+    assert_eq!(found.ok(), Some(vec![FigureId(1), FigureId(2)]));
 }
 
 proptest! {

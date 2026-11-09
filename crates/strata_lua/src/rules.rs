@@ -191,10 +191,6 @@ impl ActionRunner for LuaRules {
         };
         self.value(&def.resolve, ctx, &args).map(drop)
     }
-
-    fn native_env(&self) -> &dyn NativeEnv {
-        self
-    }
 }
 
 impl NativeEnv for LuaRules {

@@ -4,7 +4,8 @@
 --
 -- `survey` emits `surveyed` with `{ count, targets }`, the figures `ctx.combat.targets` lists;
 -- `peek` emits `peeked` with the pools `ctx.combat.preview` gives against its argument, or
--- `{ none = true }`. The Rust tests read both.
+-- `{ none = true }`. The Rust tests read both. Tests named `refused: ...` must fail at a step the
+-- engine rejects; the Rust tests check each one's message.
 stat { id = 'life', name = 'Life', min = 1, max = 9 }
 stat { id = 'range', name = 'Range', min = 0, max = 9 }
 stat { id = 'attack', name = 'Attack', min = 0, max = 9 }
@@ -82,6 +83,19 @@ rule_module {
         ctx.combat.attack { attacker = figure, target = target, dice = 3, range = 5 }
       end,
     }
+    -- A special attack and a preview with a negative pool, which are refused.
+    r.action {
+      id = 'misfire', slots = { 'attack' },
+      resolve = function(ctx, figure, target)
+        ctx.combat.attack { attacker = figure, target = target, dice = -3 }
+      end,
+    }
+    r.action {
+      id = 'misjudge', slots = {},
+      resolve = function(ctx, figure, target)
+        ctx.combat.preview(figure, target, { dice = -1 })
+      end,
+    }
   end,
 }
 
@@ -101,6 +115,32 @@ for window, effect in pairs(reactions) do
     id = window,
     register = function(r)
       r.reaction { window = 'combat.' .. window, when = target_controller, effect = effect }
+    end,
+  }
+end
+
+-- Reactions the engine refuses or that end the attack early, each offered to the target's
+-- controller: setting a field that no longer matters, attacking during an attack, and the
+-- target destroying the attacker before either roll.
+local refusals = {
+  set_hits_early = { 'before_attack_roll', function(ctx) ctx.combat.set { hits = 3 } end },
+  set_late = { 'after_wounds', function(ctx) ctx.combat.set { blocks = 0 } end },
+  counter = { 'before_attack_roll', function(ctx)
+    local attack = ctx.combat.current()
+    ctx.combat.attack { attacker = attack.target, target = attack.attacker }
+  end },
+  ambush_attack = { 'before_attack_roll', function(ctx)
+    ctx.units.wound(ctx.combat.current().attacker, 2)
+  end },
+  ambush_defense = { 'before_defense_roll', function(ctx)
+    ctx.units.wound(ctx.combat.current().attacker, 2)
+  end },
+}
+for id, reaction in pairs(refusals) do
+  rule_module {
+    id = id,
+    register = function(r)
+      r.reaction { window = 'combat.' .. reaction[1], when = target_controller, effect = reaction[2] }
     end,
   }
 end
@@ -134,6 +174,7 @@ rules('high', { height_bonus = { Int = 1 } })
 rules('covered', { cover = { Bool = true } })
 rules('pacifist', {}, 'pacifist')
 for window in pairs(reactions) do rules('react_' .. window, {}, window) end
+for id in pairs(refusals) do rules(id, {}, id) end
 
 local function at(unit, player, q, r, z)
   return { unit = unit, player = player, at = {{ q = q, r = r, z = z or 1 }} }
@@ -179,9 +220,11 @@ fight('range_attack', 'an archer attacks an enemy at its full range', 'plain', '
   act.attack(archer, 'p1.test_soldier#1', { rig = { { 'hit', 'hit' }, { 'blank', 'blank' } } }),
   expect.event('wounds_applied', { figure = 'p1.test_soldier#1' }),
 })
--- A high wall on (2, 0) hides (3, 0) from (0, 0); (1, 1) is adjacent, (4, 1) is in the open.
+-- A high wall on (2, 0) hides (3, 0) from (0, 0); (0, 1) is adjacent, and (1, 1), two hexes
+-- away, is in the open.
 fight('sight', 'beyond adjacency only enemies in sight are listed', 'plain', 'high_wall',
-  { at('test_archer', 0, 0, 0), at('test_soldier', 1, 3, 0), at('test_soldier', 1, 0, 1) }, {
+  { at('test_archer', 0, 0, 0), at('test_soldier', 1, 3, 0), at('test_soldier', 1, 0, 1),
+    at('test_soldier', 1, 1, 1) }, {
   act.activate(0, archer), act.action(archer, 'survey'),
 })
 
@@ -257,4 +300,32 @@ fight('special', 'a special attack resolves through ctx.combat.attack', 'plain',
   act.activate(0, me),
   act.action(me, 'volley', 1, { rig = { { 'hit', 'hit', 'hit' }, { 'block', 'blank' } } }),
   expect.event('attack'), expect.figure(foe, 'destroyed'),
+})
+
+-- Each refused reaction is taken; answering re-runs the attack, which the engine rejects.
+local function refused(id, name, rig)
+  fight(id, 'refused: ' .. name, id, 'field', duel, {
+    act.activate(0, me), act.attack(me, foe, { rig = rig }), act.answer.option(1),
+  })
+end
+refused('set_hits_early', 'hits cannot be set before the attack roll', {})
+refused('set_late', 'nothing can be set after the wounds', { { 'hit', 'blank' }, { 'blank', 'blank' } })
+refused('counter', 'an attack cannot start during another', {})
+fight('misfire', 'refused: a special attack cannot roll a negative pool', 'plain', 'field', duel, {
+  act.activate(0, me), act.action(me, 'misfire', 1),
+})
+fight('misjudge', 'refused: a preview cannot roll a negative pool', 'plain', 'field', duel, {
+  act.activate(0, me), act.action(me, 'misjudge', 1),
+})
+
+-- The target destroys the attacker in a window before a roll: the attack ends there.
+fight('ambush_attack', 'an attacker destroyed before its roll rolls nothing', 'ambush_attack',
+  'field', duel, {
+  act.activate(0, me), act.attack(me, foe), act.answer.option(1),
+  expect.figure(me, 'destroyed'), expect.event('attack'), expect.figure(foe, 'on_board'),
+})
+fight('ambush_defense', 'an attacker destroyed after its roll wounds nothing', 'ambush_defense',
+  'field', duel, {
+  act.activate(0, me), act.attack(me, foe, { rig = { { 'hit', 'hit' } } }), act.answer.option(1),
+  expect.figure(me, 'destroyed'), expect.event('attack'), expect.figure(foe, 'on_board'),
 })
