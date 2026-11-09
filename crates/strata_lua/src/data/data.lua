@@ -36,6 +36,9 @@ globals.act = {
   action = function(figure, action, args, opts)
     return { Action = { figure = figure, action = action, args = args, rig = opts and opts.rig } }
   end,
+  attack = function(figure, target, opts)
+    return { Attack = { figure = figure, target = target, rig = opts and opts.rig } }
+  end,
   answer = {
     figure = function(id) return { Answer = { Figure = id } } end,
     option = function(index) return { Answer = { Option = index } } end,

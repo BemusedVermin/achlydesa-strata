@@ -12,8 +12,8 @@ use strata_model::{
     Logic, PlayerId, ReactionDef, ReplacementDef, ScriptRef, TriggerDef,
 };
 use strata_rules::{
-    ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, PhaseTree, Reach,
-    RulesRuntime, VoteQuery,
+    ActionRunner, ApiHandler, Ctx, FigureVolume, Halt, HookRunner, LogicError, LosResult,
+    NativeEnv, PhaseTree, Reach, RulesRuntime, VoteQuery,
 };
 
 use crate::convert::{from_lua, lua_to_value, value_to_lua};
@@ -244,6 +244,19 @@ impl NativeEnv for LuaRules {
     }
     fn reachable(&self, state: &GameState, figure: FigureId) -> Result<Vec<Reach>, LogicError> {
         self.host.reachable(state, figure)
+    }
+
+    fn los(
+        &self,
+        state: &GameState,
+        from: FigureId,
+        to: FigureId,
+    ) -> Result<LosResult, LogicError> {
+        self.host.los(state, from, to)
+    }
+
+    fn volume(&self, state: &GameState, figure: FigureId) -> Option<FigureVolume> {
+        self.host.volume(state, figure)
     }
 
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {

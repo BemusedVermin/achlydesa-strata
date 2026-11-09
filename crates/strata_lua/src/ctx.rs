@@ -61,6 +61,19 @@ pub trait RuleHost: Send + Sync {
     fn reachable(&self, _state: &GameState, _figure: FigureId) -> Result<Vec<Reach>, LogicError> {
         Err(LogicError("the ruleset has no `movement` module".into()))
     }
+    /// Whether `from` sees `to` under the ruleset's `los` module.
+    fn los(
+        &self,
+        _state: &GameState,
+        _from: FigureId,
+        _to: FigureId,
+    ) -> Result<strata_rules::LosResult, LogicError> {
+        Err(LogicError("the ruleset has no `los` module".into()))
+    }
+    /// The volume of a figure on the board: its footprint cells and hit zone.
+    fn volume(&self, _state: &GameState, _figure: FigureId) -> Option<strata_rules::FigureVolume> {
+        None
+    }
     /// Calls `name` of the namespace a module exported with `Registrar::lua_api`.
     fn call(
         &self,
