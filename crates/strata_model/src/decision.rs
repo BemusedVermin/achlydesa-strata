@@ -37,6 +37,44 @@ pub struct Decision {
     pub kind: DecisionKind,
 }
 
+/// Why a decision cannot be asked: no answer could satisfy it, so the match would wait forever.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum Unanswerable {
+    /// A figure, space, option or order decision with an empty list. The text names the list.
+    #[error("the decision offers no {0}")]
+    Empty(&'static str),
+    /// A number decision whose range is empty.
+    #[error("number min {min} is greater than max {max}")]
+    InvertedRange {
+        /// The decision's smallest allowed value.
+        min: i32,
+        /// The decision's largest allowed value.
+        max: i32,
+    },
+}
+
+impl Decision {
+    /// Checks that some answer fits this decision. The engine refuses to ask one that fails, and
+    /// every caller of `choose`, native or Lua, goes through that check.
+    pub fn check(&self) -> Result<(), Unanswerable> {
+        let empty = |len: usize, what| match len {
+            0 => Err(Unanswerable::Empty(what)),
+            _ => Ok(()),
+        };
+        match &self.kind {
+            DecisionKind::ChooseFigure(figures) => empty(figures.len(), "figures"),
+            DecisionKind::ChooseSpace(spaces) => empty(spaces.len(), "spaces"),
+            DecisionKind::ChooseOption(options) => empty(options.len(), "options"),
+            DecisionKind::Order(items) => empty(items.len(), "items to order"),
+            DecisionKind::YesNo => Ok(()),
+            &DecisionKind::Number { min, max } if min > max => {
+                Err(Unanswerable::InvertedRange { min, max })
+            }
+            DecisionKind::Number { .. } => Ok(()),
+        }
+    }
+}
+
 /// A chooser's reply, matching the kind of the decision.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub enum Answer {

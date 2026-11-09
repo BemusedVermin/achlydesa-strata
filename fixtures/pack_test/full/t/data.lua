@@ -59,8 +59,23 @@ rule_module {
     }
   end,
 }
+rule_module {
+  id = 'no_choices',
+  register = function(r)
+    r.trigger {
+      event = 'wounds_applied',
+      effect = function(ctx)
+        ctx.choose { chooser = 0, prompt = 'pick', figures = {} }
+      end,
+    }
+  end,
+}
 ruleset { id = 'rs', name = 'Test', addons = {{ id = 't:driver' }, { id = 't:rules' }} }
 ruleset { id = 'rs_decide', name = 'Decide', addons = {{ id = 't:driver' }, { id = 't:decide' }} }
+ruleset {
+  id = 'rs_no_choices', name = 'No choices',
+  addons = {{ id = 't:driver' }, { id = 't:no_choices' }},
+}
 
 local function soldiers()
   return {{ unit = 'soldier', player = 0, at = {{ q = 0, r = 0, z = 1 }, { q = 1, r = 0, z = 1 }} }}
@@ -152,6 +167,11 @@ test {
 test {
   id = 'no_decision', name = 'answer without a decision', ruleset = 'rs', place = dummy(),
   steps = { act.answer.number(1) },
+}
+test {
+  id = 'no_choices', name = 'a decision with no valid answer is refused',
+  ruleset = 'rs_no_choices', place = dummy(),
+  steps = { act.command(0, 'hit', 0), expect.decision('pick') },
 }
 test {
   id = 'unknown_action', name = 'unknown action', ruleset = 'rs', place = dummy(),

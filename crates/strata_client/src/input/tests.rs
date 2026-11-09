@@ -100,6 +100,27 @@ fn each_decision_kind_maps_to_its_widget() {
 }
 
 #[test]
+fn a_decision_with_no_valid_answer_says_so_instead_of_an_empty_widget() {
+    let s = state();
+    let kinds = [
+        DecisionKind::ChooseFigure(vec![]),
+        DecisionKind::ChooseSpace(vec![]),
+        DecisionKind::ChooseOption(vec![]),
+        DecisionKind::Order(vec![]),
+        DecisionKind::Number { min: 3, max: 1 },
+    ];
+    for kind in kinds {
+        let widget = Widget::of(&decision(kind));
+        assert_eq!(widget, Widget::NoChoices);
+        assert_eq!(widget.highlights(), Highlights::default());
+        assert_eq!(
+            widget.click(&Pick::at(&s, space(0))),
+            Err(Refusal::NotAChoice)
+        );
+    }
+}
+
+#[test]
 fn a_figure_choice_highlights_exactly_its_figures_and_explains_other_clicks() {
     let widget = Widget::of(&decision(DecisionKind::ChooseFigure(vec![
         FigureId(0),

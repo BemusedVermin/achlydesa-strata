@@ -97,6 +97,9 @@ pub fn decision(ui: &mut egui::Ui, view: &PlayerView, input: &mut DecisionInput)
                 answer = Some(Answer::Order(input.order.clone()));
             }
         }
+        Widget::NoChoices => {
+            ui.label("No valid choices.");
+        }
     }
     input.settle(answer)
 }

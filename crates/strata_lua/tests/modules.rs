@@ -75,6 +75,29 @@ rule_module {
 }
 
 rule_module {
+  id = 'shapes',
+  register = function(r)
+    local function shapes()
+      return {
+        figures = { chooser = 0, prompt = 'pick', figures = {} },
+        spaces = { chooser = 0, prompt = 'pick', spaces = {} },
+        options = { chooser = 0, prompt = 'pick', options = {} },
+        number = { chooser = 0, prompt = 'pick', number = { min = 3, max = 1 } },
+        one_number = { chooser = 0, prompt = 'pick', number = { min = 2, max = 2 } },
+        one_figure = { chooser = 0, prompt = 'pick', figures = { 1 } },
+      }
+    end
+    r.action {
+      id = 'ask',
+      slots = {},
+      resolve = function(ctx, figure, shape)
+        ctx.emit('answer', ctx.choose(shapes()[shape]))
+      end,
+    }
+  end,
+}
+
+rule_module {
   id = 'broken',
   register = function(r) r.action { id = 'nope' } end,
 }
@@ -643,4 +666,39 @@ fn a_native_descriptor_with_two_faults_reports_the_same_one_in_every_fresh_state
     for _ in 0..16 {
         assert_eq!(message(), first);
     }
+}
+
+/// Resolves the `shapes` module's action with the named decision shape, answering from `tape`.
+fn ask(shape: &str, tape: Vec<Answer>) -> (Result<(), Halt>, Bench) {
+    let (_dir, w) = world(0, &["shapes"]);
+    let action = &w.rt.actions()[0];
+    let mut bench = Bench::new(tape);
+    let target = Value::Str(Sym::new(shape));
+    let result = w.rules.resolve(action, FigureId(0), &target, &mut bench);
+    (result, bench)
+}
+
+#[test]
+fn choose_refuses_a_decision_no_answer_can_satisfy() {
+    let cases = [
+        ("figures", "ctx.choose: the decision offers no figures"),
+        ("spaces", "ctx.choose: the decision offers no spaces"),
+        ("options", "ctx.choose: the decision offers no options"),
+        ("number", "ctx.choose: number min 3 is greater than max 1"),
+    ];
+    for (shape, message) in cases {
+        let (result, bench) = ask(shape, vec![Answer::Number(0)]);
+        assert_eq!(result, Err(Halt::reject(message)), "{shape}");
+        assert!(bench.asked.is_empty(), "{shape} was asked");
+    }
+}
+
+#[test]
+fn choose_still_asks_a_decision_with_one_answer() {
+    let (result, bench) = ask("one_number", vec![Answer::Number(2)]);
+    assert_eq!(result, Ok(()));
+    assert_eq!(customs(&bench.events), [("answer".into(), Value::Int(2))]);
+    let (result, bench) = ask("one_figure", vec![Answer::Figure(FigureId(1))]);
+    assert_eq!(result, Ok(()));
+    assert_eq!(customs(&bench.events), [("answer".into(), Value::Int(1))]);
 }

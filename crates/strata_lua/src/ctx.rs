@@ -351,7 +351,8 @@ fn state_view(state: &GameState, name: &str) -> Result<Value, Halt> {
 /// Asks a decision described by `spec` and returns the answer.
 ///
 /// `spec` has `chooser` and `prompt`, plus one of `figures`, `spaces`, `options`, `yes_no` or
-/// `number = { min, max }`. An option answer is the option's label.
+/// `number = { min, max }`. An option answer is the option's label. A decision no answer can
+/// satisfy, such as an empty list or `min > max`, is refused rather than asked.
 fn choose(ctx: &mut dyn Ctx, spec: &Value) -> Result<Value, Halt> {
     let bad = |e: strata_kernel::ValueError| Halt::reject(format!("ctx.choose: {e}"));
     let chooser = PlayerId(spec.get("chooser").and_then(Value::as_int).map_err(bad)? as u8);
@@ -397,7 +398,11 @@ fn choose(ctx: &mut dyn Ctx, spec: &Value) -> Result<Value, Halt> {
     } else {
         return Err(Halt::reject("ctx.choose: the decision names no kind"));
     };
-    Ok(match ctx.choose(chooser, Decision { prompt, kind })? {
+    let decision = Decision { prompt, kind };
+    decision
+        .check()
+        .map_err(|e| Halt::reject(format!("ctx.choose: {e}")))?;
+    Ok(match ctx.choose(chooser, decision)? {
         Answer::Figure(f) => int(f.0),
         Answer::Space(s) => map([("q", int(s.q)), ("r", int(s.r)), ("z", int(s.z))]),
         Answer::Option(i) => labels

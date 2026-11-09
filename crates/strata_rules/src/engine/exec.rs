@@ -279,6 +279,9 @@ impl Ctx for Exec<'_> {
         if self.cursor >= MAX_DECISIONS {
             return Err(Halt::reject("command asked too many decisions"));
         }
+        // Every decision, native or scripted, passes here: one no answer can satisfy would leave
+        // the match waiting forever, so it is refused instead.
+        d.check().map_err(|e| Halt::reject(e.to_string()))?;
         let Some(answer) = self.tape.get(self.cursor) else {
             return Err(Halt::NeedsDecision {
                 decision: d,
