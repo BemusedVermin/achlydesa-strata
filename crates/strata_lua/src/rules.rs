@@ -200,6 +200,23 @@ impl NativeEnv for LuaRules {
         found.as_int().map_err(|e| LogicError(e.to_string()))
     }
 
+    /// Asks the host's `stat` query with the context as a third argument.
+    fn stat_in(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        stat: &str,
+        context: &Value,
+    ) -> Result<i64, LogicError> {
+        let args = [
+            Value::Int(i64::from(figure.0)),
+            Value::Str(Sym::new(stat)),
+            context.clone(),
+        ];
+        let found = self.host.query(state, "stat", &args)?;
+        found.as_int().map_err(|e| LogicError(e.to_string()))
+    }
+
     fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
         self.host.die(name)
     }

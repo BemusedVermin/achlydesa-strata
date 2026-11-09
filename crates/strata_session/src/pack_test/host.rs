@@ -126,7 +126,7 @@ impl Host {
             );
             let base = i64::from(*printed);
             let bare = name.split_once(':').map_or(name, |(_, bare)| bare);
-            let queried = figure.and_then(|f| self.stat_trace(state, *f, bare).ok());
+            let queried = figure.and_then(|f| self.stat_trace(state, *f, bare, &Value::Nil).ok());
             let label = stat_def.abbrev.as_ref().unwrap_or(&stat_def.name);
             let line = StatLine {
                 label: label.0.clone(),
@@ -213,7 +213,20 @@ impl Host {
         figure: FigureId,
         stat: &str,
     ) -> Result<i64, LogicError> {
-        self.stat_trace(state, figure, stat).map(|(value, _)| value)
+        self.stat_in(state, figure, stat, &Value::Nil)
+    }
+
+    /// A figure's stat after every modifier, asked with `context` as the query's context, such
+    /// as the opposing figure in an attack.
+    pub(super) fn stat_in(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        stat: &str,
+        context: &Value,
+    ) -> Result<i64, LogicError> {
+        let found = self.stat_trace(state, figure, stat, context);
+        found.map(|(value, _)| value)
     }
 
     /// A figure's stat after every modifier, with how it was reached.
@@ -222,6 +235,7 @@ impl Host {
         state: &GameState,
         figure: FigureId,
         stat: &str,
+        context: &Value,
     ) -> Result<(i64, QueryTrace), LogicError> {
         let fail = LogicError;
         let (stat_id, _) = find::<StatDef>(&self.registry, &self.pack, stat)
@@ -233,7 +247,7 @@ impl Host {
             stat: Sym::new(stat),
             base: i64::from(unit.stats.get(&stat_id).copied().unwrap_or(0)),
             subject: Value::Int(i64::from(figure.0)),
-            context: Value::Nil,
+            context: context.clone(),
         };
         self.ask_trace(state, figure, &query)
     }
@@ -292,14 +306,16 @@ impl RuleHost for Host {
         NativeEvaluator { world: &world }.eval(descriptor, &cx)
     }
 
-    /// Answers `stat` with `[figure, stat]`, and `vote` with `[key, default, figure, context]`.
+    /// Answers `stat` with `[figure, stat]` or `[figure, stat, context]`, and `vote` with
+    /// `[key, default, figure, context]`.
     fn query(&self, state: &GameState, name: &str, args: &[Value]) -> Result<Value, LogicError> {
         let asked = |e: strata_kernel::ValueError| LogicError(format!("query `{name}`: {e}"));
         match (name, args) {
-            ("stat", [figure, stat]) => {
+            ("stat", [figure, stat, context @ ..]) if context.len() <= 1 => {
                 let figure = FigureId(figure.as_int().map_err(asked)? as u32);
                 let stat = stat.as_str().map_err(asked)?;
-                self.stat(state, figure, stat).map(Value::Int)
+                let context = context.first().unwrap_or(&Value::Nil);
+                self.stat_in(state, figure, stat, context).map(Value::Int)
             }
             ("vote", [key, default, subject, context]) => {
                 let query = VoteQuery {

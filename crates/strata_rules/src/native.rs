@@ -1,6 +1,6 @@
 //! Rust logic that a registered trigger runs in place of a Lua script.
 
-use strata_kernel::{DefId, Hex, Rotation, Space, Sym};
+use strata_kernel::{DefId, Hex, Rotation, Space, Sym, Value};
 use strata_model::{
     Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureDef, FigureDefRef, FigureId,
     GameState, Logic, PlayerId, RelicDef,
@@ -34,6 +34,18 @@ pub trait NativeLogic: Send + Sync + 'static {
 pub trait NativeEnv: Send + Sync {
     /// A figure's stat with every modifier applied.
     fn stat(&self, state: &GameState, figure: FigureId, stat: &str) -> Result<i64, LogicError>;
+    /// A figure's stat with every modifier applied, asked with `context` as the query's context,
+    /// such as the opposing figure in an attack (design §6.6). The default ignores `context` and
+    /// asks [`NativeEnv::stat`], for environments whose modifiers never read it.
+    fn stat_in(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        stat: &str,
+        _context: &Value,
+    ) -> Result<i64, LogicError> {
+        self.stat(state, figure, stat)
+    }
     /// The definition ID and faces of the die called `name`.
     fn die(&self, name: &str) -> Option<(DefId, DieKind)>;
     /// The ruleset's phase tree, for logic that moves the game between phases.

@@ -281,3 +281,57 @@ proptest! {
         prop_assert_eq!(defense, if t > a { bonus } else { 0 });
     }
 }
+
+/// [`Env`] that records the context of every stat query.
+struct Asked {
+    inner: Env,
+    contexts: std::sync::Mutex<Vec<(FigureId, String, Value)>>,
+}
+
+impl NativeEnv for Asked {
+    fn stat(&self, state: &GameState, figure: FigureId, stat: &str) -> Result<i64, LogicError> {
+        self.stat_in(state, figure, stat, &Value::Nil)
+    }
+    fn stat_in(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        stat: &str,
+        context: &Value,
+    ) -> Result<i64, LogicError> {
+        let asked = (figure, stat.to_owned(), context.clone());
+        self.contexts.lock().unwrap().push(asked);
+        self.inner.stat(state, figure, stat)
+    }
+    fn die(&self, _: &str) -> Option<(DefId, DieKind)> {
+        None
+    }
+    fn vote(&self, state: &GameState, query: &VoteQuery) -> Result<bool, LogicError> {
+        self.inner.vote(state, query)
+    }
+    fn los(
+        &self,
+        state: &GameState,
+        from: FigureId,
+        to: FigureId,
+    ) -> Result<LosResult, LogicError> {
+        self.inner.los(state, from, to)
+    }
+    fn volume(&self, state: &GameState, figure: FigureId) -> Option<FigureVolume> {
+        self.inner.volume(state, figure)
+    }
+}
+
+#[test]
+fn the_range_query_has_the_target_as_its_context() {
+    let asked = Asked {
+        inner: env(Some(21)),
+        contexts: std::sync::Mutex::default(),
+    };
+    let s = state(Space::new(0, 0, 1), Space::new(2, 0, 1));
+    let pair = (FigureId(0), FigureId(1));
+    let found = Sight::of(&rules(false, 0), &s, &asked, pair, None, Blind::Reject);
+    assert!(matches!(found, Ok(Some(_))));
+    let contexts = asked.contexts.into_inner().unwrap();
+    assert_eq!(contexts, vec![(FigureId(0), "range".into(), Value::Int(1))]);
+}
