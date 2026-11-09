@@ -113,6 +113,12 @@ pub trait NativeEnv: Send + Sync {
     fn forced_roll(&self, _die: &str, _count: usize) -> Option<Result<Vec<u32>, String>> {
         None
     }
+    /// The printed `points` stat of the unit definition `unit`: what one copy costs an army list,
+    /// with no modifier applied, and 0 when the unit prints none. `None` when the packs define no
+    /// `points` stat or the environment cannot tell.
+    fn points(&self, _unit: DefId) -> Option<i64> {
+        None
+    }
     /// The scenario the match is played on. `None` if there is none or the environment cannot
     /// tell.
     fn scenario(&self, _state: &GameState) -> Option<&ScenarioDef> {
@@ -130,6 +136,22 @@ pub trait NativeEnv: Send + Sync {
         _args: &[Value],
     ) -> Result<Value, Halt> {
         Err(Halt::reject("the environment cannot run scripts"))
+    }
+}
+
+/// The name reported for a list entry written as a Lua function, such as an army rule or a
+/// victory condition.
+pub const SCRIPT_LOGIC: &str = "script";
+
+/// The name of a list entry: the native descriptor's `field`, such as `win`, or
+/// [`SCRIPT_LOGIC`] for a Lua function.
+pub fn logic_name(logic: &Logic, field: &str) -> Sym {
+    match logic {
+        Logic::Native(Descriptor(value)) => {
+            let name = value.get(field).and_then(Value::as_str);
+            Sym::new(name.unwrap_or("unnamed"))
+        }
+        Logic::Script(_) => Sym::new(SCRIPT_LOGIC),
     }
 }
 

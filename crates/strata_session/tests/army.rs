@@ -96,10 +96,39 @@ fn each_violation_names_its_rule_origin_and_says_what_is_wrong() {
 
 #[test]
 fn a_ruleset_without_an_army_module_cannot_validate() {
-    let tests = PackTests::load(&[
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/packs/army")
-    ])
-    .unwrap();
-    let found = tests.validate_army("rs", "legal", Some("duel_200"), None);
-    assert!(found.is_err(), "{found:?}");
+    let found = load().validate_army("bare", "legal", Some("duel_200"), None);
+    let error = found.unwrap_err();
+    assert_eq!(error.0, "the ruleset has no `army` module");
+}
+
+#[test]
+fn a_lua_army_rule_answers_true_or_false() {
+    passes("a Lua army rule that returns false");
+    passes("a Lua army rule that returns true");
+    let found = load().validate_army("rs", "mixed", Some("open"), Some("yes_or_no"));
+    let messages: Vec<String> = found.unwrap().into_iter().map(|v| v.message).collect();
+    assert_eq!(messages, [strata_rules::army::SCRIPT_FAILED]);
+}
+
+#[test]
+fn a_bare_name_in_a_rule_means_the_unit_or_faction_of_the_rules_pack() {
+    passes("a bare name in another pack's rule");
+    passes("a bare faction in another pack's rule");
+    let found = load().validate_army("rs", "army:mixed", Some("rival:iron_only"), None);
+    let messages: Vec<String> = found.unwrap().into_iter().map(|v| v.message).collect();
+    assert_eq!(
+        messages,
+        [
+            "`army:test_archer` does not belong to iron",
+            "`army:test_hero` does not belong to iron",
+            "`army:test_soldier` does not belong to iron",
+        ]
+    );
+}
+
+#[test]
+fn a_rule_that_names_nothing_is_an_error() {
+    let found = load().validate_army("rs", "legal", Some("typo"), None);
+    let error = found.unwrap_err();
+    assert_eq!(error.0, "army_rule.banned: nothing is called `test_archr`");
 }

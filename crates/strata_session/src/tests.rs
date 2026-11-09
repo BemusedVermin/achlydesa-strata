@@ -40,7 +40,7 @@ fn army(unit: &str) -> Option<ArmyList> {
     })
 }
 
-fn seat(id: u8, slot: &str, unit: &str) -> PlayerSetup {
+pub(crate) fn seat(id: u8, slot: &str, unit: &str) -> PlayerSetup {
     PlayerSetup {
         id: PlayerId(id),
         slot: Sym::new(slot),

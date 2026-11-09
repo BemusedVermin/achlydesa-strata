@@ -1,11 +1,12 @@
 //! The victory service interface (design §11.2, §15.2).
 //!
-//! A module in the `victory` slot provides [`Victory`]. The engine asks it to settle once each
+//! A module in the `victory` slot provides [`Victory`]. The session asks it to check the
+//! scenario's `victory` list when a match is set up. The engine asks it to settle once each
 //! command has resolved, handing it the command's events so it can tell which rounds ended;
 //! refuses commands once it reports a result; and offers no legal commands then.
 
 use strata_kernel::{Frac, Sym};
-use strata_model::{Event, GameState, PlayerId};
+use strata_model::{Event, GameState, MapDef, PlayerId, ScenarioDef};
 
 use crate::engine::{Ctx, Halt};
 use crate::native::NativeEnv;
@@ -35,6 +36,11 @@ pub struct Progress {
 
 /// How matches end, as the module in the `victory` slot defines it.
 pub trait Victory: Send + Sync {
+    /// Checks `scenario`'s `victory` list before a match is played on it, so malformed content
+    /// fails at setup rather than mid-match: every native condition is one the module knows and
+    /// is well formed, and every zone it names is a zone of `map`. A Lua condition can only fail
+    /// when it runs.
+    fn check(&self, scenario: &ScenarioDef, map: &MapDef) -> Result<(), LogicError>;
     /// Checks the victory conditions once a command has resolved, with `events` the events it
     /// emitted, and emits the end of the match when one is met. Does nothing once the match is
     /// over.

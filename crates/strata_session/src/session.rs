@@ -3,7 +3,7 @@
 use std::cell::OnceCell;
 
 use strata_model::{Command, Event, GameState, PlayerId, TokenChoice};
-use strata_rules::{Engine, Outcome, RuleViolation};
+use strata_rules::{Engine, MatchResult, Outcome, RuleViolation};
 
 use crate::controller::Controller;
 use crate::replay::{Replay, SNAPSHOT_EVERY, Snapshot};
@@ -65,6 +65,12 @@ impl<'a> Session<'a> {
         }
     }
 
+    /// How the match ended, as the ruleset's `victory` module reports it; `None` while it goes
+    /// on or without such a module.
+    pub fn result(&self) -> Option<MatchResult> {
+        self.engine.result()
+    }
+
     /// How `player` may place the tokens in hand, if they have any to place.
     pub fn token_choice(&self, player: PlayerId) -> Option<TokenChoice> {
         self.engine.token_choice(player)
@@ -74,7 +80,11 @@ impl<'a> Session<'a> {
     /// command paused on a decision).
     ///
     /// A pending decision goes to its chooser; otherwise the active player picks a command.
+    /// Once the match is over nobody is asked and nothing commits.
     pub fn step(&mut self) -> Result<Vec<Event>, SessionError> {
+        if self.result().is_some() {
+            return Ok(Vec::new());
+        }
         let state = self.engine.state();
         let outcome = match state.pending.clone() {
             Some(pending) => {
@@ -109,9 +119,9 @@ impl<'a> Session<'a> {
         }
     }
 
-    /// Steps until `commands` commands have committed in all.
+    /// Steps until `commands` commands have committed in all or the match is over.
     pub fn run(&mut self, commands: u32) -> Result<(), SessionError> {
-        while self.engine.state().command_index < commands {
+        while self.engine.state().command_index < commands && self.result().is_none() {
             self.step()?;
         }
         Ok(())

@@ -49,11 +49,21 @@ scenario_of('scripted', {
     if #army > 2 then return 'at most two entries' end
   end,
 })
+-- A Lua rule may answer `true` to pass and `false` to fail with a generic message.
+scenario_of('yes_or_no', {
+  function(army) return #army <= 2 end,
+})
 
 format {
   id = 'duel_200', name = 'Duel, 200 points', ruleset = 'rs', selection = 'build',
   scenarios = { pool = { 'plain', 'strict' }, pick = 'alternate_veto' },
   army = { army_rule.max_points(200), army_rule.unique_once(), army_rule.max_copies(3) },
+}
+-- A typo in a ban names nothing, which is an error rather than a ban that never applies.
+format {
+  id = 'typo', name = 'Typo', ruleset = 'rs', selection = 'build',
+  scenarios = { pool = { 'plain' }, pick = 'alternate_veto' },
+  army = { army_rule.banned { 'test_archr' } },
 }
 format {
   id = 'open', name = 'Open', ruleset = 'rs', selection = 'build',
@@ -71,6 +81,7 @@ list_of('two_heroes', {{ 'test_hero', 1 }, { 'test_hero', 1 }})
 list_of('mixed', {{ 'test_archer', 1 }, { 'test_hero', 1 }, { 'test_soldier', 2 }})
 
 ruleset { id = 'rs', name = 'Army', slots = { army = { id = 'core:army' } } }
+ruleset { id = 'bare', name = 'Without army rules', slots = {} }
 
 local function check(id, name, list, opts)
   test { id = id, name = name, ruleset = 'rs', steps = { expect.army(list, opts) } }
@@ -92,3 +103,14 @@ check('script', 'a Lua function is an army rule', 'mixed',
   { format = 'open', scenario = 'scripted', violations = { 'script' } })
 check('script_passes', 'a Lua army rule that returns nil passes', 'legal',
   { format = 'open', scenario = 'scripted' })
+check('script_false', 'a Lua army rule that returns false fails', 'mixed',
+  { format = 'open', scenario = 'yes_or_no', violations = { 'script' } })
+check('script_true', 'a Lua army rule that returns true passes', 'legal',
+  { format = 'open', scenario = 'yes_or_no' })
+check('other_pack_ban', "a bare name in another pack's rule means that pack's unit", 'mixed',
+  { format = 'rival:no_archers' })
+check('other_pack_faction', "a bare faction in another pack's rule means that pack's faction",
+  'mixed', {
+    format = 'rival:iron_only',
+    violations = { 'require_faction', 'require_faction', 'require_faction' },
+  })

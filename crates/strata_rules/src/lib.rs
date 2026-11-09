@@ -22,7 +22,7 @@ pub mod runtime;
 pub mod slots;
 pub mod victory;
 
-pub use army::{ArmyRules, ArmyUnit, ArmyViolation, RuleOrigin};
+pub use army::{ArmyNames, ArmyRules, ArmyUnit, ArmyViolation, NameKind, RuleOrigin};
 pub use catalog::{DuplicateModule, ModuleCatalog};
 pub use config::{ConfigError, ConfigSchema};
 pub use descriptor::{DescriptorError, NativeEvaluator, Node, World, check_ability, compile};
@@ -39,7 +39,7 @@ pub use module::{ModuleError, RuleModule};
 pub use movement::{MoveWorld, Movement, Reach, TerrainRules, footprint_cells, passable_cells};
 pub use native::{
     DeploySlot, DicePool, MAX_POOL, NativeAction, NativeActions, NativeEnv, NativeLogic, NoEnv,
-    Roll, native_name, reroll, roll_pool,
+    Roll, SCRIPT_LOGIC, logic_name, native_name, reroll, roll_pool,
 };
 pub use query::{
     EvalCtx, LogicError, LogicEvaluator, Logics, Query, QueryEngine, QueryError, QueryTrace,

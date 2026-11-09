@@ -4,7 +4,7 @@
 //! `destroy` to scripts as `ctx.units`, and the same functions to Rust modules.
 
 use strata_kernel::{ModuleId, SlotId, Sym, Value};
-use strata_model::{Event, FigureId, FigureStatus, GameState};
+use strata_model::{Event, FigureId, GameState};
 use strata_rules::{
     ApiHandler, ConfigSchema, Ctx, Halt, LuaApi, ModuleError, NativeEnv, Registrar, RuleModule,
 };
@@ -80,15 +80,10 @@ impl ApiHandler for Api {
     }
 }
 
-/// Whether the figure is still in play.
-fn is_live(status: FigureStatus) -> bool {
-    matches!(status, FigureStatus::Reserve | FigureStatus::OnBoard)
-}
-
 /// The status of `figure`, which must be in play.
 fn require_live(state: &GameState, figure: FigureId) -> Result<(), Halt> {
     match state.figures.get(figure.index()) {
-        Some(f) if is_live(f.status) => Ok(()),
+        Some(f) if f.status.in_play() => Ok(()),
         Some(_) => Err(Halt::reject(format!("figure {} is out of play", figure.0))),
         None => Err(Halt::reject(format!("no figure {}", figure.0))),
     }
@@ -120,7 +115,7 @@ pub fn wound(
     // Re-read: a replacement may have changed the amount, or the figure's fate.
     let state = ctx.state();
     let total: i64 = match state.figures.get(figure.index()) {
-        Some(f) if is_live(f.status) => f.markers.iter().filter(|m| m.def == wound),
+        Some(f) if f.status.in_play() => f.markers.iter().filter(|m| m.def == wound),
         _ => return Ok(()),
     }
     .map(|m| i64::from(m.count))
@@ -169,7 +164,7 @@ pub fn destroy(ctx: &mut dyn Ctx, figure: FigureId) -> Result<(), Halt> {
     let alive = state.units[unit.index()]
         .figures
         .iter()
-        .any(|f| is_live(state.figures[f.index()].status));
+        .any(|f| state.figures[f.index()].status.in_play());
     if alive {
         return Ok(());
     }

@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use crossbeam_channel::{Receiver, RecvTimeoutError, Sender, TryRecvError, unbounded};
 use strata_model::{Answer, Command, Event, PlayerId};
+use strata_rules::MatchResult;
 
 use crate::cards::{CardSource, NoCards};
 use crate::human::HumanController;
@@ -27,8 +28,9 @@ pub enum SimMessage {
     Board(Box<BoardInfo>),
     /// The viewer's projection of the state after a step, including any pending decision.
     View(Box<PlayerView>),
-    /// The match reached its command limit.
-    Finished,
+    /// The match is over or reached its command limit; carries how it ended, `None` when it
+    /// only reached the limit.
+    Finished(Option<MatchResult>),
     /// The match stopped because of an error.
     Error(SessionError),
 }
@@ -54,8 +56,9 @@ impl SimLink {
         HumanController::new(commands, answers, self.control.clone())
     }
 
-    /// Steps `session` until `commands` commands have committed, sending `viewer`'s events and
-    /// views out as it goes. Returns early on a shutdown request, an error or a closed client.
+    /// Steps `session` until `commands` commands have committed or the match is over, sending
+    /// `viewer`'s events and views out as it goes, then [`SimMessage::Finished`]. Returns early
+    /// on a shutdown request, an error or a closed client.
     pub fn run(&self, session: &mut Session<'_>, viewer: PlayerId, commands: u32) {
         self.run_with(session, viewer, commands, &NoCards);
     }
@@ -71,7 +74,7 @@ impl SimLink {
         if !self.send_view(session, viewer, cards) {
             return;
         }
-        while session.state().command_index < commands {
+        while session.state().command_index < commands && session.result().is_none() {
             if self.shutdown_requested() {
                 return;
             }
@@ -90,7 +93,7 @@ impl SimLink {
                 }
             }
         }
-        self.send(SimMessage::Finished);
+        self.send(SimMessage::Finished(session.result()));
     }
 
     /// Sends the static board; the client needs it before the first view.

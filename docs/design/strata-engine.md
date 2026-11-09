@@ -776,6 +776,12 @@ scenario {
 
 `win.*` constructors are victory conditions registered by modules. Each is evaluated after every command and at round end, and may supply a `progress(state, player)` estimate for the AI. The first listed condition wins ties.
 
+As built (T-040), `win.*` and `army_rule.*` are fixed globals of the data stage that write plain descriptors, not constructors registered by modules: content loads before a ruleset is resolved, so no module is known yet. The module in the `victory` or `army` slot reads and checks the descriptors instead. When a command ends a round, the conditions are checked for the command first and then at that round's end, each time in list order.
+
+The `victory` module checks the list when a match is set up: an unknown condition or tiebreak, a malformed field or a zone the map lacks is a setup error. A condition that can only fail while it runs, such as a Lua function that raises an error or returns something other than nil, false, a team or `"draw"`, never refuses the player's command: it is skipped at that moment, a `victory_condition_failed` event reports it, and the conditions after it are still checked.
+
+Conditions count figures for teams in two ways. Holding a zone is about who stands there, so a figure counts for the team of its current controller. Elimination and the points tiebreaks are about whose army it is, so a figure counts for its unit's owner, even while an enemy controls it. Points are the printed `points` stat, the same price army rules use; a unit without one, or a pack without the stat, is worth 0 to a tiebreak.
+
 ### 11.3 Format
 
 A format is everything a tournament organizer decides. A scenario may tighten a format's army rules but never loosen them, because both sets always apply.
@@ -793,7 +799,9 @@ format {
 }
 ```
 
-`army_rule.*` constructors cover point caps, uniqueness, copy limits, bans, faction requirements and total footprint. A mod adds a new constraint with a Lua function.
+`army_rule.*` constructors cover point caps, uniqueness, copy limits, bans, faction requirements and total footprint. A mod adds a new constraint with a Lua function, which takes the army and returns nil or `true` to pass, `false` to fail with a generic message, or a message (or list of messages) for each violation.
+
+Names in a rule, such as banned units or required factions, are resolved the way content lookup resolves an authored name from the pack that defines the format or scenario, and compared by definition. A name that resolves to nothing is an error. A point cap in a pack set without a `points` stat is an error too.
 
 ### 11.4 Army list
 

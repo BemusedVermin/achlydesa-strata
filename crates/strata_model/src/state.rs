@@ -122,6 +122,13 @@ pub enum FigureStatus {
     Removed,
 }
 
+impl FigureStatus {
+    /// Whether a figure with this status is still in play: in reserve or on the board.
+    pub fn in_play(self) -> bool {
+        matches!(self, FigureStatus::Reserve | FigureStatus::OnBoard)
+    }
+}
+
 /// A wound or status on a figure.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct Marker {
@@ -272,6 +279,18 @@ impl GameState {
     pub fn team(&self, player: PlayerId) -> u8 {
         let found = self.players.get(player.index());
         found.map_or(player.0, |p| p.team)
+    }
+
+    /// Whether `figure` is still in play, in reserve or on the board; false for a figure the
+    /// state does not list.
+    pub fn in_play(&self, figure: FigureId) -> bool {
+        let found = self.figures.get(figure.index());
+        found.is_some_and(|f| f.status.in_play())
+    }
+
+    /// Whether some figure of `unit` is still in play.
+    pub fn unit_in_play(&self, unit: &UnitState) -> bool {
+        unit.figures.iter().any(|f| self.in_play(*f))
     }
 
     /// Where `figure` stands, if the state lists it and it is on the board.

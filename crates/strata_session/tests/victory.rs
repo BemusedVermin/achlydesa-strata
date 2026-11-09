@@ -90,6 +90,16 @@ fn a_lua_function_is_a_victory_condition() {
 }
 
 #[test]
+fn a_command_that_ends_a_round_is_checked_as_a_command_first() {
+    passes("a command that ends a round is checked as a command first");
+}
+
+#[test]
+fn a_condition_that_fails_is_skipped_and_play_goes_on() {
+    passes("a condition that fails is skipped and reported");
+}
+
+#[test]
 fn every_test_passes_except_the_refused_one() {
     let reports = run();
     let failed: Vec<&str> = reports

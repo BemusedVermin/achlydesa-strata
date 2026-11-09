@@ -273,6 +273,10 @@ impl NativeEnv for LuaRules {
         self.host.forced_roll(die, count)
     }
 
+    fn points(&self, unit: DefId) -> Option<i64> {
+        self.host.points(unit)
+    }
+
     fn scenario(&self, state: &GameState) -> Option<&strata_model::ScenarioDef> {
         self.host.scenario(state)
     }

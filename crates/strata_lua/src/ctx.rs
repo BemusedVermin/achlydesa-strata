@@ -91,6 +91,11 @@ pub trait RuleHost: Send + Sync {
     fn volume(&self, _state: &GameState, _figure: FigureId) -> Option<strata_rules::FigureVolume> {
         None
     }
+    /// The printed `points` stat of the unit definition `unit`, as
+    /// [`NativeEnv::points`](strata_rules::NativeEnv::points) describes it.
+    fn points(&self, _unit: strata_kernel::DefId) -> Option<i64> {
+        None
+    }
     /// The scenario the match is played on.
     fn scenario(&self, _state: &GameState) -> Option<&strata_model::ScenarioDef> {
         None

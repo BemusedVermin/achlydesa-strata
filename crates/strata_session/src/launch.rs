@@ -19,7 +19,7 @@ use crate::names::Names;
 use crate::pack_test::PackTests;
 use crate::pack_test::host::{Host, find};
 use crate::session::Session;
-use crate::setup::{build_match, pack_identities};
+use crate::setup::{build_match, check_victory, pack_identities};
 use crate::sim::{SimHandle, SimLink};
 use crate::view::BoardInfo;
 
@@ -94,6 +94,7 @@ fn play(spec: &LaunchSpec, link: &SimLink) -> Result<(), String> {
     let built = build_match(registry, setup).map_err(|e| e.0)?;
     let rt = resolve(&ruleset_name, &Rulesets(&tests, pack), &tests.catalog)
         .map_err(|e| e.to_string())?;
+    check_victory(registry, &rt, scenario_id).map_err(|e| e.0)?;
     let source = strata_kernel::Sym::new(&ruleset_name);
     let modifiers = rt.modifiers().iter().map(|m| SourcedModifier {
         source: source.clone(),

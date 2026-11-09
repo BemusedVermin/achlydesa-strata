@@ -65,6 +65,33 @@ scenario_of('scripted', {
   end,
 })
 
+-- Conditions are checked after every command, then at the end of each round it ended. This one
+-- counts commands: the fifth ends round 1, and since it is checked as a command first, team 0
+-- wins there before the round end would give the match to team 1.
+scenario_of('command_first', {
+  function(ctx, moment)
+    local seen = ctx.vars('test')
+    if moment == 'command' then
+      seen.commands = (seen.commands or 0) + 1
+      if seen.commands == 5 then return 0 end
+    elseif moment == 'round_end' then
+      return 1
+    end
+  end,
+})
+-- Team 0 wins as soon as the first command resolves, for sessions that play to the end.
+scenario_of('first_command', {
+  function(_, moment)
+    if moment == 'command' then return 0 end
+  end,
+})
+-- A condition that fails while the match is played is skipped, and the next one still applies.
+scenario_of('broken', { function() error('boom') end, win.round_limit(1) })
+-- Malformed conditions, refused when a match is set up on them.
+scenario_of('bad_zone', { win.hold_zone('nowhere') })
+scenario_of('bad_tiebreak', { win.round_limit(3, { tiebreak = 'initiative_roll' }) })
+scenario_of('bad_kind', { { win = 'king_of_the_hill' } })
+
 ruleset {
   id = 'rs', name = 'Victory',
   slots = {
@@ -158,3 +185,13 @@ play('ties_reversed', 'the first listed condition wins a tie, in either order', 
 play('scripted', 'a Lua function is a victory condition', 'scripted',
   { at('test_soldier', 0, 0), at('test_soldier', 1, 5) },
   steps(round(me, foe), expect.result('script', { 1 })))
+
+play('command_first', 'a command that ends a round is checked as a command first', 'command_first',
+  { at('test_soldier', 0, 0), at('test_soldier', 1, 5) },
+  steps(start, act.activate(0, me), act.end_activation(0), act.activate(1, foe), expect.result(),
+    act.end_activation(1), expect.result('script', { 0 })))
+play('broken', 'a condition that fails is skipped and reported, and play goes on', 'broken',
+  { at('test_soldier', 0, 0), at('test_soldier', 1, 5) },
+  steps(start, expect.event('victory_condition_failed'), act.activate(0, me),
+    act.end_activation(0), act.activate(1, foe), act.end_activation(1),
+    expect.result('round_limit')))

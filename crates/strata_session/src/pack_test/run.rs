@@ -18,7 +18,7 @@ use strata_rules::{
 use super::host::{Host, find};
 use super::report::Failure;
 use super::{PackTests, state};
-use crate::setup::place_relics;
+use crate::setup::{check_victory, place_relics};
 
 /// The action `act.attack` takes.
 const ATTACK: &str = "attack";
@@ -109,6 +109,9 @@ impl PackTests {
             resolve(name.as_str(), &rulesets, &self.catalog).map_err(|e| setup(e.to_string()))?;
         let (ruleset_id, _) = find::<RulesetDef>(&self.registry, pack, name.as_str())
             .ok_or_else(|| setup(format!("unknown ruleset `{name}`")))?;
+        if let Some((scenario_id, _)) = scenario {
+            check_victory(&self.registry, &rt, scenario_id).map_err(|e| setup(e.0))?;
+        }
         let modifiers = rt.modifiers().iter().map(|m| SourcedModifier {
             source: name.clone(),
             priority: 0,
@@ -315,7 +318,7 @@ impl PackTests {
                 } => {
                     let found = self.army_check(
                         pack,
-                        name.as_str(),
+                        &rt,
                         army.as_str(),
                         format.as_ref().map(Sym::as_str),
                         scenario.as_ref().map(Sym::as_str),

@@ -74,20 +74,22 @@ globals.expect = {
 }
 
 -- Army rules for `format { army = ... }` and `scenario { army = ... }` (design 11.3). They return
--- plain data, which freezes as native logic for the `army` slot's module.
-local function list_of(names)
-  if type(names) == "string" then return { names } end
-  return names
-end
+-- plain data, which freezes as native logic for the `army` slot's module. A field that takes
+-- names takes one name or a list; the module reads both.
+--
+-- These constructors and `win.*` below are fixed globals of the data stage rather than registered
+-- by modules as design 11.2 describes: content loads before any ruleset is resolved, so no module
+-- is known yet. The slot's module checks the data instead: the `victory` module when a match is
+-- set up, the `army` module when it validates a list.
 globals.army_rule = {
   max_points = function(points) return { army_rule = "max_points", points = points } end,
   unique_once = function(opts)
     return { army_rule = "unique_once", rarity = opts and opts.rarity }
   end,
   max_copies = function(copies) return { army_rule = "max_copies", copies = copies } end,
-  banned = function(units) return { army_rule = "banned", units = list_of(units) } end,
+  banned = function(units) return { army_rule = "banned", units = units } end,
   require_faction = function(factions)
-    return { army_rule = "require_faction", factions = list_of(factions) }
+    return { army_rule = "require_faction", factions = factions }
   end,
   max_footprint = function(cells) return { army_rule = "max_footprint", cells = cells } end,
 }
@@ -99,7 +101,7 @@ globals.win = {
     return { win = "hold_zone", zone = zone, rounds = opts and opts.rounds }
   end,
   round_limit = function(rounds, opts)
-    return { win = "round_limit", rounds = rounds, tiebreak = opts and list_of(opts.tiebreak) }
+    return { win = "round_limit", rounds = rounds, tiebreak = opts and opts.tiebreak }
   end,
 }
 

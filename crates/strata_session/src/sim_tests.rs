@@ -3,9 +3,13 @@
 use std::time::Duration;
 
 use strata_kernel::Sym;
-use strata_model::{Answer, Command, Decision, DecisionKind, PlayerId};
+use strata_model::{
+    Answer, Command, Decision, DecisionKind, PlayerId, RulesetDef, ScenarioDef, SeedSource,
+};
 
-use crate::tests::{Rig, attack, pack_tests, setup};
+use crate::pack_test::PackTests;
+use crate::pack_test::host::find;
+use crate::tests::{Rig, attack, pack_tests, seat, setup};
 use crate::*;
 
 const WAIT: Duration = Duration::from_secs(60);
@@ -45,7 +49,7 @@ fn random_match(seed: u64, commands: u32) -> Vec<SimMessage> {
     let mut messages = Vec::new();
     loop {
         let message = handle.recv_timeout(WAIT).expect("the match stalled");
-        let done = matches!(message, SimMessage::Finished | SimMessage::Error(_));
+        let done = matches!(message, SimMessage::Finished(_) | SimMessage::Error(_));
         messages.push(message);
         if done {
             break;
@@ -66,7 +70,7 @@ fn final_hash(messages: &[SimMessage]) -> u64 {
 #[test]
 fn two_random_controllers_play_a_match_through_the_channels() {
     let messages = random_match(3, 12);
-    assert!(matches!(messages.last(), Some(SimMessage::Finished)));
+    assert!(matches!(messages.last(), Some(SimMessage::Finished(None))));
     let events = messages
         .iter()
         .filter(|m| matches!(m, SimMessage::Events(_)));
@@ -124,7 +128,7 @@ fn a_human_seat_plays_the_commands_the_client_sends() {
     );
     assert!(matches!(
         handle.recv_timeout(WAIT),
-        Ok(SimMessage::Finished)
+        Ok(SimMessage::Finished(None))
     ));
     assert_eq!(handle.shutdown(), Ok(()));
 }
@@ -186,4 +190,112 @@ fn random_choices_cover_every_legal_command() {
         seen[legal.iter().position(|c| *c == pick).unwrap()] = true;
     }
     assert_eq!(seen, [true; 3]);
+}
+
+/// The `victory` fixture pack, with a setup on `scenario` that fields a test_soldier pair a
+/// side.
+fn victory_setup(scenario: &str) -> (PackTests, strata_model::MatchSetup) {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let roots = [std::path::PathBuf::from(root).join("../../fixtures/packs/victory")];
+    let loaded = PackTests::load(&roots).unwrap();
+    let modules = strata_modules::native_modules().into_iter();
+    let tests = modules.fold(loaded, |t, m| t.with_native(m).unwrap());
+    let registry = &tests.registry;
+    let (ruleset, _) = find::<RulesetDef>(registry, "victory", "rs").unwrap();
+    let (scenario, _) = find::<ScenarioDef>(registry, "victory", scenario).unwrap();
+    let setup = strata_model::MatchSetup {
+        packs: pack_identities(registry),
+        ruleset,
+        format: None,
+        scenario,
+        seed: SeedSource::Plain(4),
+        players: vec![seat(0, "a", "test_soldier"), seat(1, "b", "test_soldier")],
+    };
+    (tests, setup)
+}
+
+/// A random controller that starts a round when nothing is legal, since a rig's engine has no
+/// flow to offer commands.
+struct Rounds(RandomController);
+
+impl Controller for Rounds {
+    fn choose_command(&mut self, view: &PlayerView, legal: &[Command]) -> Command {
+        if legal.is_empty() {
+            return Command::Custom {
+                id: Sym::new("start_round"),
+                payload: strata_kernel::Value::Nil,
+            };
+        }
+        self.0.choose_command(view, legal)
+    }
+
+    fn answer(&mut self, view: &PlayerView, decision: &Decision) -> Answer {
+        self.0.answer(view, decision)
+    }
+}
+
+fn random_seats(seed: u64) -> Vec<Box<dyn Controller>> {
+    let seat = |n| Box::new(Rounds(RandomController::new(seed, n))) as Box<dyn Controller>;
+    vec![seat(0), seat(1)]
+}
+
+#[test]
+fn a_session_stops_asking_once_the_match_is_over() {
+    let (tests, setup) = victory_setup("first_command");
+    let rig = Rig::new(&tests, setup).unwrap();
+    let mut session = Session::new(rig.engine(), random_seats(2));
+    session.run(1000).unwrap();
+    let result = session.result().expect("the first command ends the match");
+    assert_eq!((result.condition.as_str(), result.index), ("script", 0));
+    assert_eq!(result.winners, [PlayerId(0)]);
+    let played = session.state().command_index;
+    assert_eq!(played, 1);
+    assert_eq!(session.step(), Ok(Vec::new()));
+    assert_eq!(session.state().command_index, played);
+}
+
+#[test]
+fn the_sim_finishes_with_the_result_once_the_match_is_over() {
+    let handle = SimHandle::spawn(|link| {
+        let (tests, setup) = victory_setup("first_command");
+        let rig = Rig::new(&tests, setup).unwrap();
+        let mut session = Session::new(rig.engine(), random_seats(5));
+        link.run(&mut session, PlayerId(0), 1000);
+    });
+    let mut messages = Vec::new();
+    loop {
+        let message = handle.recv_timeout(WAIT).expect("the match stalled");
+        let done = matches!(message, SimMessage::Finished(_) | SimMessage::Error(_));
+        messages.push(message);
+        if done {
+            break;
+        }
+    }
+    handle.shutdown().unwrap();
+    let Some(SimMessage::Finished(Some(result))) = messages.last() else {
+        panic!("expected a finished match, got {:?}", messages.last());
+    };
+    assert_eq!(result.condition.as_str(), "script");
+    assert_eq!(result.winners, [PlayerId(0)]);
+    assert!(!messages.iter().any(|m| matches!(m, SimMessage::Error(_))));
+}
+
+#[test]
+fn a_malformed_victory_condition_fails_setup() {
+    let (tests, mut setup) = victory_setup("short_draw");
+    let registry = &tests.registry;
+    for (name, wanted) in [
+        ("bad_zone", "the map has no zone `nowhere`"),
+        ("bad_tiebreak", "unknown tiebreak `initiative_roll`"),
+        (
+            "bad_kind",
+            "core:victory has no condition `king_of_the_hill`",
+        ),
+    ] {
+        setup.scenario = find::<ScenarioDef>(registry, "victory", name).unwrap().0;
+        let Err(error) = Rig::new(&tests, setup.clone()) else {
+            panic!("`{name}` set up");
+        };
+        assert!(error.0.contains(wanted), "{name}: {error}");
+    }
 }

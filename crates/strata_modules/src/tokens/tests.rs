@@ -5,6 +5,7 @@ use strata_model::{
 use strata_rules::{ActivationGate, TokenRules};
 
 use super::*;
+use strata_model::FigureStatus;
 
 fn token(kind: u32, visibility: Visibility) -> Token {
     Token {

@@ -4,33 +4,40 @@
 //! army rule, such as `{ army_rule = "max_points", points = 500 }`. [`validate`] applies every
 //! rule of a format and a scenario, both sets at once, and returns each violation with the rule
 //! that produced it. A rule written as a Lua function is called through a [`ScriptCaller`] with
-//! the army as its subject.
+//! the army as its subject. Names a rule mentions, such as banned units, are looked up through
+//! [`ArmyNames`] from the pack that defines the rule's format or scenario.
 
 use std::collections::BTreeMap;
 
-use strata_kernel::{Sym, Value};
+use strata_kernel::{DefId, Sym, Value};
 use strata_model::{Descriptor, FormatDef, Logic, ScenarioDef};
 
+use crate::native::logic_name;
 use crate::query::{EvalCtx, LogicError, ScriptCaller};
 
 /// The descriptor field that names a native army rule.
 pub const RULE_FIELD: &str = "army_rule";
-/// The rule name reported for an army rule written as a Lua function.
-pub const SCRIPT_RULE: &str = "script";
+/// The message for a Lua army rule that returns `false`.
+pub const SCRIPT_FAILED: &str = "the army does not meet this rule";
 
 /// One entry of an army list, with what the rules need to know about its unit.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArmyUnit {
     /// The unit's full name, such as `strata_std:ironclad_line`.
     pub unit: Sym,
+    /// The unit's definition.
+    pub def: DefId,
     /// How many copies the entry takes.
     pub copies: u8,
-    /// The printed `points` of one copy.
-    pub points: i64,
+    /// The printed `points` of one copy, 0 when the unit prints none. `None` when the packs
+    /// define no `points` stat, so no rule can price the army.
+    pub points: Option<i64>,
     /// The unit's rarity, such as `common` or `unique`.
     pub rarity: Sym,
     /// The full name of the unit's faction, if it has one.
     pub faction: Option<Sym>,
+    /// The definition of the unit's faction, if it has one.
+    pub faction_def: Option<DefId>,
     /// How many spaces the footprints of all figures of one copy cover.
     pub footprint: u32,
 }
@@ -57,34 +64,50 @@ pub struct ArmyViolation {
     pub message: String,
 }
 
+/// What kind of definition an army rule names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NameKind {
+    /// A unit, as `banned` lists them.
+    Unit,
+    /// A faction, as `require_faction` lists them.
+    Faction,
+}
+
+/// Looks up the names army rules mention.
+pub trait ArmyNames {
+    /// The definition a rule listed in `origin` means by `name`, looked up the way content
+    /// lookup resolves an authored name in the pack that defines that format or scenario.
+    /// `None` when it names nothing.
+    fn find(&self, origin: RuleOrigin, kind: NameKind, name: &str) -> Option<DefId>;
+}
+
 /// Army legality, as the module in the `army` slot defines it.
 pub trait ArmyRules: Send + Sync {
     /// Checks `army` against one native rule and describes every way it breaks it; an empty
-    /// list means the army keeps the rule. A rule the module does not know is an error.
-    fn check(&self, rule: &Descriptor, army: &[ArmyUnit]) -> Result<Vec<String>, LogicError>;
+    /// list means the army keeps the rule. `names` resolves the names the rule lists. A rule
+    /// the module does not know, or one that names a definition `names` cannot find, is an
+    /// error.
+    fn check(
+        &self,
+        rule: &Descriptor,
+        army: &[ArmyUnit],
+        names: &dyn Fn(NameKind, &str) -> Option<DefId>,
+    ) -> Result<Vec<String>, LogicError>;
 }
 
-/// The name of an army rule: the descriptor's `army_rule` field, or `script`.
-pub fn rule_name(rule: &Logic) -> Sym {
-    match rule {
-        Logic::Native(Descriptor(value)) => {
-            let name = value.get(RULE_FIELD).and_then(Value::as_str);
-            Sym::new(name.unwrap_or("unnamed"))
-        }
-        Logic::Script(_) => Sym::new(SCRIPT_RULE),
-    }
-}
-
-/// The army as a script sees it: a list of `{ unit, copies, points, rarity, faction, footprint }`.
+/// The army as a script sees it: a list of `{ unit, copies, points, rarity, faction, footprint }`,
+/// without `points` when the packs define no `points` stat.
 pub fn army_value(army: &[ArmyUnit]) -> Value {
     let entry = |u: &ArmyUnit| {
         let mut map = BTreeMap::from([
             (Sym::new("unit"), Value::Str(u.unit.clone())),
             (Sym::new("copies"), Value::Int(i64::from(u.copies))),
-            (Sym::new("points"), Value::Int(u.points)),
             (Sym::new("rarity"), Value::Str(u.rarity.clone())),
             (Sym::new("footprint"), Value::Int(i64::from(u.footprint))),
         ]);
+        if let Some(points) = u.points {
+            map.insert(Sym::new("points"), Value::Int(points));
+        }
         if let Some(faction) = &u.faction {
             map.insert(Sym::new("faction"), Value::Str(faction.clone()));
         }
@@ -93,12 +116,14 @@ pub fn army_value(army: &[ArmyUnit]) -> Value {
     Value::List(army.iter().map(entry).collect())
 }
 
-/// What a script rule returned, as violation messages: nil or `true` for none, a string for
-/// one, a list of strings for several.
+/// What a script rule returned, as violation messages: nil, `true` or an empty table when the
+/// army passes; `false` for one violation with a generic message; a string for one violation
+/// with that message; a list of strings for several.
 fn script_messages(found: Value) -> Result<Vec<String>, LogicError> {
     let bad = |what: &str| LogicError(format!("an army rule script returned {what}"));
     match found {
         Value::Nil | Value::Bool(true) => Ok(Vec::new()),
+        Value::Bool(false) => Ok(vec![SCRIPT_FAILED.to_owned()]),
         Value::Str(message) => Ok(vec![message.as_str().to_owned()]),
         Value::List(items) => items
             .iter()
@@ -116,10 +141,12 @@ fn script_messages(found: Value) -> Result<Vec<String>, LogicError> {
 
 /// Checks `army` against every rule of `format` and of `scenario`: the format's first, then the
 /// scenario's, each in list order. A scenario can only add rules, so both sets always apply
-/// (design §11.3). Fails if a rule is malformed or its script fails.
+/// (design §11.3). Fails if a rule is malformed, names a definition `names` cannot find, or its
+/// script fails.
 pub fn validate(
     rules: &dyn ArmyRules,
     scripts: &dyn ScriptCaller,
+    names: &dyn ArmyNames,
     army: &[ArmyUnit],
     format: Option<&FormatDef>,
     scenario: Option<&ScenarioDef>,
@@ -130,9 +157,10 @@ pub fn validate(
     let source = Sym::new("army");
     let mut found = Vec::new();
     for (origin, list) in format.into_iter().chain(scenario) {
+        let find = |kind, name: &str| names.find(origin, kind, name);
         for (index, rule) in list.iter().enumerate() {
             let messages = match rule {
-                Logic::Native(descriptor) => rules.check(descriptor, army)?,
+                Logic::Native(descriptor) => rules.check(descriptor, army, &find)?,
                 Logic::Script(script) => {
                     let cx = EvalCtx {
                         source: &source,
@@ -142,7 +170,7 @@ pub fn validate(
                     script_messages(scripts.call(script, &cx)?)?
                 }
             };
-            let name = rule_name(rule);
+            let name = logic_name(rule, RULE_FIELD);
             found.extend(messages.into_iter().map(|message| ArmyViolation {
                 origin,
                 index,

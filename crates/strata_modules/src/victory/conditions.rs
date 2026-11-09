@@ -1,64 +1,154 @@
 //! The native victory conditions, their tiebreaks and their progress estimates.
+//!
+//! Figures count for teams in two ways. Holding a zone is about who stands there, so a figure
+//! counts for the team of the player who controls it now. Elimination and points are about whose
+//! army it is, so a figure counts for the team of its unit's owner, even while an enemy controls
+//! it.
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use strata_kernel::{Frac, Hex, Sym, Value, ValueError};
-use strata_model::{Descriptor, Event, FigureStatus, GameState, Logic, UnitState};
+use strata_kernel::{Frac, Hex, Sym, Value};
+use strata_model::{Event, FigureStatus, GameState, Logic, MapDef, ScenarioDef, UnitState};
 use strata_rules::{Ctx, Halt, LogicError, NativeEnv};
 
 use super::{Moment, Verdict, key, share};
+use crate::shared::names;
 
 /// The descriptor field that names a native condition.
 pub const WIN_FIELD: &str = "win";
-/// The condition name reported for a Lua function.
-pub const SCRIPT_CONDITION: &str = "script";
-/// The stat that prices a unit.
-const POINTS: &str = "points";
 
-/// The name of a condition: the descriptor's `win` field, or `script`.
-pub(crate) fn name(logic: &Logic) -> Sym {
-    match logic {
-        Logic::Native(Descriptor(value)) => {
-            let name = value.get(WIN_FIELD).and_then(Value::as_str);
-            Sym::new(name.unwrap_or("unnamed"))
+/// A native victory condition, read from its descriptor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Condition {
+    /// Every team but one has no figure left in play.
+    EliminateAll,
+    /// One team alone stands in `zone` at `rounds` round ends in a row.
+    HoldZone {
+        /// The map zone.
+        zone: Sym,
+        /// How many round ends in a row.
+        rounds: i64,
+    },
+    /// The end of round `rounds` ends the match, settled by the tiebreaks in order.
+    RoundLimit {
+        /// The last round.
+        rounds: i64,
+        /// The tiebreaks, in order.
+        tiebreaks: Vec<Tiebreak>,
+    },
+}
+
+/// A way to rank the teams when the round limit ends the match; higher is better.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Tiebreak {
+    /// Points of the team's units with a figure in play.
+    PointsRemaining,
+    /// Points of the other teams' units with no figure in play.
+    PointsDestroyed,
+    /// The team's figures in play.
+    FiguresRemaining,
+}
+
+impl Tiebreak {
+    fn named(name: &str) -> Option<Self> {
+        match name {
+            "points_remaining" => Some(Tiebreak::PointsRemaining),
+            "points_destroyed" => Some(Tiebreak::PointsDestroyed),
+            "figures_remaining" => Some(Tiebreak::FiguresRemaining),
+            _ => None,
         }
-        Logic::Script(_) => Sym::new(SCRIPT_CONDITION),
     }
 }
 
-fn reject(kind: &str, e: impl std::fmt::Display) -> Halt {
-    Halt::reject(format!("win.{kind}: {e}"))
+/// Why a condition could not be checked.
+pub(crate) enum Fault {
+    /// The condition itself is broken, such as a Lua function that fails: it is skipped.
+    Broken(String),
+    /// The command must stop, as for a decision a script asks for.
+    Halt(Halt),
 }
 
-/// Whether a figure is still in play.
-fn live(state: &GameState, figure: &strata_model::FigureId) -> bool {
-    let status = state.figures.get(figure.index()).map(|f| f.status);
-    matches!(status, Some(FigureStatus::Reserve | FigureStatus::OnBoard))
+impl From<Halt> for Fault {
+    fn from(halt: Halt) -> Self {
+        Fault::Halt(halt)
+    }
 }
 
-/// Whether some figure of `unit` is still in play.
-fn unit_live(state: &GameState, unit: &UnitState) -> bool {
-    unit.figures.iter().any(|f| live(state, f))
+/// Reads the native condition `win`, or says what is wrong with it.
+pub(crate) fn parse(win: &Value) -> Result<Condition, String> {
+    let kind = win.get(WIN_FIELD).and_then(Value::as_str);
+    let kind = kind.map_err(|e| format!("a victory condition needs `{WIN_FIELD}`: {e}"))?;
+    let bad = |e: String| format!("win.{kind}: {e}");
+    match kind {
+        "eliminate_all" => Ok(Condition::EliminateAll),
+        "hold_zone" => {
+            let zone = win.get("zone").and_then(Value::as_str);
+            let zone = zone.map_err(|e| bad(e.to_string()))?;
+            Ok(Condition::HoldZone {
+                zone: Sym::new(zone),
+                rounds: rounds(win, Some(1)).map_err(bad)?,
+            })
+        }
+        "round_limit" => {
+            let rounds = rounds(win, None).map_err(bad)?;
+            let listed = names(win, "tiebreak").map_err(|e| bad(e.to_string()))?;
+            let tiebreak = |name: &Sym| {
+                let found = Tiebreak::named(name.as_str());
+                found.ok_or_else(|| bad(format!("unknown tiebreak `{name}`")))
+            };
+            let tiebreaks = listed.iter().map(tiebreak).collect::<Result<_, _>>()?;
+            Ok(Condition::RoundLimit { rounds, tiebreaks })
+        }
+        other => Err(format!("core:victory has no condition `{other}`")),
+    }
 }
 
-/// Checks the native condition `win` at `moment`.
+/// The `rounds` field, at least one, or `default` when it is missing.
+fn rounds(win: &Value, default: Option<i64>) -> Result<i64, String> {
+    let given = match (win.get("rounds"), default) {
+        (Ok(Value::Nil) | Err(_), Some(d)) => d,
+        (Ok(v), _) => v.as_int().map_err(|e| e.to_string())?,
+        (Err(e), None) => return Err(e.to_string()),
+    };
+    (given >= 1)
+        .then_some(given)
+        .ok_or_else(|| "rounds must be at least 1".to_owned())
+}
+
+/// Checks every native condition of `scenario` before a match, with `map` the scenario's map.
+pub(crate) fn check(scenario: &ScenarioDef, map: &MapDef) -> Result<(), LogicError> {
+    for (index, logic) in scenario.victory.iter().enumerate() {
+        let Logic::Native(descriptor) = logic else {
+            continue;
+        };
+        let at = |e: String| LogicError(format!("victory condition {}: {e}", index + 1));
+        let condition = parse(&descriptor.0).map_err(at)?;
+        if let Condition::HoldZone { zone, .. } = &condition {
+            if !map.zones.contains_key(zone) {
+                return Err(at(format!("win.hold_zone: the map has no zone `{zone}`")));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Checks the native condition `condition` at `moment`.
 pub(crate) fn native(
     ctx: &mut dyn Ctx,
     env: &dyn NativeEnv,
-    win: &Value,
+    condition: &Condition,
     index: usize,
     moment: Moment,
-) -> Result<Option<Verdict>, Halt> {
-    let kind = win.get(WIN_FIELD).and_then(Value::as_str);
-    let kind = kind.map_err(|e| Halt::reject(format!("a victory condition needs `win`: {e}")))?;
-    match (kind, moment) {
-        ("eliminate_all", _) => Ok(eliminate_all(ctx.state())),
-        ("hold_zone", Moment::RoundEnd(_)) => hold_zone(ctx, env, win, index),
-        ("round_limit", Moment::RoundEnd(round)) => round_limit(ctx.state(), env, win, round),
-        ("hold_zone" | "round_limit", Moment::Command) => Ok(None),
-        (other, _) => Err(Halt::reject(format!(
-            "core:victory has no condition `{other}`"
-        ))),
+) -> Result<Option<Verdict>, Fault> {
+    match (condition, moment) {
+        (Condition::EliminateAll, _) => Ok(eliminate_all(ctx.state())),
+        (Condition::HoldZone { zone, rounds }, Moment::RoundEnd(_)) => {
+            hold_zone(ctx, env, zone, *rounds, index)
+        }
+        (Condition::RoundLimit { rounds, tiebreaks }, Moment::RoundEnd(round)) => {
+            Ok((i64::from(round) >= *rounds).then(|| round_limit(ctx.state(), env, tiebreaks)))
+        }
+        (Condition::HoldZone { .. } | Condition::RoundLimit { .. }, Moment::Command) => Ok(None),
     }
 }
 
@@ -68,27 +158,34 @@ pub(crate) fn script(
     env: &dyn NativeEnv,
     logic: &Logic,
     moment: Moment,
-) -> Result<Option<Verdict>, Halt> {
+) -> Result<Option<Verdict>, Fault> {
     let when = match moment {
         Moment::Command => "command",
         Moment::RoundEnd(_) => "round_end",
     };
-    match env.call_logic(ctx, logic, &[Value::Str(Sym::new(when))])? {
+    let found = match env.call_logic(ctx, logic, &[Value::Str(Sym::new(when))]) {
+        Ok(found) => found,
+        Err(Halt::Rejected(violation)) => return Err(Fault::Broken(violation.0)),
+        Err(halt) => return Err(Fault::Halt(halt)),
+    };
+    match found {
         Value::Nil | Value::Bool(false) => Ok(None),
-        Value::Int(team) => {
-            let team = u8::try_from(team).map_err(|_| reject("script", "no such team"))?;
-            Ok(Some(Verdict::Team(team)))
-        }
+        Value::Int(team) => match u8::try_from(team) {
+            Ok(team) => Ok(Some(Verdict::Team(team))),
+            Err(_) => Err(Fault::Broken(format!(
+                "returned team {team}, which is no team"
+            ))),
+        },
         Value::Str(s) if s.as_str() == "draw" => Ok(Some(Verdict::Draw)),
-        other => Err(reject("script", format!("returned {}", other.type_name()))),
+        other => Err(Fault::Broken(format!("returned {}", other.type_name()))),
     }
 }
 
-/// Every team that fielded a figure, and whether it still has one in play.
+/// Every team that fielded a figure, by unit owner, and whether it still has one in play.
 fn armies(state: &GameState) -> BTreeMap<u8, bool> {
     let mut teams = BTreeMap::new();
     for unit in state.units.iter().filter(|u| !u.figures.is_empty()) {
-        *teams.entry(state.team(unit.owner)).or_insert(false) |= unit_live(state, unit);
+        *teams.entry(state.team(unit.owner)).or_insert(false) |= state.unit_in_play(unit);
     }
     teams
 }
@@ -116,7 +213,7 @@ fn held(state: &GameState, index: usize) -> Option<(u8, i64)> {
     Some((team as u8, found.get("rounds").ok()?.as_int().ok()?))
 }
 
-/// The teams whose figures on the board cover some space of `zone`.
+/// The teams, by controller, whose figures on the board cover some space of `zone`.
 fn holders(state: &GameState, zone: &[Hex]) -> BTreeSet<u8> {
     let covered = state.board_changes.occupancy.iter();
     let inside = covered.filter(|(space, _)| zone.contains(&space.hex()));
@@ -125,30 +222,16 @@ fn holders(state: &GameState, zone: &[Hex]) -> BTreeSet<u8> {
     standing.map(|f| state.team(f.controller)).collect()
 }
 
-/// The `rounds` field, at least one, or `default` when it is missing.
-fn rounds(win: &Value, kind: &str, default: Option<i64>) -> Result<i64, Halt> {
-    let given = match (win.get("rounds"), default) {
-        (Ok(v), _) => v.as_int().map_err(|e| reject(kind, e))?,
-        (Err(_), Some(d)) => d,
-        (Err(e), None) => return Err(reject(kind, e)),
-    };
-    (given >= 1)
-        .then_some(given)
-        .ok_or_else(|| reject(kind, "rounds must be at least 1"))
-}
-
 fn hold_zone(
     ctx: &mut dyn Ctx,
     env: &dyn NativeEnv,
-    win: &Value,
+    zone: &Sym,
+    needed: i64,
     index: usize,
-) -> Result<Option<Verdict>, Halt> {
-    let zone = win.get("zone").and_then(Value::as_str);
-    let zone = zone.map_err(|e| reject("hold_zone", e))?;
-    let needed = rounds(win, "hold_zone", Some(1))?;
+) -> Result<Option<Verdict>, Fault> {
     let state = ctx.state();
-    let hexes = env.zone(state, zone);
-    let hexes = hexes.ok_or_else(|| reject("hold_zone", format!("no zone `{zone}`")))?;
+    let hexes = env.zone(state, zone.as_str());
+    let hexes = hexes.ok_or_else(|| Fault::Broken(format!("the map has no zone `{zone}`")))?;
     let mut teams = holders(state, &hexes).into_iter();
     let holder = match (teams.next(), teams.next()) {
         (Some(team), None) => Some(team),
@@ -174,38 +257,19 @@ fn hold_zone(
     Ok(holder.filter(|_| count >= needed).map(Verdict::Team))
 }
 
-fn round_limit(
-    state: &GameState,
-    env: &dyn NativeEnv,
-    win: &Value,
-    round: u32,
-) -> Result<Option<Verdict>, Halt> {
-    let limit = rounds(win, "round_limit", None)?;
-    if i64::from(round) < limit {
-        return Ok(None);
-    }
-    let breaks = match win.get("tiebreak") {
-        Err(_) | Ok(Value::Nil) => Vec::new(),
-        Ok(Value::Map(map)) if map.is_empty() => Vec::new(),
-        Ok(Value::Str(one)) => vec![one.clone()],
-        Ok(list) => {
-            let items = list.as_list().map_err(|e| reject("round_limit", e))?;
-            let names = items.iter().map(|v| v.as_str().map(Sym::new));
-            let names: Result<Vec<Sym>, ValueError> = names.collect();
-            names.map_err(|e| reject("round_limit", e))?
-        }
-    };
+/// The verdict at the round limit: each tiebreak keeps the teams that score highest on it.
+fn round_limit(state: &GameState, env: &dyn NativeEnv, tiebreaks: &[Tiebreak]) -> Verdict {
     let mut teams: Vec<u8> = state.players.iter().map(|p| p.team).collect();
     teams.sort_unstable();
     teams.dedup();
-    for tiebreak in &breaks {
+    for tiebreak in tiebreaks {
         if teams.len() <= 1 {
             break;
         }
-        let mut scored = Vec::new();
-        for team in &teams {
-            scored.push((score(state, env, tiebreak.as_str(), *team)?, *team));
-        }
+        let scored: Vec<(i64, u8)> = teams
+            .iter()
+            .map(|team| (score(state, env, *tiebreak, *team), *team))
+            .collect();
         let best = scored.iter().map(|(s, _)| *s).max();
         teams = scored
             .into_iter()
@@ -213,40 +277,36 @@ fn round_limit(
             .map(|(_, t)| t)
             .collect();
     }
-    Ok(Some(match teams.as_slice() {
+    match teams.as_slice() {
         [team] => Verdict::Team(*team),
         _ => Verdict::Draw,
-    }))
+    }
 }
 
-/// The printed points of `unit`, read through the `points` stat of its first figure.
-fn points(state: &GameState, env: &dyn NativeEnv, unit: &UnitState) -> Result<i64, Halt> {
-    let Some(figure) = unit.figures.first() else {
-        return Ok(0);
-    };
-    let found = env.stat(state, *figure, POINTS);
-    found.map_err(|e| reject("round_limit", e))
+/// The printed `points` stat of `unit`'s definition, the same price `core:army` reads; 0 when
+/// the unit prints none or the packs define no `points` stat.
+fn points(env: &dyn NativeEnv, unit: &UnitState) -> i64 {
+    env.points(unit.def).unwrap_or(0)
 }
 
-/// `team`'s score on `tiebreak`; higher is better.
-fn score(state: &GameState, env: &dyn NativeEnv, tiebreak: &str, team: u8) -> Result<i64, Halt> {
+/// `team`'s score on `tiebreak`, with units counted for their owner's team; higher is better.
+fn score(state: &GameState, env: &dyn NativeEnv, tiebreak: Tiebreak, team: u8) -> i64 {
     let units = state.units.iter().filter(|u| !u.figures.is_empty());
     let ours = |u: &&UnitState| state.team(u.owner) == team;
     match tiebreak {
-        "points_remaining" => units
+        Tiebreak::PointsRemaining => units
             .filter(ours)
-            .filter(|u| unit_live(state, u))
-            .map(|u| points(state, env, u))
+            .filter(|u| state.unit_in_play(u))
+            .map(|u| points(env, u))
             .sum(),
-        "points_destroyed" => units
-            .filter(|u| !ours(u) && !unit_live(state, u))
-            .map(|u| points(state, env, u))
+        Tiebreak::PointsDestroyed => units
+            .filter(|u| !ours(u) && !state.unit_in_play(u))
+            .map(|u| points(env, u))
             .sum(),
-        "figures_remaining" => {
+        Tiebreak::FiguresRemaining => {
             let figures = units.filter(ours).flat_map(|u| u.figures.iter());
-            Ok(figures.filter(|f| live(state, f)).count() as i64)
+            figures.filter(|f| state.in_play(**f)).count() as i64
         }
-        other => Err(reject("round_limit", format!("unknown tiebreak `{other}`"))),
     }
 }
 
@@ -257,26 +317,20 @@ pub(crate) fn progress(
     index: usize,
     team: u8,
 ) -> Result<Option<Frac>, LogicError> {
-    let kind = win.get(WIN_FIELD).and_then(Value::as_str);
-    match kind.map_err(|e| LogicError(e.to_string()))? {
-        "eliminate_all" => {
+    match parse(win).map_err(LogicError)? {
+        Condition::EliminateAll => {
             let theirs = state.units.iter().filter(|u| state.team(u.owner) != team);
             let figures: Vec<_> = theirs.flat_map(|u| u.figures.iter()).collect();
-            let gone = figures.iter().filter(|f| !live(state, f)).count();
+            let gone = figures.iter().filter(|f| !state.in_play(***f)).count();
             Ok(share(gone, figures.len()))
         }
-        "hold_zone" => {
-            let needed = win
-                .get("rounds")
-                .and_then(Value::as_int)
-                .unwrap_or(1)
-                .max(1);
+        Condition::HoldZone { rounds, .. } => {
             let count = match held(state, index) {
                 Some((holder, n)) if holder == team => n,
                 _ => 0,
             };
-            Ok(share(count.max(0) as usize, needed as usize))
+            Ok(share(count.max(0) as usize, rounds as usize))
         }
-        _ => Ok(None),
+        Condition::RoundLimit { .. } => Ok(None),
     }
 }

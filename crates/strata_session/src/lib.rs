@@ -33,7 +33,7 @@ pub use replay::{
 };
 pub use replay_text::dump;
 pub use session::{Session, SessionError};
-pub use setup::{MatchBuild, SetupError, build_match, pack_identities};
+pub use setup::{MatchBuild, SetupError, build_match, check_victory, pack_identities};
 pub use sim::{Control, SimError, SimHandle, SimLink, SimMessage};
 pub use view::{BoardInfo, PlayerView, REDACTED, visible_events};
 

@@ -12,6 +12,8 @@ use strata_model::{
     PlayerId, PlayerState, RelicDef, RelicState, ScenarioDef, UnitDef, UnitId, UnitState,
 };
 
+use strata_rules::{RulesRuntime, Victory};
+
 use crate::pack_test::host::find;
 
 /// The setup cannot be turned into a match.
@@ -79,6 +81,29 @@ pub fn build_match(
         orientation: map.orientation.clone(),
         features: map.features.iter().map(|f| f.feature.clone()).collect(),
     })
+}
+
+/// Checks the `victory` list of the scenario `scenario` with the ruleset's `victory` module
+/// before a match is played on it (design §11.2), so an unknown condition or tiebreak, a
+/// malformed field or a zone the map lacks fails setup rather than the match. Without a
+/// `victory` module there is nothing to check.
+pub fn check_victory(
+    registry: &ContentRegistry,
+    rt: &RulesRuntime,
+    scenario: DefId,
+) -> Result<(), SetupError> {
+    let Some(victory) = rt.service::<dyn Victory>() else {
+        return Ok(());
+    };
+    let err = |m: String| SetupError(m);
+    let def = registry.get::<ScenarioDef>(scenario);
+    let def = def.ok_or_else(|| err("the scenario is not in the registry".into()))?;
+    let full = registry.name::<ScenarioDef>(scenario).unwrap_or_default();
+    let pack = full.split_once(':').map_or("", |(p, _)| p);
+    let (_, map) = find::<MapDef>(registry, pack, def.map.as_str())
+        .ok_or_else(|| err(format!("unknown map `{}`", def.map)))?;
+    let checked = victory.check(def, map);
+    checked.map_err(|e| err(format!("scenario `{full}`: {}", e.0)))
 }
 
 /// Puts the scenario's relics on the map's spots, face up or face down as it says.
