@@ -11,7 +11,8 @@ use strata_model::{
     RulesetDef, ScenarioDef, Step, TestDef, TokenAt, TokenPlacement,
 };
 use strata_rules::{
-    Engine, LineOfSight, Movement, Outcome, RulesetSource, SourcedModifier, event_kind, resolve,
+    Engagement, Engine, LineOfSight, Movement, Outcome, RulesetSource, SourcedModifier, event_kind,
+    resolve,
 };
 
 use super::host::{Host, find};
@@ -132,8 +133,10 @@ impl PackTests {
         });
         let los = rt.service::<Arc<dyn LineOfSight>>().cloned();
         let movement = rt.service::<Arc<dyn Movement>>().cloned();
+        let engagement = rt.service::<Arc<dyn Engagement>>().cloned();
         let host = Host::new(&self.registry, pack, modifiers.collect(), board);
         let host = host.with_los(los).with_movement(movement);
+        let host = host.with_engagement(engagement);
         let host = Arc::new(host);
         let lua_modules = rt
             .configs()

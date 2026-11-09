@@ -56,6 +56,35 @@ pub trait MoveWorld {
     ) -> Result<bool, LogicError> {
         Ok(false)
     }
+    /// Whether a multi-cell figure covering `before` gives an enemy a reprisal by stepping to
+    /// cover `after`, both in footprint offset order. The body is judged as a whole: an enemy is
+    /// left only if some cell of `before` was engaged with it and no cell of `after` is.
+    ///
+    /// The default builds the answer from [`MoveWorld::provokes_reprisal`]: it says yes when some
+    /// old cell would leave engagement whichever new cell it became. That never misses a
+    /// reprisal, and is exact while one enemy is involved; with several it can flag a step that
+    /// keeps each enemy through a different cell. A host that knows the engagement service
+    /// should answer through it instead.
+    fn body_provokes_reprisal(
+        &self,
+        figure: FigureId,
+        before: &[Space],
+        after: &[Space],
+    ) -> Result<bool, LogicError> {
+        for &from in before {
+            let mut left_everywhere = true;
+            for &to in after {
+                if !self.provokes_reprisal(figure, from, to)? {
+                    left_everywhere = false;
+                    break;
+                }
+            }
+            if left_everywhere {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
 }
 
 /// One space a figure can reach.

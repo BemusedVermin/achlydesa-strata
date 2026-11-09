@@ -1,6 +1,7 @@
 //! One run of a command against a working copy of the state (design §5.2, §5.3).
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use strata_kernel::{CommandRng, ModuleId, Space, Sym, Value, WindowId};
 use strata_model::{
@@ -245,7 +246,7 @@ impl Ctx for Exec<'_> {
 
     fn leave_engagement(&mut self, figure: FigureId, path: &[Space]) -> Result<(), Halt> {
         let (rt, hooks) = (self.rt, self.hooks);
-        match rt.service::<dyn Engagement>() {
+        match rt.service::<Arc<dyn Engagement>>() {
             Some(service) => service.leave(self, hooks.env(), figure, path),
             None => Ok(()),
         }

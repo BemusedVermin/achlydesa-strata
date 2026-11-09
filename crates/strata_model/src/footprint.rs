@@ -8,8 +8,11 @@ use strata_kernel::{DefId, Hex, Rotation, Shape, Space, StableHash, Sym, Value};
 use crate::board::{CompiledBoard, Surface};
 use crate::vocab::{SourceLoc, Text};
 
+mod check;
 #[cfg(test)]
 mod tests;
+
+pub use self::check::{FootprintError, MAX_SNAKE_CELLS};
 
 /// How a multi-cell footprint moves.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]

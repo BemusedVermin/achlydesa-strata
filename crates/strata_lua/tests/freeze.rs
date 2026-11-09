@@ -224,3 +224,36 @@ fn plain_data_in_scenario_and_format_lists_freezes_as_native_logic() {
         }
     }
 }
+
+const BAD_FOOTPRINTS: &str = r#"
+footprint { id = 'empty', name = 'E', cells = {}, move = 'rigid', max_spread = 1 }
+footprint { id = 'off_anchor', name = 'O', cells = {{ q = 1, r = 0 }, { q = 2, r = 0 }}, move = 'rigid', max_spread = 1 }
+footprint { id = 'split', name = 'S', cells = {{ q = 0, r = 0 }, { q = 2, r = 0 }}, move = 'rigid', max_spread = 1 }
+footprint { id = 'long_snake', name = 'L', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }, { q = 2, r = 0 }}, move = 'snake', max_spread = 1 }
+footprint { id = 'long_rigid', name = 'R', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }, { q = 2, r = 0 }}, move = 'rigid', max_spread = 1 }
+footprint { id = 'two_snake', name = 'T', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }}, move = 'snake', max_spread = 1 }
+"#;
+
+#[test]
+fn unusable_footprint_shapes_are_refused_by_name() {
+    let errors = run(BAD_FOOTPRINTS).expect_err("bad footprints must not freeze");
+    let find = |id: &str| {
+        let named = format!("footprint `t:{id}`");
+        let found = errors.iter().find(|e| e.message.contains(&named));
+        found.unwrap_or_else(|| panic!("no error for `{id}` in {errors:#?}"))
+    };
+    assert_eq!(errors.len(), 4, "{errors:#?}");
+    let empty = find("empty");
+    assert_eq!(empty.field_path, "cells");
+    assert!(empty.message.contains("at least one cell"), "{empty}");
+    assert!(find("off_anchor").message.contains("anchor cell"));
+    assert!(find("split").message.contains("connected"));
+    let snake = find("long_snake");
+    assert_eq!(snake.field_path, "move");
+    assert!(snake.message.contains("use `move = \"rigid\"`"), "{snake}");
+    assert!(
+        snake
+            .to_string()
+            .starts_with("t/data.lua:5: move: footprint `t:long_snake`")
+    );
+}
