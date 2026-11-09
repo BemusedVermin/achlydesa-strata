@@ -22,12 +22,14 @@ const MAX_DICE: i64 = 1024;
 
 /// What `ctx` needs from the application that owns the content registry.
 pub trait RuleHost: Send + Sync {
-    /// Evaluates a native descriptor, such as a selector, for `subject`.
+    /// Evaluates a native descriptor, such as a selector, for `subject` (`self`) with `context`
+    /// (`target`).
     fn eval(
         &self,
         state: &GameState,
         descriptor: &Descriptor,
         subject: &Value,
+        context: &Value,
     ) -> Result<Value, LogicError>;
     /// Runs the query `name` with every modifier applied, such as `stat` with `[figure, "defense"]`.
     fn query(&self, state: &GameState, name: &str, args: &[Value]) -> Result<Value, LogicError>;
@@ -199,7 +201,9 @@ impl<'a> Frame<'a> {
             "select" => {
                 let selector = Descriptor(field("selector")?.clone());
                 let subject = args.get("subject").cloned().unwrap_or_default();
-                let found = self.host.eval(ctx.state(), &selector, &subject);
+                let found = self
+                    .host
+                    .eval(ctx.state(), &selector, &subject, &Value::Nil);
                 match found.map_err(|e| Halt::reject(e.0))? {
                     Value::List(mut ids) => {
                         ids.sort();

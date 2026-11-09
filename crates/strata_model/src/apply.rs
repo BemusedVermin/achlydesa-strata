@@ -243,7 +243,6 @@ impl GameState {
         self.figures.get(id.index()).ok_or(ApplyError::NoFigure(id))
     }
 
-    /// A figure that is still in play: in reserve or on the board.
     /// Takes a figure in play off the board for good, leaving it with `status`.
     fn take_off(&mut self, id: FigureId, status: FigureStatus) -> Result<(), ApplyError> {
         self.live_figure(id)?;
@@ -254,6 +253,7 @@ impl GameState {
         Ok(())
     }
 
+    /// A figure that is still in play: in reserve or on the board.
     fn live_figure(&self, id: FigureId) -> Result<&FigureState, ApplyError> {
         let fig = self.figure(id)?;
         match fig.status {

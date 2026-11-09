@@ -28,6 +28,9 @@ pub(crate) struct Record {
     pub(crate) hits: i64,
     pub(crate) blocks: i64,
     pub(crate) wounds: i64,
+    /// Whether a reaction cancelled the attack's wounds: the attack still rolls, and its hits and
+    /// blocks stay as rolled, so excess blocks still count, but it applies no wounds.
+    pub(crate) cancelled: bool,
     /// The window open now, or the last one the attack opened.
     pub(crate) window: Sym,
     /// Whether the attack ran through every window; false when it ended early because the
@@ -69,6 +72,7 @@ impl Record {
             ("hits", int(self.hits)),
             ("blocks", int(self.blocks)),
             ("wounds", int(self.wounds)),
+            ("cancelled", Value::Bool(self.cancelled)),
             ("window", Value::Str(self.window.clone())),
             ("finished", Value::Bool(self.finished)),
         ];
@@ -92,6 +96,7 @@ impl Record {
             hits: int("hits")?,
             blocks: int("blocks")?,
             wounds: int("wounds")?,
+            cancelled: flag("cancelled")?,
             window: Sym::new(value.get("window").and_then(Value::as_str).map_err(bad)?),
             finished: flag("finished")?,
         })
@@ -150,6 +155,7 @@ pub(crate) fn start(
         hits: 0,
         blocks: 0,
         wounds: 0,
+        cancelled: false,
         window: Sym::new(BEFORE_ATTACK_ROLL),
         finished: false,
     })
@@ -226,8 +232,12 @@ fn steps(
     if gone(ctx, &record) {
         return Ok(record);
     }
-    // Nothing is settable after this window, so the record keeps wounds = hits - blocks.
-    record.wounds = (record.hits - record.blocks).max(0);
+    // Nothing is settable after this window, so the record keeps wounds = hits - blocks, or none
+    // once cancelled.
+    record.wounds = match record.cancelled {
+        true => 0,
+        false => (record.hits - record.blocks).max(0),
+    };
     let wounds = u32::try_from(record.wounds).unwrap_or(u32::MAX);
     if wounds > 0 && ctx.state().standing(record.target).is_some() {
         crate::units::wound(ctx, env, record.target, wounds)?;
@@ -240,6 +250,6 @@ fn steps(
     };
     record.window(ctx, AFTER_WOUNDS)?;
     // Nothing is settable in the last window: the record announced is the one the wounds came
-    // from, so its wounds are always hits minus blocks.
+    // from, so its wounds are always hits minus blocks, or none when cancelled.
     Ok(applied)
 }

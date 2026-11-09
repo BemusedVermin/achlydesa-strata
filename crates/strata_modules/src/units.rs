@@ -168,7 +168,7 @@ pub fn heal(
 pub fn destroy(ctx: &mut dyn Ctx, figure: FigureId) -> Result<(), Halt> {
     require_live(ctx.state(), figure)?;
     ctx.emit(Event::FigureDestroyed(figure))?;
-    unit_left(ctx, figure)
+    unit_left(ctx, figure, FigureStatus::Destroyed)
 }
 
 /// Removes `figure` from the game without destroying it. When it was its unit's last figure in
@@ -176,12 +176,17 @@ pub fn destroy(ctx: &mut dyn Ctx, figure: FigureId) -> Result<(), Halt> {
 pub fn remove(ctx: &mut dyn Ctx, figure: FigureId) -> Result<(), Halt> {
     require_live(ctx.state(), figure)?;
     ctx.emit(Event::FigureRemoved(figure))?;
-    unit_left(ctx, figure)
+    unit_left(ctx, figure, FigureStatus::Removed)
 }
 
-/// Emits `unit_removed` when `figure`, just taken out of play, was its unit's last figure.
-fn unit_left(ctx: &mut dyn Ctx, figure: FigureId) -> Result<(), Halt> {
+/// Emits `unit_removed` when `figure` now has `status`, so this call took it out of play, and it
+/// was its unit's last figure. A replacement may have taken the figure out another way, or kept
+/// it in play; then whichever path changed its status announced the unit, or nothing did.
+fn unit_left(ctx: &mut dyn Ctx, figure: FigureId, status: FigureStatus) -> Result<(), Halt> {
     let state = ctx.state();
+    if state.figures[figure.index()].status != status {
+        return Ok(());
+    }
     let unit = state.figures[figure.index()].unit;
     let alive = state.units[unit.index()]
         .figures

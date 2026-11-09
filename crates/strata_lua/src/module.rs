@@ -101,38 +101,49 @@ fn add(r: &mut Registrar, lua: &Lua, kind: &str, def: LuaValue) -> mlua::Result<
     match kind {
         "action" => {
             let a = from_lua::<ActionDef>(lua, def)?;
-            check(&[
-                ("targets", a.targets.as_ref()),
-                ("resolve", Some(&a.resolve)),
-            ])?;
+            check(
+                "action",
+                &[
+                    ("targets", a.targets.as_ref()),
+                    ("resolve", Some(&a.resolve)),
+                ],
+            )?;
             r.action(a);
         }
         "modifier" => {
             let m = from_lua::<ModifierDef>(lua, def)?;
             let value = Some(&m.value);
-            check(&[
-                ("select", m.select.as_ref()),
-                ("when", m.when.as_ref()),
-                ("value", value),
-            ])?;
+            check(
+                "modifier",
+                &[
+                    ("select", m.select.as_ref()),
+                    ("when", m.when.as_ref()),
+                    ("value", value),
+                ],
+            )?;
             r.modifier(m);
         }
         "trigger" => {
             let t = from_lua::<TriggerDef>(lua, def)?;
-            check(&[("filter", t.filter.as_ref()), ("effect", Some(&t.effect))])?;
+            let fields = [("filter", t.filter.as_ref()), ("effect", Some(&t.effect))];
+            check("trigger", &fields)?;
             r.trigger(t);
         }
         "replacement" => {
             let rp = from_lua::<ReplacementDef>(lua, def)?;
-            check(&[
-                ("filter", rp.filter.as_ref()),
-                ("replace", Some(&rp.replace)),
-            ])?;
+            check(
+                "replacement",
+                &[
+                    ("filter", rp.filter.as_ref()),
+                    ("replace", Some(&rp.replace)),
+                ],
+            )?;
             r.replacement(rp);
         }
         "reaction" => {
             let re = from_lua::<ReactionDef>(lua, def)?;
-            check(&[("when", re.when.as_ref()), ("effect", Some(&re.effect))])?;
+            let fields = [("when", re.when.as_ref()), ("effect", Some(&re.effect))];
+            check("reaction", &fields)?;
             r.reaction(re);
         }
         _ => r.window(WindowId::new(&from_lua::<String>(lua, def)?)),
@@ -140,12 +151,13 @@ fn add(r: &mut Registrar, lua: &Lua, kind: &str, def: LuaValue) -> mlua::Result<
     Ok(())
 }
 
-/// Checks each named logic field; `resolve`, `effect` and `replace` act, the others are asked.
-fn check(fields: &[(&str, Option<&Logic>)]) -> mlua::Result<()> {
+/// Checks each named logic field of a `kind` registration for its role
+/// ([`strata_rules::FieldRole::of`]).
+fn check(kind: &str, fields: &[(&str, Option<&Logic>)]) -> mlua::Result<()> {
     for (field, logic) in fields {
-        let acts = matches!(*field, "resolve" | "effect" | "replace");
+        let role = strata_rules::FieldRole::of(kind, field);
         if let Some(logic) = logic {
-            let checked = strata_rules::check_logic(logic, acts);
+            let checked = strata_rules::check_logic(logic, role);
             checked.map_err(|e| mlua::Error::runtime(format!("`{field}`: {e}")))?;
         }
     }

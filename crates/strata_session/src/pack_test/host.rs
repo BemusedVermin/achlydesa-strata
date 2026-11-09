@@ -285,13 +285,14 @@ impl RuleHost for Host {
         state: &GameState,
         descriptor: &Descriptor,
         subject: &Value,
+        context: &Value,
     ) -> Result<Value, LogicError> {
         let world = StateWorld { host: self, state };
         let source = Sym::new("test");
         let cx = EvalCtx {
             source: &source,
             subject,
-            context: &Value::Nil,
+            context,
         };
         NativeEvaluator { world: &world }.eval(descriptor, &cx)
     }

@@ -25,7 +25,8 @@ mod text;
 
 pub use card::{CardTextError, card_text};
 pub use compile::{
-    DescriptorError, LogicFault, check_ability, check_effect, check_logic, compile, native_effect,
+    DescriptorError, FieldRole, LogicFault, check_ability, check_effect, check_logic, compile,
+    native_effect,
 };
 pub use effect::{EffectCx, EffectHost, run_effect};
 pub use eval::{AttackView, NativeEvaluator, World};

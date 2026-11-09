@@ -7,12 +7,12 @@ use strata_kernel::{DefId, Value};
 use strata_lua::{LuaRules, ModuleBinding};
 use strata_model::board::compile;
 use strata_model::{
-    Command, Event, FigureId, FigureStatus, MapDef, PlayerId, PlayerSetup, RuleModuleDef,
-    RulesetDef, ScenarioDef, Step, TestDef, TokenAt, TokenPlacement,
+    Command, Event, FigureStatus, MapDef, PlayerId, PlayerSetup, RuleModuleDef, RulesetDef,
+    ScenarioDef, Step, TestDef, TokenAt, TokenPlacement,
 };
 use strata_rules::{
-    Engagement, Engine, LineOfSight, Movement, Outcome, RulesetSource, SourcedModifier, event_kind,
-    resolve,
+    Engagement, Engine, LineOfSight, Movement, Outcome, RulesetSource, SourcedModifier,
+    event_figure, event_kind, resolve,
 };
 
 use super::host::{Host, find};
@@ -33,19 +33,6 @@ impl RulesetSource for Rulesets<'_> {
     fn ruleset(&self, name: &str) -> Option<&RulesetDef> {
         let found = find::<RulesetDef>(&self.tests.registry, self.pack, name);
         found.map(|(_, def)| def)
-    }
-}
-
-/// The figure an event is about, if it is about one.
-pub(super) fn event_figure(event: &Event) -> Option<FigureId> {
-    match event {
-        Event::FigureMoved { figure, .. }
-        | Event::WoundsApplied { figure, .. }
-        | Event::MarkerChanged { figure, .. }
-        | Event::ControlChanged { figure, .. }
-        | Event::FigureDestroyed(figure)
-        | Event::FigureRemoved(figure) => Some(*figure),
-        _ => None,
     }
 }
 

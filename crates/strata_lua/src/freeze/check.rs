@@ -27,7 +27,8 @@ pub(super) fn check(id: &str, def: &FrozenDef) -> Result<(), Invalid> {
                 abilities(id, "grants/abilities/", &grants.abilities)?;
             }
             match &relic.effect {
-                Some(effect) => check_effect(effect).map_err(|e| Invalid {
+                // A relic's effect runs through `run_effect`, which cannot run Rust logic by name.
+                Some(effect) => check_effect(effect, false).map_err(|e| Invalid {
                     field_path: "effect".to_owned(),
                     message: format!("relic `{id}`: {e}"),
                 }),

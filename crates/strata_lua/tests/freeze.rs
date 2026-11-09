@@ -147,7 +147,7 @@ ability(drill('drill'))
 relic {
   id = 'fury', name = 'Fury', mode = 'on_claim', claim = 'ends_move_on',
   grants = { to = 'occupant_army', abilities = { drill() } },
-  effect = { native = 'boom' },
+  effect = { eff = 'remove' },
 }
 "#;
 
@@ -171,9 +171,9 @@ fn plain_data_in_a_logic_field_freezes_as_a_native_descriptor() {
             FrozenDef::Ability(ability) => check(ability),
             FrozenDef::Relic(relic) => {
                 check(&relic.grants.as_ref().unwrap().abilities[0]);
-                assert_eq!(relic.effect, Some(native(&[("native", "boom")])));
+                assert_eq!(relic.effect, Some(native(&[("eff", "remove")])));
                 let effect = relic.effect.as_ref().unwrap();
-                assert_eq!(strata_rules::native_name(effect), Some("boom"));
+                assert!(matches!(strata_rules::native_effect(effect), Some(Ok(_))));
             }
             other => panic!("unexpected record {other:?}"),
         }
@@ -258,6 +258,10 @@ relic {
   id = 'dud', name = 'Dud', mode = 'on_claim', claim = 'ends_move_on',
   effect = { sel = 'enemies' },
 }
+relic {
+  id = 'named', name = 'Named', mode = 'on_claim', claim = 'ends_move_on',
+  effect = { native = 'boom' },
+}
 "#;
 
 #[test]
@@ -276,7 +280,12 @@ fn unknown_or_malformed_descriptors_fail_at_load_with_their_route() {
             ),
             (
                 "effect",
-                "relic `t:dud`: an effect must be an `eff` descriptor, `{ native = \"<name>\" }` or a function",
+                "relic `t:dud`: an effect must be an `eff` descriptor or a function",
+            ),
+            (
+                "effect",
+                "relic `t:named`: `{ native = \"<name>\" }` runs only as a trigger's `effect` or \
+                 an action's `resolve`; here, use an `eff` descriptor or a function",
             ),
             (
                 "abilities/2/triggers/1/effect",

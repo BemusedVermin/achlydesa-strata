@@ -7,7 +7,9 @@ use strata_model::{
     ScriptRef,
 };
 
-use super::super::{Base, Eff, Sel, Val, World, check_effect, check_logic, compile, native_effect};
+use super::super::{
+    Base, Eff, FieldRole, Sel, Val, World, check_effect, check_logic, compile, native_effect,
+};
 use super::{EffectCx, EffectHost, run_effect};
 use crate::check_ability;
 use crate::engine::{Ctx, Halt};
@@ -168,13 +170,30 @@ fn native_effect_finds_only_eff_descriptors() {
     assert!(native_effect(&native(named.clone())).is_none());
     assert!(native_effect(&script()).is_none());
     // A logic that acts must be an effect, Rust logic or a script.
-    assert!(check_effect(&native(named)).is_ok());
-    assert!(check_effect(&script()).is_ok());
-    assert!(check_effect(&native(eff("heal", &[]))).is_ok());
-    let not_an_effect = check_effect(&native(enemies())).unwrap_err();
+    assert!(check_effect(&native(named.clone()), true).is_ok());
+    assert!(check_effect(&script(), true).is_ok());
+    assert!(check_effect(&native(eff("heal", &[])), true).is_ok());
+    let not_an_effect = check_effect(&native(enemies()), true).unwrap_err();
     assert!(not_an_effect.to_string().contains("must be an `eff`"));
-    assert!(check_logic(&native(enemies()), false).is_ok());
-    assert!(check_logic(&native(eff("heal", &[])), true).is_ok());
+    assert!(check_logic(&native(enemies()), FieldRole::Asks).is_ok());
+    assert!(check_logic(&native(eff("heal", &[])), FieldRole::Acts).is_ok());
+    // Rust logic by name runs only as a trigger's effect or an action's resolver.
+    let named = native(named);
+    assert!(check_logic(&named, FieldRole::ActsOrNamesRust).is_ok());
+    let refused = check_logic(&named, FieldRole::Acts).unwrap_err();
+    assert!(refused.to_string().contains("runs only as"), "{refused}");
+    assert!(check_effect(&named, false).is_err());
+    assert_eq!(
+        FieldRole::of("triggers", "effect"),
+        FieldRole::ActsOrNamesRust
+    );
+    assert_eq!(
+        FieldRole::of("action", "resolve"),
+        FieldRole::ActsOrNamesRust
+    );
+    assert_eq!(FieldRole::of("reactions", "effect"), FieldRole::Acts);
+    assert_eq!(FieldRole::of("replacement", "replace"), FieldRole::Acts);
+    assert_eq!(FieldRole::of("triggers", "filter"), FieldRole::Asks);
 }
 
 #[test]
@@ -190,6 +209,20 @@ fn check_ability_reports_the_route_to_a_bad_effect() {
     let fault = check_ability(&ability).unwrap_err();
     assert_eq!(fault.path, "triggers/2/effect");
     assert_eq!(fault.error.to_string(), "unknown descriptor `eff.heel`");
+}
+
+#[test]
+fn check_ability_refuses_rust_logic_by_name_where_it_cannot_run() {
+    let ability: AbilityDef = serde_json::from_value(serde_json::json!({
+        "name": "Test", "text": "Test.", "scope": "figure",
+        "reactions": [
+            { "window": "w", "effect": { "native": { "Map": { "native": { "Str": "core:x" } } } } },
+        ],
+    }))
+    .unwrap();
+    let fault = check_ability(&ability).unwrap_err();
+    assert_eq!(fault.path, "reactions/1/effect");
+    assert!(fault.error.to_string().contains("runs only as"), "{fault}");
 }
 
 /// A world of four figures in a row on level 1; 0 and 1 belong to player 0.
@@ -312,11 +345,10 @@ const NOBODY: EffectCx<'static> = EffectCx {
 };
 
 #[test]
-fn cancel_wounds_drops_the_hits_to_the_blocks() {
+fn cancel_wounds_cancels_the_attack_leaving_hits_and_blocks_alone() {
     let done = calls(&Eff::CancelWounds, &host(attack(3, 1)), &NOBODY).unwrap();
     assert_eq!(done.len(), 2);
-    assert!(done[1].starts_with("combat.set"), "{done:?}");
-    assert!(done[1].contains("\"hits\": Int(1)"), "{done:?}");
+    assert_eq!(done[1], "combat.cancel []", "{done:?}");
 }
 
 #[test]

@@ -49,6 +49,18 @@ ruleset {
   slots = { units = { id = 'core:units' } },
   addons = {{ id = 'toy:driver' }, { id = 'units:harness' }},
 }
+-- `exile`: a figure that would be destroyed is removed instead.
+rule_module {
+  id = 'exile',
+  register = function(r)
+    r.replacement { event = 'figure_destroyed', replace = { eff = 'remove' } }
+  end,
+}
+ruleset {
+  id = 'rs_exile', name = 'Units with exile',
+  slots = { units = { id = 'core:units' } },
+  addons = {{ id = 'toy:driver' }, { id = 'units:harness' }, { id = 'units:exile' }},
+}
 
 local function board()
   return {
@@ -109,6 +121,14 @@ test {
     op('remove', 1), expect.event('figure_removed', { figure = 'p1.test_squad#1' }),
     expect.figure('p1.test_squad#1', 'removed'),
     op('remove', 2), expect.event('unit_removed'), expect.figure('p1.test_squad#2', 'removed'),
+  },
+}
+test {
+  id = 'exile', name = 'a destruction replaced by a removal removes the unit once',
+  ruleset = 'rs_exile', place = board(),
+  steps = {
+    op('destroy', 1), expect.figure('p1.test_squad#1', 'removed'),
+    op('destroy', 2), expect.figure('p1.test_squad#2', 'removed'), expect.event('unit_removed'),
   },
 }
 test {

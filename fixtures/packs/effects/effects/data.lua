@@ -66,6 +66,16 @@ rule_module {
                  effect = { eff = 'cancel_wounds' } }
   end,
 }
+-- The same reaction in the other combat windows.
+for _, window in ipairs { 'before_attack_roll', 'before_defense_roll', 'after_wounds' } do
+  rule_module {
+    id = 'evasion_' .. window,
+    register = function(r)
+      r.reaction { window = 'combat.' .. window, when = target_controller,
+                   effect = { eff = 'cancel_wounds' } }
+    end,
+  }
+end
 rule_module {
   id = 'riposte',
   register = function(r)
@@ -77,6 +87,48 @@ rule_module {
   id = 'ward',
   register = function(r)
     r.replacement { event = 'wounds_applied', replace = { eff = 'cancel_wounds' } }
+  end,
+}
+-- Replacements whose effect emits the very kind of event they replace: the replacement does not
+-- apply again to the event it emits itself.
+rule_module {
+  id = 'echo',
+  register = function(r)
+    r.replacement { event = 'wounds_applied', replace = { eff = 'wound', amount = 1 } }
+  end,
+}
+rule_module {
+  id = 'drift',
+  register = function(r)
+    r.replacement { event = 'figure_moved', replace = { eff = 'move', up_to = 1 } }
+  end,
+}
+-- Native filters and `when`s see `target`. `evasion_native` lets the defender react while its
+-- attacker is engaged; `when` answers true, so the defender's controller reacts. `watchful`
+-- stuns a wounded figure only while it is engaged.
+rule_module {
+  id = 'evasion_native',
+  register = function(r)
+    r.reaction { window = 'combat.after_defense_roll',
+                 when = { cond = 'engaged', who = { sel = 'target' } },
+                 effect = { eff = 'cancel_wounds' } }
+  end,
+}
+rule_module {
+  id = 'watchful',
+  register = function(r)
+    r.trigger { event = 'wounds_applied', filter = { cond = 'engaged', who = { sel = 'target' } },
+                effect = { eff = 'add_marker', marker = 'stunned' } }
+  end,
+}
+-- Follow-through (§8.3): after attacking, the attacker may attack again. core:combat's `attack`
+-- event gives the attacker as `self`; `unit_removed` is about no figure, so its effect selects
+-- nothing.
+rule_module {
+  id = 'follow_through',
+  register = function(r)
+    r.trigger { event = 'attack', effect = { eff = 'grant_slot', slot = 'attack' } }
+    r.trigger { event = 'unit_removed', effect = { eff = 'grant_slot', slot = 'attack' } }
   end,
 }
 -- A wound from a melee attack stuns the wounded figure.
@@ -97,9 +149,9 @@ rule_module {
   end,
 }
 
-local function rules(id, addon)
+local function rules(id, ...)
   local addons = {{ id = 'effects:effects' }}
-  if addon then addons[2] = { id = 'effects:' .. addon } end
+  for _, addon in ipairs { ... } do addons[#addons + 1] = { id = 'effects:' .. addon } end
   ruleset {
     id = id, name = id, addons = addons,
     slots = {
@@ -112,7 +164,14 @@ local function rules(id, addon)
   }
 end
 rules('plain')
-for _, addon in ipairs { 'evasion', 'riposte', 'ward', 'stagger', 'senses' } do rules(addon, addon) end
+local addons = {
+  'evasion', 'riposte', 'ward', 'stagger', 'senses', 'echo', 'drift', 'follow_through',
+  'evasion_before_attack_roll', 'evasion_before_defense_roll', 'evasion_after_wounds',
+}
+rules('early_riposte', 'evasion_before_defense_roll', 'riposte')
+rules('native_when', 'evasion_native', 'riposte')
+rules('watchful', 'watchful')
+for _, addon in ipairs(addons) do rules(addon, addon) end
 
 local function at(unit, player, q, r)
   return { unit = unit, player = player, at = {{ q = q, r = r, z = 1 }} }
@@ -162,6 +221,31 @@ case('cancel_wounds', 'eff.cancel_wounds as a reaction stops the wounds', 'evasi
   expect.decision('window:combat.after_defense_roll'), act.answer.option(1),
   expect.event('attack'), expect.figure(foe, 'on_board'),
 })
+local function window(name) return expect.decision('window:combat.' .. name) end
+case('cancel_before_attack', 'eff.cancel_wounds before the attack roll stops the wounds',
+  'evasion_before_attack_roll', duel, acting {
+  act.attack(me, foe, { rig = { { 'hit', 'hit' }, { 'blank', 'blank' } } }),
+  window('before_attack_roll'), act.answer.option(1),
+  expect.event('attack'), expect.figure(foe, 'on_board'),
+})
+case('cancel_before_defense', 'eff.cancel_wounds before the defense roll stops the wounds',
+  'evasion_before_defense_roll', duel, acting {
+  act.attack(me, foe, { rig = { { 'hit', 'hit' }, { 'blank', 'blank' } } }),
+  window('before_defense_roll'), act.answer.option(1),
+  expect.event('attack'), expect.figure(foe, 'on_board'),
+})
+case('cancel_then_riposte', 'cancelled wounds leave the blocks beyond the hits alone',
+  'early_riposte', duel, acting {
+  act.attack(me, foe, { rig = { { 'hit', 'hit' }, { 'block', 'blank' } } }),
+  window('before_defense_roll'), act.answer.option(1),
+  window('after_defense_roll'), act.answer.option(1),
+  expect.event('attack'), expect.figure(foe, 'on_board'),
+})
+case('cancel_after_wounds', 'eff.cancel_wounds after the wounds is refused',
+  'evasion_after_wounds', duel, acting {
+  act.attack(me, foe, { rig = { { 'hit', 'hit' }, { 'blank', 'blank' } } }),
+  window('after_wounds'), act.answer.option(1),
+})
 case('ward', 'eff.cancel_wounds as a replacement cancels the wounds', 'ward', duel, acting {
   act.action(me, 'smite', 1), expect.figure(foe, 'on_board'),
 })
@@ -191,4 +275,35 @@ case('not_engaged', 'cond.engaged fails away from enemies', 'senses', apart, {
 })
 case('in_los', 'cond.in_los holds when an enemy is in sight', 'senses', apart, {
   expect.stat(me, 'defense', 3),
+})
+case('echo', 'a wound replaced by a wound applies once', 'echo', duel, acting {
+  act.action(me, 'smite', 1), expect.event('wounds_applied', { figure = foe }),
+})
+case('drift', 'a move replaced by a move happens once', 'drift', duel, acting {
+  act.action(me, 'blink'), expect.decision('place'), act.answer.space(3, 0, 1),
+  expect.decision('move'), act.answer.space(0, 1, 1),
+  expect.event('figure_moved', { figure = me }),
+})
+case('follow_through', 'Follow-through grants the attacker another attack', 'follow_through',
+  duel, acting {
+  act.attack(me, foe, { rig = { { 'blank', 'blank' }, { 'blank', 'blank' } } }),
+  expect.event('attack'), expect.event('slots_changed', { figure = me }),
+})
+case('no_subject', 'an effect on an event about no figure does nothing', 'follow_through',
+  duel, acting {
+  act.action(me, 'banish', 1), expect.event('unit_removed'),
+})
+case('native_when', 'a native when sees the target and lets the defender react', 'native_when',
+  duel, acting {
+  act.attack(me, foe, { rig = { { 'hit', 'hit' }, { 'block', 'blank' } } }),
+  -- Both reactions are the defender's, so they are offered together.
+  expect.decision('window:combat.after_defense_roll'), act.answer.option(2),
+  expect.decision('window:combat.after_defense_roll'), act.answer.option(1),
+  expect.event('attack'), expect.figure(foe, 'on_board'),
+})
+case('watchful_engaged', 'a native filter sees the target: engaged', 'watchful', duel, acting {
+  act.action(me, 'smite', 1), expect.event('marker_changed', { figure = foe }),
+})
+case('watchful_apart', 'a native filter sees the target: apart', 'watchful', apart, acting {
+  act.action(me, 'smite', 1), expect.event('wounds_applied', { figure = foe }),
 })

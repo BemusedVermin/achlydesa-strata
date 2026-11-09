@@ -67,15 +67,18 @@ fn moves_of(report: &TestReport, figure: FigureId) -> Vec<(Space, Vec<Space>)> {
     moves.collect()
 }
 
+/// The test that expects `eff.cancel_wounds` to be refused once the wounds are applied.
+const TOO_LATE: &str = "eff.cancel_wounds after the wounds is refused";
+
 #[test]
-fn every_effect_test_passes() {
+fn every_effect_test_passes_except_the_one_that_expects_a_refusal() {
     let reports = run();
     let failed: Vec<&str> = reports
         .iter()
         .filter(|r| r.outcome.is_err())
         .map(|r| r.name.as_str())
         .collect();
-    assert!(failed.is_empty(), "{}", summary(&reports));
+    assert_eq!(failed, [TOO_LATE], "{}", summary(&reports));
 }
 
 #[test]
@@ -166,6 +169,42 @@ fn cancel_wounds_in_a_window_leaves_no_wounds() {
 }
 
 #[test]
+fn cancel_wounds_works_in_every_window_before_the_wounds() {
+    let reports = run();
+    for name in [
+        "eff.cancel_wounds before the attack roll stops the wounds",
+        "eff.cancel_wounds before the defense roll stops the wounds",
+    ] {
+        let report = passed(&reports, name);
+        assert!(
+            wounds_on(report, FOE).is_empty(),
+            "{name}: {:?}",
+            report.events
+        );
+    }
+}
+
+#[test]
+fn cancelled_wounds_do_not_turn_hits_into_excess_blocks() {
+    let reports = run();
+    // Two hits, one block: cancelled early, nobody is wounded, and Riposte finds no excess.
+    let report = passed(
+        &reports,
+        "cancelled wounds leave the blocks beyond the hits alone",
+    );
+    assert!(wounds_on(report, FOE).is_empty(), "{:?}", report.events);
+    assert!(wounds_on(report, ME).is_empty(), "{:?}", report.events);
+}
+
+#[test]
+fn cancel_wounds_after_the_wounds_is_a_clear_error() {
+    let reports = run();
+    let found = reports.iter().find(|r| r.name == TOO_LATE).unwrap();
+    let message = &found.outcome.as_ref().unwrap_err().message;
+    assert!(message.contains("already applied"), "{message}");
+}
+
+#[test]
 fn cancel_wounds_as_a_replacement_drops_the_event() {
     let reports = run();
     let report = passed(
@@ -184,6 +223,70 @@ fn excess_blocks_wound_the_attacker_once_per_block_beyond_the_hits() {
     );
     assert_eq!(wounds_on(report, ME), [1]);
     assert!(wounds_on(report, FOE).is_empty());
+}
+
+#[test]
+fn a_replacement_does_not_apply_to_the_events_its_own_effect_emits() {
+    let reports = run();
+    let echo = passed(&reports, "a wound replaced by a wound applies once");
+    assert_eq!(wounds_on(echo, FOE), [1]);
+    let drift = passed(&reports, "a move replaced by a move happens once");
+    let to = Space::new(0, 1, 1);
+    assert_eq!(moves_of(drift, ME), [(to, vec![to])]);
+}
+
+/// The slot changes of `figure`, as `(slot, remaining)`.
+fn slots_of(report: &TestReport, figure: FigureId) -> Vec<(Sym, u8)> {
+    let changes = report.events.iter().filter_map(|e| match e {
+        Event::SlotsChanged {
+            figure: f,
+            slot,
+            remaining,
+        } if *f == figure => Some((slot.clone(), *remaining)),
+        _ => None,
+    });
+    changes.collect()
+}
+
+#[test]
+fn follow_through_gives_the_attacker_back_its_attack() {
+    let reports = run();
+    let report = passed(
+        &reports,
+        "Follow-through grants the attacker another attack",
+    );
+    let attack = Sym::new("attack");
+    // The attack spends the slot, then the `attack` event's trigger grants it back.
+    assert_eq!(
+        slots_of(report, ME),
+        [(attack.clone(), 0), (attack, 1)],
+        "{:?}",
+        report.events
+    );
+}
+
+#[test]
+fn an_effect_on_an_event_about_no_figure_selects_nothing() {
+    let reports = run();
+    let report = passed(
+        &reports,
+        "an effect on an event about no figure does nothing",
+    );
+    assert!(slots_of(report, ME).is_empty(), "{:?}", report.events);
+}
+
+#[test]
+fn native_filters_and_whens_see_the_target() {
+    let reports = run();
+    let report = passed(
+        &reports,
+        "a native when sees the target and lets the defender react",
+    );
+    assert!(wounds_on(report, FOE).is_empty(), "{:?}", report.events);
+    let engaged = passed(&reports, "a native filter sees the target: engaged");
+    assert_eq!(markers_on(engaged, FOE), [(1, None)]);
+    let apart = passed(&reports, "a native filter sees the target: apart");
+    assert!(markers_on(apart, FOE).is_empty(), "{:?}", apart.events);
 }
 
 #[test]

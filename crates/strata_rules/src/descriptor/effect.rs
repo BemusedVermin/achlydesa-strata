@@ -13,8 +13,8 @@ use strata_model::{
     Answer, Decision, DecisionKind, Event, FigureId, FigureStatus, GameState, PlayerId,
 };
 
-use super::{Eff, NativeEvaluator, Sel, Val, World};
-use crate::engine::{Ctx, Halt, event_figure};
+use super::{Base, Eff, NativeEvaluator, Sel, Val, World};
+use crate::engine::{Ctx, Halt, event_subjects};
 use crate::native::NativeEnv;
 use crate::query::{EvalCtx, LogicError};
 
@@ -46,13 +46,13 @@ pub struct EffectCx<'a> {
 }
 
 impl EffectCx<'_> {
-    /// The context of a trigger or relic effect for `event`: both `self` and `target` are the
-    /// figure the event is about, since such a hook has no owner of its own.
+    /// The context of a trigger, replacement or relic effect for `event`, which has no owner of
+    /// its own: `self` and `target` are the figures [`event_subjects`] reads from the event.
     pub fn for_event(state: &GameState, event: &Event) -> Self {
-        let figure = event_figure(state, event);
+        let (own, target) = event_subjects(state, event);
         EffectCx {
-            subject: figure.map_or(Value::Nil, |f| Value::Int(i64::from(f.0))),
-            target: figure,
+            subject: own.map_or(Value::Nil, id),
+            target,
             replacing: None,
         }
     }
@@ -177,10 +177,11 @@ pub fn run_effect(
                 // The replacement emits nothing in the event's place, which cancels it.
                 return Ok(());
             }
-            let (hits, blocks, _) = run.attack(ctx, "cancel_wounds")?;
-            let change = BTreeMap::from([(Sym::new("hits"), Value::Int(hits.min(blocks)))]);
-            host.api(ctx, "combat", "set", &[Value::Map(change)])
-                .map(drop)
+            // The attack keeps its hits and blocks, so excess blocks still count; the combat
+            // slot applies no wounds. In `combat.after_wounds` the wounds are already applied,
+            // and the combat slot refuses.
+            run.attack(ctx, "cancel_wounds")?;
+            host.api(ctx, "combat", "cancel", &[]).map(drop)
         }
         Eff::ExcessBlocksWoundAttacker => {
             let (hits, blocks, attacker) = run.attack(ctx, "excess_blocks_wound_attacker")?;
@@ -211,7 +212,12 @@ impl Run<'_> {
         self.cx.target.map_or(Value::Nil, id)
     }
 
+    /// The figures of `sel`. With no subject, as for an event about no figure, a selector that
+    /// starts from `self` selects nothing rather than failing, so the effect does nothing.
     fn select(&self, world: &dyn World, sel: &Sel) -> Result<Vec<FigureId>, Halt> {
+        if self.cx.subject.is_nil() && sel.base != Base::Target {
+            return Ok(Vec::new());
+        }
         let (source, context) = (Sym::new("effect"), self.context());
         let found = NativeEvaluator { world }.select(sel, &self.eval_cx(&source, &context));
         found.map_err(logic)
@@ -281,7 +287,8 @@ impl Run<'_> {
 
     /// Asks the chooser for an empty space within `radius` of any of `anchors` and puts
     /// `figure` there. A move leaves its own space out and records the jump as its path; a
-    /// placement has no path. Nothing happens when no space is open.
+    /// placement has no path. Either is a jump: it ignores climbing limits and `can_enter` votes,
+    /// and provokes no reprisals. Nothing happens when no space is open.
     fn relocate(
         &self,
         ctx: &mut dyn Ctx,

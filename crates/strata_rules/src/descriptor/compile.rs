@@ -79,73 +79,105 @@ pub struct LogicFault {
     pub error: DescriptorError,
 }
 
-/// `logic` at `field` of entry `i` of `list`, with its route.
-fn add<'a>(
+/// `logic` at `field` of entry `i` of `list`, with its route and role.
+fn entry<'a>(
     list: &str,
     i: usize,
     field: &str,
     logic: Option<&'a Logic>,
-) -> Option<(String, &'a Logic)> {
-    logic.map(|logic| (format!("{list}/{}/{field}", i + 1), logic))
+) -> Option<(String, FieldRole, &'a Logic)> {
+    let role = FieldRole::of(list, field);
+    logic.map(|logic| (format!("{list}/{}/{field}", i + 1), role, logic))
+}
+
+/// What a logic field does, which decides what it may hold.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FieldRole {
+    /// It is asked a question, as a `filter`, `when`, `select`, `targets` or `value`: any native
+    /// descriptor that compiles, or a script.
+    Asks,
+    /// It acts, as a reaction's `effect`, a replacement's `replace` or a relic's `effect`: an
+    /// `eff` descriptor or a script.
+    Acts,
+    /// It acts where Rust logic can also run, as a trigger's `effect` or an action's `resolve`:
+    /// an `eff` descriptor, a script, or `{ native = "<name>" }`, which the resolver checks.
+    ActsOrNamesRust,
+}
+
+impl FieldRole {
+    /// The role of `field` of an entry of the hook list `list` (such as `triggers`), named as in
+    /// an ability or a module registration (`trigger`).
+    pub fn of(list: &str, field: &str) -> Self {
+        match (list.trim_end_matches('s'), field) {
+            ("trigger", "effect") | ("action", "resolve") => FieldRole::ActsOrNamesRust,
+            (_, "effect" | "replace" | "resolve") => FieldRole::Acts,
+            _ => FieldRole::Asks,
+        }
+    }
 }
 
 /// Compiles every native logic of an ability, so unknown descriptors fail at load. A
 /// `{ native = "<name>" }` effect or resolver names Rust logic, which the resolver checks, so it is
-/// skipped here.
+/// skipped here; it is refused where Rust logic cannot run.
 pub fn check_ability(ability: &AbilityDef) -> Result<(), LogicFault> {
-    let mut logics: Vec<(String, &Logic)> = Vec::new();
+    let mut logics: Vec<(String, FieldRole, &Logic)> = Vec::new();
     for (i, m) in ability.modifiers.iter().enumerate() {
-        logics.extend(add("modifiers", i, "select", m.select.as_ref()));
-        logics.extend(add("modifiers", i, "when", m.when.as_ref()));
-        logics.extend(add("modifiers", i, "value", Some(&m.value)));
+        logics.extend(entry("modifiers", i, "select", m.select.as_ref()));
+        logics.extend(entry("modifiers", i, "when", m.when.as_ref()));
+        logics.extend(entry("modifiers", i, "value", Some(&m.value)));
     }
     for (i, a) in ability.actions.iter().enumerate() {
-        logics.extend(add("actions", i, "targets", a.targets.as_ref()));
-        logics.extend(add("actions", i, "resolve", Some(&a.resolve)));
+        logics.extend(entry("actions", i, "targets", a.targets.as_ref()));
+        logics.extend(entry("actions", i, "resolve", Some(&a.resolve)));
     }
     for (i, t) in ability.triggers.iter().enumerate() {
-        logics.extend(add("triggers", i, "filter", t.filter.as_ref()));
-        logics.extend(add("triggers", i, "effect", Some(&t.effect)));
+        logics.extend(entry("triggers", i, "filter", t.filter.as_ref()));
+        logics.extend(entry("triggers", i, "effect", Some(&t.effect)));
     }
     for (i, r) in ability.replacements.iter().enumerate() {
-        logics.extend(add("replacements", i, "filter", r.filter.as_ref()));
-        logics.extend(add("replacements", i, "replace", Some(&r.replace)));
+        logics.extend(entry("replacements", i, "filter", r.filter.as_ref()));
+        logics.extend(entry("replacements", i, "replace", Some(&r.replace)));
     }
     for (i, r) in ability.reactions.iter().enumerate() {
-        logics.extend(add("reactions", i, "when", r.when.as_ref()));
-        logics.extend(add("reactions", i, "effect", Some(&r.effect)));
+        logics.extend(entry("reactions", i, "when", r.when.as_ref()));
+        logics.extend(entry("reactions", i, "effect", Some(&r.effect)));
     }
-    for (path, logic) in logics {
-        let acts = ["resolve", "effect", "replace"]
-            .iter()
-            .any(|f| path.ends_with(f));
-        check_logic(logic, acts).map_err(|error| LogicFault { path, error })?;
+    for (path, role, logic) in logics {
+        check_logic(logic, role).map_err(|error| LogicFault { path, error })?;
     }
     Ok(())
 }
 
-/// Checks one logic field: one that `acts`, such as an `effect`, with [`check_effect`], and any
-/// other native descriptor with [`compile`]. A script always passes.
-pub fn check_logic(logic: &Logic, acts: bool) -> Result<(), DescriptorError> {
+/// Checks one logic field for its role. A script always passes.
+pub fn check_logic(logic: &Logic, role: FieldRole) -> Result<(), DescriptorError> {
     match logic {
-        _ if acts => check_effect(logic),
+        _ if role != FieldRole::Asks => check_effect(logic, role == FieldRole::ActsOrNamesRust),
         Logic::Native(d) => compile(d).map(drop),
         Logic::Script(_) => Ok(()),
     }
 }
 
-/// Checks a logic that acts, such as a trigger's `effect`: a script, Rust logic named with
-/// `{ native = "<name>" }`, which the resolver checks, or an `eff` descriptor.
-pub fn check_effect(logic: &Logic) -> Result<(), DescriptorError> {
+/// Checks a logic that acts, such as a trigger's `effect`: a script, an `eff` descriptor, or,
+/// where `rust` logic can run, a `{ native = "<name>" }` name, which the resolver checks.
+pub fn check_effect(logic: &Logic, rust: bool) -> Result<(), DescriptorError> {
     if crate::native_name(logic).is_some() {
-        return Ok(());
+        return match rust {
+            true => Ok(()),
+            false => invalid(
+                "`{ native = \"<name>\" }` runs only as a trigger's `effect` or an action's \
+                 `resolve`; here, use an `eff` descriptor or a function",
+            ),
+        };
     }
     match (logic, native_effect(logic)) {
         (Logic::Script(_), _) => Ok(()),
         (_, Some(compiled)) => compiled.map(drop),
-        (_, None) => invalid(
-            "an effect must be an `eff` descriptor, `{ native = \"<name>\" }` or a function",
-        ),
+        (_, None) => invalid(match rust {
+            true => {
+                "an effect must be an `eff` descriptor, `{ native = \"<name>\" }` or a function"
+            }
+            false => "an effect must be an `eff` descriptor or a function",
+        }),
     }
 }
 

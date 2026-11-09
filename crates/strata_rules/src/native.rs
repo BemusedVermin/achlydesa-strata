@@ -86,7 +86,8 @@ pub trait NativeEnv: Send + Sync {
     fn figure_def(&self, _figure: &FigureDefRef) -> Option<&FigureDef> {
         None
     }
-    /// Runs a relic's `on_claim` effect for `event`, as a trigger's effect would run.
+    /// Runs a relic's `on_claim` effect for `event`, its `relic_claimed` event, as a trigger's
+    /// effect would run.
     fn run_effect(&self, _ctx: &mut dyn Ctx, _effect: &Logic, _event: &Event) -> Result<(), Halt> {
         Ok(())
     }

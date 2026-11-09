@@ -61,6 +61,10 @@ pub fn card_text(template: &str, params: &BTreeMap<Sym, Value>) -> Result<String
             None => return Err(CardTextError::Unmatched(offset)),
         };
         let inner = &tail[1..=close];
+        // A `{` inside a placeholder is never closed: `{a{b}` leaves the first one open.
+        if inner.contains('{') {
+            return Err(CardTextError::Unmatched(offset));
+        }
         let (name, kind) = inner
             .split_once(':')
             .map_or((inner, None), |(n, k)| (n, Some(k)));
@@ -95,27 +99,40 @@ fn capitalize(text: &str) -> String {
 
 /// The phrase of one parameter.
 fn word(param: &str, value: &Value, kind: Option<&str>) -> Result<String, CardTextError> {
+    let unworded = |reason: String| CardTextError::Unworded {
+        param: param.to_owned(),
+        reason,
+    };
     let phrase = |d: Result<super::Node, DescriptorError>| {
         d.map(|node| node.phrase())
-            .map_err(|e| CardTextError::Unworded {
-                param: param.to_owned(),
-                reason: e.to_string(),
-            })
+            .map_err(|e| unworded(e.to_string()))
     };
     if let Some(kind) = kind {
         if !["sel", "cond", "val", "eff"].contains(&kind) {
             let (param, kind) = (param.to_owned(), kind.to_owned());
             return Err(CardTextError::Kind { param, kind });
         }
+        // A bare string names a selector or an effect; a condition or value has no bare name.
         let tagged = match value {
-            Value::Map(m) if m.contains_key(kind) => value.clone(),
-            Value::Str(name) if kind != "cond" && kind != "val" => {
+            Value::Str(name) if kind == "sel" || kind == "eff" => {
                 let tag = (Sym::new(kind), Value::Str(name.clone()));
                 Value::Map(BTreeMap::from([tag]))
             }
+            Value::Str(_) => {
+                return Err(unworded(format!("a string is not a `{kind}` descriptor")));
+            }
             _ => value.clone(),
         };
-        return phrase(compile(&Descriptor(tagged)));
+        let node = compile(&Descriptor(tagged)).map_err(|e| unworded(e.to_string()))?;
+        let found = node_kind(&node);
+        if found != kind {
+            let what = match value {
+                Value::Map(_) => format!("a `{found}` descriptor"),
+                other => format!("a {}", other.type_name()),
+            };
+            return Err(unworded(format!("{what} is not a `{kind}` descriptor")));
+        }
+        return Ok(node.phrase());
     }
     match value {
         Value::Int(n) => Ok(n.to_string()),
@@ -134,6 +151,16 @@ fn word(param: &str, value: &Value, kind: Option<&str>) -> Result<String, CardTe
             param: param.to_owned(),
             reason: format!("a {} has no wording", other.type_name()),
         }),
+    }
+}
+
+/// The namespace of a compiled descriptor: `sel`, `cond`, `val` or `eff`.
+fn node_kind(node: &super::Node) -> &'static str {
+    match node {
+        super::Node::Sel(_) => "sel",
+        super::Node::Cond(_) => "cond",
+        super::Node::Val(_) => "val",
+        super::Node::Eff(_) => "eff",
     }
 }
 

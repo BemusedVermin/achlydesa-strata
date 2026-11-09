@@ -10,7 +10,7 @@ pub use ctx::Ctx;
 pub use exec::MAX_DECISIONS;
 pub use halt::{CommandRecord, Halt, Outcome, RuleViolation};
 pub use hooks::HookRunner;
-pub use names::{event_figure, event_kind};
+pub use names::{event_figure, event_kind, event_subjects};
 
 use strata_model::{Answer, Command, GameState, PendingDecision, PlayerId, TokenChoice};
 

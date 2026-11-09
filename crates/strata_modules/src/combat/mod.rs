@@ -15,7 +15,7 @@
 //! The attack pauses at four windows: `combat.before_attack_roll`, `combat.before_defense_roll`,
 //! `combat.after_defense_roll` and `combat.after_wounds`. While it runs, the attack in progress
 //! is the variable `attack` of `core:combat`, which reactions read with `ctx.combat.current()`
-//! and change with `ctx.combat.set { ... }`. If the attacker leaves play in one of the first three
+//! and change with `ctx.combat.set { ... }` and `ctx.combat.cancel()`. If the attacker leaves play in one of the first three
 //! windows, the attack ends there, with no further rolls and no wounds. Once it ends, the custom
 //! event `attack` carries the final record. Special attacks resolve through
 //! `ctx.combat.attack { ... }`.
@@ -217,7 +217,7 @@ impl RuleModule for CombatModule {
             ACTION,
             Box::new(Attack(rules.clone())),
         );
-        let functions = ["attack", "targets", "preview", "current", "set"];
+        let functions = ["attack", "targets", "preview", "current", "set", "cancel"];
         let functions = functions.map(Sym::new).to_vec();
         r.lua_api_native("combat", LuaApi { functions }, Box::new(api::Api(rules)));
         Ok(())

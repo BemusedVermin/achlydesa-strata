@@ -259,6 +259,41 @@ fn bad_templates_and_params_are_errors() {
 }
 
 #[test]
+fn a_kind_that_does_not_fit_the_parameter_is_an_error() {
+    let p = params(&[
+        ("x", s("self")),
+        ("n", n(2)),
+        ("c", tagged("cond", "engaged", &[])),
+    ]);
+    let reason = |template: &str| card_text(template, &p).unwrap_err().to_string();
+    for template in ["{x:cond}", "{x:val}"] {
+        let got = reason(template);
+        assert!(got.contains("a string is not a"), "{template}: {got}");
+    }
+    let got = reason("{c:sel}");
+    assert!(
+        got.contains("a `cond` descriptor is not a `sel` descriptor"),
+        "{got}"
+    );
+    let got = reason("{n:cond}");
+    assert!(
+        got.contains("an int") || got.contains("is not a `cond`"),
+        "{got}"
+    );
+    // Each kind still words what fits it.
+    assert_eq!(card_text("{c:cond}", &p), card_text("{c}", &p));
+    assert_eq!(card_text("{n:val}", &p).unwrap(), "2");
+    assert_eq!(card_text("{x:sel}", &p).unwrap(), "This figure");
+}
+
+#[test]
+fn an_open_brace_inside_a_placeholder_is_unmatched() {
+    let p = params(&[("a", n(1)), ("b", n(2))]);
+    assert_eq!(card_text("{a{b}", &p), Err(CardTextError::Unmatched(0)));
+    assert_eq!(card_text("x {a{b}}", &p), Err(CardTextError::Unmatched(2)));
+}
+
+#[test]
 fn rendering_is_pure() {
     let p = params(&[("to", tagged("sel", "enemies", &[("within", n(2))]))]);
     let once = card_text("{to} are slowed.", &p);

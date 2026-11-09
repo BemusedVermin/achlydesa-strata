@@ -10,21 +10,25 @@
 //! - `preview(attacker, target, { dice, range })` returns the pools an attack would roll, as
 //!   `{ attack_dice, defense_dice, ranged, cover }`, or nil if it may not attack that target.
 //! - `current()` returns the attack in progress as `{ attacker, target, ranged, cover,
-//!   attack_dice, defense_dice, hits, blocks, wounds, window, finished }`, or nil. `window` names
-//!   the combat window open now.
+//!   attack_dice, defense_dice, hits, blocks, wounds, cancelled, window, finished }`, or nil.
+//!   `window` names the combat window open now.
 //! - `set { ... }` changes the attack in progress, for reactions, each value 0 to 1024. Only the
 //!   fields the attack still reads may change: `attack_dice` and `defense_dice` in
 //!   `combat.before_attack_roll`; `hits` and `defense_dice` in `combat.before_defense_roll`;
 //!   `hits` and `blocks` in `combat.after_defense_roll`; nothing in `combat.after_wounds`. Any
-//!   other field is an error. Wounds are always hits minus blocks.
+//!   other field is an error. Wounds are always hits minus blocks, unless cancelled.
+//! - `cancel()` cancels the wounds of the attack in progress: it still rolls, and its hits and
+//!   blocks are left as they are, so excess blocks still count, but it applies no wounds. It works
+//!   in every window before `combat.after_wounds`; there the wounds are already applied, and it
+//!   is an error.
 
 use strata_kernel::{Sym, Value, ValueError};
 use strata_model::FigureId;
 use strata_rules::{ApiHandler, Ctx, Halt, MAX_POOL, NativeEnv};
 
-use super::Rules;
 use super::resolve::{self, Record, settable};
 use super::sight::{Blind, Sight};
+use super::{AFTER_WOUNDS, Rules};
 use crate::shared::id_value;
 
 /// Runs the functions of the `combat` namespace.
@@ -127,6 +131,19 @@ impl Api {
         ))
     }
 
+    fn cancel(ctx: &mut dyn Ctx) -> Result<(), Halt> {
+        let mut record = Record::current(ctx)?
+            .ok_or_else(|| Halt::reject("ctx.combat.cancel: no attack is in progress"))?;
+        if record.window.as_str() == AFTER_WOUNDS {
+            return Err(Halt::reject(format!(
+                "ctx.combat.cancel: the wounds of this attack were already applied \
+                 when `{AFTER_WOUNDS}` opened"
+            )));
+        }
+        record.cancelled = true;
+        record.save(ctx)
+    }
+
     fn set(ctx: &mut dyn Ctx, changes: &Value) -> Result<(), Halt> {
         let bad = |e: ValueError| Halt::reject(format!("ctx.combat.set: {e}"));
         let mut record = Record::current(ctx)?
@@ -181,6 +198,7 @@ impl ApiHandler for Api {
             "preview" => self.preview(ctx, env, args),
             "current" => Ok(Record::current(ctx)?.map_or(Value::Nil, |r| r.to_value())),
             "set" => Self::set(ctx, arg(args, 0, name)?).map(|()| Value::Nil),
+            "cancel" => Self::cancel(ctx).map(|()| Value::Nil),
             other => Err(Halt::reject(format!("ctx.combat has no `{other}`"))),
         }
     }
