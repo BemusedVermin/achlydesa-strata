@@ -1,0 +1,11 @@
+---
+source: crates/strata_cli/tests/map_check.rs
+expression: stdout(&out)
+---
+map t:fair (t/maps/fair.lua)
+fairness: steps for a one-space reference figure (- = unreachable)
+  objective `east` at (3, 1): start_a 3, start_b 1; spread 2
+  objective `hill` at (2, 1): start_a 2, start_b 2; spread 0
+  from start_a: start_b 4
+  from start_b: start_a 4
+0 error(s), 0 warning(s)

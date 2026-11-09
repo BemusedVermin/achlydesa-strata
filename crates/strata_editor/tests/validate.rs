@@ -3,7 +3,8 @@ use std::sync::Arc;
 
 use strata_content::{ContentRegistry, load};
 use strata_editor::{
-    Edit, FindingKind, MapDocument, RegistryDefs, Severity, Validation, ValidationOptions,
+    Edit, FindingKind, MapDocument, Objective, RegistryDefs, Severity, Validation,
+    ValidationOptions,
 };
 use strata_kernel::{Hex, Sym};
 use strata_model::MapDef;
@@ -47,6 +48,16 @@ fn a_fair_map_has_no_findings() {
 }
 
 #[test]
+fn fairness_report() {
+    let validation = check("fair", None);
+    let fairness = validation.fairness.as_ref().unwrap();
+    assert_eq!(fairness.start_zones, vec![sym("start_a"), sym("start_b")]);
+    let spreads: Vec<_> = fairness.objectives.iter().map(Objective::spread).collect();
+    assert_eq!(spreads, vec![Some(2), Some(0)]);
+    insta::assert_snapshot!(fairness.to_string());
+}
+
+#[test]
 fn overlapping_pieces() {
     let validation = check("overlap", None);
     let kind = FindingKind::Overlap { piece: 1, other: 0 };
@@ -54,6 +65,7 @@ fn overlapping_pieces() {
         findings(&validation),
         vec![(Severity::Error, kind, hexes(&[(0, 0)]))]
     );
+    assert_eq!(validation.fairness, None);
 }
 
 #[test]
@@ -171,6 +183,147 @@ fn start_zones_too_small_for_the_army() {
 }
 
 #[test]
+fn relic_spots_unreachable_from_start_zones() {
+    // `island` is across water; `tower` is a climb of two levels, one more than the reference
+    // figure manages.
+    let validation = check("unreachable_relic", None);
+    let spot = |name: &str| FindingKind::UnreachableRelicSpot { spot: sym(name) };
+    assert_eq!(
+        findings(&validation),
+        vec![
+            (Severity::Error, spot("island"), hexes(&[(3, 0)])),
+            (Severity::Error, spot("tower"), hexes(&[(0, 1)])),
+        ]
+    );
+}
+
+#[test]
+fn the_reference_figure_drops_where_it_cannot_climb() {
+    // From the top of the tower the figure steps down two levels to `start_b`, but cannot climb
+    // back, as `core:movement` decides with a climb limit of one.
+    let mut document = document("unreachable_relic");
+    let edit = Edit::SetZone {
+        zone: sym("start_a"),
+        cells: Some(vec![Hex::new(0, 1)]),
+    };
+    document.apply(edit).unwrap();
+    let validation = document.validate(&ValidationOptions::default());
+    let fairness = validation.fairness.as_ref().unwrap();
+    assert_eq!(
+        fairness.between,
+        vec![vec![Some(0), Some(1)], vec![None, Some(0)]]
+    );
+    let tower = &fairness.objectives[1];
+    assert_eq!(tower.steps, vec![Some(0), None]);
+    let unreachable = FindingKind::StartZoneUnreachable {
+        from: sym("start_b"),
+        to: sym("start_a"),
+    };
+    let kinds: Vec<_> = validation.findings.iter().map(|f| f.kind.clone()).collect();
+    let island = FindingKind::UnreachableRelicSpot {
+        spot: sym("island"),
+    };
+    assert_eq!(kinds, vec![unreachable, island]);
+}
+
+#[test]
+fn the_reference_figure_drops_any_height_and_walks_on() {
+    // From the top of the cliff the figure drops four levels, more than `core:movement`'s
+    // default fall limit of two, and still walks on to the relic spot. A fall limit would end
+    // its move at the foot of the cliff.
+    let validation = check("cliff", None);
+    assert_eq!(findings(&validation), vec![]);
+    let fairness = validation.fairness.as_ref().unwrap();
+    let foot = &fairness.objectives[0];
+    assert_eq!(
+        (foot.at, foot.steps.clone()),
+        (Hex::new(2, 0), vec![Some(2)])
+    );
+}
+
+#[test]
+fn a_start_zone_with_nowhere_to_stand_is_only_unstandable() {
+    // `start_b` is moved onto water, off the board, and emptied in turn. Each time it is
+    // unstandable, and no zone-to-zone reachability is reported on top of that.
+    for cells in [hexes(&[(2, 0)]), hexes(&[(9, 9)]), vec![]] {
+        let mut document = document("fair");
+        let edit = Edit::SetZone {
+            zone: sym("start_b"),
+            cells: Some(cells.clone()),
+        };
+        document.apply(edit).unwrap();
+        let validation = document.validate(&ValidationOptions::default());
+        let kind = FindingKind::UnstandableZone {
+            zone: sym("start_b"),
+        };
+        assert_eq!(
+            findings(&validation),
+            vec![(Severity::Warning, kind, cells.clone())],
+            "{cells:?}"
+        );
+        let fairness = validation.fairness.as_ref().unwrap();
+        assert_eq!(
+            fairness.between,
+            vec![vec![Some(0), None], vec![None, None]]
+        );
+    }
+}
+
+#[test]
+fn a_relic_spot_one_start_zone_reaches_is_not_unreachable() {
+    let validation = check("apart", None);
+    let fairness = validation.fairness.as_ref().unwrap();
+    assert_eq!(fairness.objectives[0].steps, vec![Some(0), None]);
+    assert_eq!(fairness.objectives[0].spread(), None);
+    let mut kinds = validation.findings.iter().map(|f| &f.kind);
+    assert!(!kinds.any(|k| matches!(k, FindingKind::UnreachableRelicSpot { .. })));
+}
+
+#[test]
+fn start_zones_that_cannot_reach_each_other() {
+    let validation = check("apart", None);
+    let apart = |from: &str, to: &str| FindingKind::StartZoneUnreachable {
+        from: sym(from),
+        to: sym(to),
+    };
+    let warning = Severity::Warning;
+    assert_eq!(
+        findings(&validation),
+        vec![
+            (warning, apart("start_a", "start_b"), hexes(&[(2, 0)])),
+            (warning, apart("start_b", "start_a"), hexes(&[(0, 0)])),
+        ]
+    );
+    let fairness = validation.fairness.as_ref().unwrap();
+    assert_eq!(
+        fairness.between,
+        vec![vec![Some(0), None], vec![None, Some(0)]]
+    );
+}
+
+#[test]
+fn moving_a_relic_spot_changes_the_report_through_undo_and_redo() {
+    let mut document = document("fair");
+    let options = ValidationOptions::default();
+    let before = document.validate(&options);
+    let edit = Edit::SetRelicSpot {
+        name: sym("east"),
+        at: Some(Hex::new(1, 0)),
+    };
+    document.apply(edit).unwrap();
+    let after = document.validate(&options);
+    let east = &after.fairness.as_ref().unwrap().objectives[0];
+    assert_eq!(
+        (east.at, east.steps.clone()),
+        (Hex::new(1, 0), vec![Some(1), Some(4)])
+    );
+    document.undo().unwrap();
+    assert_eq!(*document.validate(&options), *before);
+    document.redo().unwrap();
+    assert_eq!(*document.validate(&options), *after);
+}
+
+#[test]
 fn a_map_without_start_zones_says_so() {
     let mut document = document("small_zone");
     for zone in ["start_a", "start_b"] {
@@ -185,6 +338,11 @@ fn a_map_without_start_zones_says_so() {
     assert_eq!(
         findings(&validation),
         vec![(Severity::Warning, kind, vec![])]
+    );
+    let fairness = validation.fairness.as_ref().unwrap();
+    assert_eq!(
+        fairness.to_string(),
+        "fairness: no start zones to compare\n"
     );
 }
 
@@ -238,7 +396,8 @@ fn validation_of_an_unchanged_document_is_cached() {
 
 #[test]
 fn validation_is_deterministic() {
-    for name in ["fair", "unstandable_zone", "small_zone", "inventory"] {
+    let names = ["fair", "unstandable_zone", "small_zone", "inventory"];
+    for name in names.into_iter().chain(["unreachable_relic", "apart"]) {
         assert_eq!(*check(name, Some(2)), *check(name, Some(2)), "{name}");
     }
 }

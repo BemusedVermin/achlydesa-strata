@@ -1,4 +1,4 @@
-//! Live validation of a map: the board, inventory and zone findings of design §14.1.
+//! Live validation of a map: every finding of design §14.1, plus the fairness report.
 
 use std::collections::BTreeMap;
 
@@ -7,6 +7,7 @@ use strata_model::MapDef;
 use strata_model::board::{BoardError, CompiledBoard};
 
 use crate::defs::EditorDefs;
+use crate::fairness::{Fairness, StartZone};
 use crate::finding::{Finding, FindingKind, Severity};
 use crate::standing::standable_spaces;
 
@@ -20,11 +21,13 @@ pub struct ValidationOptions {
     pub army_size: Option<u32>,
 }
 
-/// Everything validation found.
+/// Everything validation found, and the fairness report when the map compiles.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Validation {
-    /// The findings: board errors first, then inventory, then zones.
+    /// The findings: board errors first, then inventory, zones and reachability.
     pub findings: Vec<Finding>,
+    /// The fairness report, or `None` if the map does not compile into a board.
+    pub fairness: Option<Fairness>,
 }
 
 impl Validation {
@@ -39,8 +42,8 @@ impl Validation {
 
 /// Validates `map`, given the result of compiling it.
 ///
-/// Zone checks need a board, so a map that does not compile reports only its board errors and
-/// inventory findings.
+/// Zone, reachability and fairness checks need a board, so a map that does not compile reports
+/// only its board errors and inventory findings, and has no fairness report.
 pub(crate) fn validate(
     map: &MapDef,
     board: Result<&CompiledBoard, &[BoardError]>,
@@ -53,10 +56,13 @@ pub(crate) fn validate(
         add_cell(&mut findings, kind, cell);
     }
     check_inventory(map, defs, &mut findings);
-    if let Ok(board) = board {
-        check_zones(map, board, defs, options, &mut findings);
-    }
-    Validation { findings }
+    let fairness = board.ok().map(|board| {
+        let starts = check_zones(map, board, defs, options, &mut findings);
+        let fairness = Fairness::measure(map, board, defs, &starts);
+        check_reach(map, &fairness, &starts, &mut findings);
+        fairness
+    });
+    Validation { findings, fairness }
 }
 
 /// Adds `cell` to the finding of `kind`, creating it if needed.
@@ -125,27 +131,29 @@ fn overruns<'a>(
     }
 }
 
-/// Reports unstandable zone cells, small start zones and a map with no start zone.
+/// Reports unstandable zone cells, empty zones, small start zones and a map with no start
+/// zone, and returns the start zones in name order with their standable spaces.
 fn check_zones(
     map: &MapDef,
     board: &CompiledBoard,
     defs: &impl EditorDefs,
     options: &ValidationOptions,
     findings: &mut Vec<Finding>,
-) {
-    let mut starts = 0;
+) -> Vec<StartZone> {
+    let mut starts = Vec::new();
     for (zone, cells) in &map.zones {
         let unstandable = |&&hex: &&Hex| standable_spaces(board, defs, &[hex]).is_empty();
         let bad: Vec<Hex> = cells.iter().filter(unstandable).copied().collect();
-        if !bad.is_empty() {
+        // A zone with no cells has nowhere to stand either.
+        if !bad.is_empty() || cells.is_empty() {
             let kind = FindingKind::UnstandableZone { zone: zone.clone() };
             findings.push(Finding::new(kind, bad));
         }
         if !zone.as_str().starts_with(START_ZONE_PREFIX) {
             continue;
         }
-        starts += 1;
-        let spaces = u32::try_from(standable_spaces(board, defs, cells).len()).unwrap_or(u32::MAX);
+        let standing = standable_spaces(board, defs, cells);
+        let spaces = u32::try_from(standing.len()).unwrap_or(u32::MAX);
         if let Some(army) = options.army_size
             && spaces < army
         {
@@ -153,8 +161,47 @@ fn check_zones(
             let kind = FindingKind::StartZoneTooSmall { zone, spaces, army };
             findings.push(Finding::new(kind, cells.clone()));
         }
+        starts.push(StartZone {
+            name: zone.clone(),
+            spaces: standing,
+        });
     }
-    if starts == 0 {
+    if starts.is_empty() {
         findings.push(Finding::new(FindingKind::NoStartZones, Vec::new()));
+    }
+    starts
+}
+
+/// Reports start zones that cannot reach each other, and relic spots no start zone reaches.
+///
+/// A start zone with nowhere to stand already has a [`FindingKind::UnstandableZone`] warning, so
+/// it is left out of the zone-to-zone check. A map without start zones already has a
+/// [`FindingKind::NoStartZones`] warning, so its relic spots are not reported as well.
+fn check_reach(
+    map: &MapDef,
+    fairness: &Fairness,
+    starts: &[StartZone],
+    findings: &mut Vec<Finding>,
+) {
+    for (from, row) in starts.iter().zip(&fairness.between) {
+        for (to, steps) in starts.iter().zip(row) {
+            let both_stand = !from.spaces.is_empty() && !to.spaces.is_empty();
+            if to.name != from.name && both_stand && steps.is_none() {
+                let cells = map.zones.get(&to.name).cloned().unwrap_or_default();
+                let (from, to) = (from.name.clone(), to.name.clone());
+                let kind = FindingKind::StartZoneUnreachable { from, to };
+                findings.push(Finding::new(kind, cells));
+            }
+        }
+    }
+    if starts.is_empty() {
+        return;
+    }
+    for objective in &fairness.objectives {
+        if objective.steps.iter().all(Option::is_none) {
+            let spot = objective.spot.clone();
+            let kind = FindingKind::UnreachableRelicSpot { spot };
+            findings.push(Finding::new(kind, vec![objective.at]));
+        }
     }
 }

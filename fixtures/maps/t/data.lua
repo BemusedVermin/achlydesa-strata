@@ -1,5 +1,5 @@
 -- Maps for `strata map check` and the editor's validation tests: `fair` is clean, and each other
--- map has the one finding its name says.
+-- map has the findings its name says.
 terrain { id = 'grass', name = 'Grass', standable = true }
 terrain { id = 'water', name = 'Water', standable = false }
 tile { id = 'grass_1', name = 'Grass', terrain = 'grass', thickness = 1, shape = {{ q = 0, r = 0 }} }
@@ -15,6 +15,6 @@ inventory {
 }
 
 for _, name in ipairs({ 'fair', 'overlap', 'unsupported', 'inventory', 'unstandable_zone',
-                        'small_zone' }) do
+                        'small_zone', 'unreachable_relic', 'apart', 'cliff' }) do
   require('maps.' .. name)
 end

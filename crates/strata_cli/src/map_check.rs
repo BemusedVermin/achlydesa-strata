@@ -1,4 +1,4 @@
-//! `strata map check`: validate one map file of a pack.
+//! `strata map check`: validate one map file of a pack and print its fairness report.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -14,8 +14,8 @@ const HAS_ERRORS: u8 = 1;
 /// The exit code when the map cannot be checked at all, for any error `run` returns.
 pub const CANNOT_CHECK: u8 = 2;
 
-/// Validates the map defined in `file`, prints every finding, and returns [`HAS_ERRORS`] if any
-/// finding is an error.
+/// Validates the map defined in `file`, prints every finding and the fairness report, and
+/// returns [`HAS_ERRORS`] if any finding is an error.
 ///
 /// An `Err` means the map could not be checked: the file cannot be read, is not inside a pack,
 /// the packs do not load, or the file defines no map. The caller exits with [`CANNOT_CHECK`].
@@ -42,6 +42,9 @@ pub fn run(file: &Path, options: &ValidationOptions) -> Result<ExitCode> {
     println!("map {id} ({source})");
     for finding in &validation.findings {
         println!("{finding}");
+    }
+    if let Some(fairness) = &validation.fairness {
+        print!("{fairness}");
     }
     let errors = validation.count(Severity::Error);
     let warnings = validation.count(Severity::Warning);

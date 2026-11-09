@@ -85,7 +85,7 @@ enum PackCommand {
 
 #[derive(Subcommand)]
 enum MapCommand {
-    /// Validate a map file and print its findings.
+    /// Validate a map file and print its findings and fairness report.
     ///
     /// Exits 0 when the map has no errors (warnings are fine), 1 when it has errors, and 2 when
     /// it cannot be checked: the file cannot be read, is not inside a pack, the packs do not

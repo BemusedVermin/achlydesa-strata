@@ -11,6 +11,7 @@ strata_content = { path = "../strata_content" }
 strata_kernel = { path = "../strata_kernel" }
 strata_model = { path = "../strata_model" }
 strata_modules = { path = "../strata_modules" }
+strata_rules = { path = "../strata_rules" }
 thiserror = "2"
 
 [dev-dependencies]

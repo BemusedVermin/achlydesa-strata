@@ -7,7 +7,9 @@
 mod defs;
 mod document;
 mod edit;
+mod fairness;
 mod finding;
+mod reach;
 mod standing;
 mod validate;
 mod writer;
@@ -15,6 +17,7 @@ mod writer;
 pub use defs::EditorDefs;
 pub use document::MapDocument;
 pub use edit::{Edit, EditError, Metadata};
+pub use fairness::{Fairness, Objective};
 pub use finding::{Finding, FindingKind, Severity};
 pub use strata_content::RegistryDefs;
 pub use validate::{START_ZONE_PREFIX, Validation, ValidationOptions};

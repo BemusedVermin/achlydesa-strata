@@ -62,7 +62,7 @@ pub enum FindingKind {
         /// How many the inventory holds.
         available: u32,
     },
-    /// Zone cells have no surface a figure can stand on.
+    /// Zone cells have no surface a figure can stand on, or the zone has no cells.
     UnstandableZone {
         /// The zone.
         zone: Sym,
@@ -77,6 +77,18 @@ pub enum FindingKind {
         spaces: u32,
         /// Figures in the army.
         army: u32,
+    },
+    /// A figure starting in one start zone cannot walk to another.
+    StartZoneUnreachable {
+        /// The zone the figure starts in.
+        from: Sym,
+        /// The zone it cannot reach.
+        to: Sym,
+    },
+    /// No start zone can reach a relic spot.
+    UnreachableRelicSpot {
+        /// The spot.
+        spot: Sym,
     },
 }
 
@@ -95,7 +107,9 @@ impl Finding {
     /// Creates a finding, with its severity set by its kind.
     pub fn new(kind: FindingKind, cells: Vec<Hex>) -> Self {
         let severity = match kind {
-            FindingKind::UnstandableZone { .. } | FindingKind::NoStartZones => Severity::Warning,
+            FindingKind::UnstandableZone { .. }
+            | FindingKind::NoStartZones
+            | FindingKind::StartZoneUnreachable { .. } => Severity::Warning,
             _ => Severity::Error,
         };
         Self {
@@ -149,6 +163,15 @@ impl fmt::Display for FindingKind {
                 f,
                 "start zone `{zone}` has {spaces} standable spaces for an army of {army}"
             ),
+            Self::StartZoneUnreachable { from, to } => {
+                write!(f, "start zone `{to}` is unreachable from `{from}`")
+            }
+            Self::UnreachableRelicSpot { spot } => {
+                write!(
+                    f,
+                    "relic spot `{spot}` is unreachable from every start zone"
+                )
+            }
         }
     }
 }
