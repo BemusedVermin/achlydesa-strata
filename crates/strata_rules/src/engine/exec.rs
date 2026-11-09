@@ -137,12 +137,20 @@ impl<'a> Exec<'a> {
         Ok(())
     }
 
-    /// Resolves queued triggers until none are left: active player first, each player's
-    /// simultaneous triggers in the order that player chooses.
+    /// Resolves queued triggers until none are left, a batch at a time (design §6.7). In each
+    /// batch the rules' triggers, those whose effect is a module's native logic, fire first, in
+    /// the order they were queued: by event, then by registration. The rest belong to players:
+    /// active player first, each player's simultaneous triggers in the order that player
+    /// chooses.
     fn drain_triggers(&mut self) -> Result<(), Halt> {
         while !self.queue.is_empty() {
-            let batch = std::mem::take(&mut self.queue);
+            let queued = std::mem::take(&mut self.queue);
             let active = self.state.flow.active;
+            let (rules, batch): (Vec<Queued>, Vec<Queued>) =
+                queued.into_iter().partition(|q| self.is_rule(q.index));
+            for rule in &rules {
+                self.fire(rule)?;
+            }
             let mut players: Vec<PlayerId> = batch.iter().map(|q| q.player).collect();
             players.sort();
             players.dedup();
@@ -164,6 +172,13 @@ impl<'a> Exec<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Whether trigger `index` is part of the rules rather than a player's ability: its effect
+    /// is native logic, which only Rust modules register.
+    fn is_rule(&self, index: usize) -> bool {
+        let effect = &self.rt.triggers()[index].effect;
+        native_name(effect).is_some_and(|name| self.rt.native(name).is_some())
     }
 
     fn fire(&mut self, queued: &Queued) -> Result<(), Halt> {

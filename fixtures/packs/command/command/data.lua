@@ -1,6 +1,6 @@
 -- A real match from setup to a unit's activation, for the client's command input. Player 0
--- deploys one soldier with `place_unit`, starts the round, places a token and activates the
--- soldier, which may then `walk`. Player 1 has no army, so their turns pass.
+-- deploys one soldier with `place_unit`, which ends setup and starts round 1, places a token and
+-- activates the soldier, which may then `walk`. Player 1 has no army, so their turns pass.
 die { id = 'init', name = 'Initiative', faces = { 'a', 'b', 'c' } }
 terrain { id = 'grass', name = 'Grass', standable = true }
 tile { id = 'meadow', name = 'Meadow', terrain = 'grass', thickness = 1, shape = {{ q = 0, r = 0 }} }
@@ -17,6 +17,14 @@ scenario {
   slots = {
     { id = 'a', start = 'west', deploy_order = 1 },
     { id = 'b', start = 'east', deploy_order = 2 },
+  },
+}
+-- The same, but the second slot deploys first.
+scenario {
+  id = 'reversed', name = 'Reversed', map = 'strip', players = { min = 2, max = 2 },
+  slots = {
+    { id = 'a', start = 'west', deploy_order = 2 },
+    { id = 'b', start = 'east', deploy_order = 1 },
   },
 }
 

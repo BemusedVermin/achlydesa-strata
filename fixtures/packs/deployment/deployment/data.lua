@@ -49,6 +49,46 @@ scenario {
   },
 }
 ruleset { id = 'rs', name = 'Deployment', slots = { deployment = { id = 'core:deployment' } } }
+-- Each seat places its whole reserve before the next seat starts.
+ruleset {
+  id = 'army', name = 'Army order',
+  slots = { deployment = { id = 'core:deployment', config = { order = { Str = 'army' } } } },
+}
+-- Setup, then rounds: the last placement closes `setup` and round 1 starts on its own.
+die { id = 'init', name = 'Initiative', faces = { 'a', 'b', 'c' } }
+ruleset {
+  id = 'flow', name = 'Setup then rounds',
+  slots = {
+    deployment = { id = 'core:deployment', config = { order = { Str = 'alternate' } } },
+    turns = { id = 'core:rounds', config = { initiative = { Str = 'init' } } },
+  },
+}
+-- A pack listener on `deployment_done` next to `core:rounds`: the rules' own triggers resolve
+-- first and in order, nobody is asked to order them, and the listener runs before round 1.
+rule_module {
+  id = 'listen',
+  register = function(r)
+    r.trigger {
+      event = 'deployment_done',
+      effect = function(ctx)
+        ctx.emit('heard', { round = ctx.state.round, phases = #ctx.state.phases })
+      end,
+    }
+  end,
+}
+ruleset {
+  id = 'listened', name = 'Setup then rounds, with a listener',
+  slots = {
+    deployment = { id = 'core:deployment' },
+    turns = { id = 'core:rounds', config = { initiative = { Str = 'init' } } },
+  },
+  addons = {{ id = 'deployment:listen' }},
+}
+-- Only `alternate` and `army` are placement orders.
+ruleset {
+  id = 'bad_order', name = 'Unknown order',
+  slots = { deployment = { id = 'core:deployment', config = { order = { Str = 'whole' } } } },
+}
 
 local function reserve(p0, p1)
   local out = {}
@@ -174,4 +214,98 @@ test {
   id = 'cart_outside', name = 'a rear cell cannot leave the start zone',
   ruleset = 'rs', scenario = 'duel', place = carts,
   steps = { act.command(0, 'place_unit', cart(0, 4)) },
+}
+
+-- Placement order: `alternate` (the default) takes one unit per seat in turn, `army` a whole
+-- reserve per seat.
+test {
+  id = 'alternating', name = 'alternate order takes one unit from each seat in turn',
+  ruleset = 'rs', scenario = 'duel', place = reserve(2, 2),
+  steps = {
+    act.command(0, 'place_unit', put(0, 0, 2)),
+    act.command(1, 'place_unit', put(2, 5, 6)),
+    act.command(0, 'place_unit', put(1, 3, 4)),
+    act.command(1, 'place_unit', put(3, 7, 8)),
+    expect.event('deployment_done'),
+  },
+}
+test {
+  id = 'alternate_twice', name = 'in alternate order a seat cannot place twice running',
+  ruleset = 'rs', scenario = 'duel', place = reserve(2, 2),
+  steps = {
+    act.command(0, 'place_unit', put(0, 0, 2)),
+    act.command(0, 'place_unit', put(1, 3, 4)),
+  },
+}
+test {
+  id = 'army', name = 'army order places a whole reserve before the next seat',
+  ruleset = 'army', scenario = 'duel', place = reserve(2, 2),
+  steps = {
+    act.command(0, 'place_unit', put(0, 0, 2)),
+    act.command(0, 'place_unit', put(1, 3, 4)),
+    act.command(1, 'place_unit', put(2, 5, 6)),
+    act.command(1, 'place_unit', put(3, 7, 8)),
+    expect.event('deployment_done'),
+  },
+}
+test {
+  id = 'army_out_of_turn', name = 'in army order the next seat waits for the whole reserve',
+  ruleset = 'army', scenario = 'duel', place = reserve(2, 2),
+  steps = {
+    act.command(0, 'place_unit', put(0, 0, 2)),
+    act.command(1, 'place_unit', put(2, 5, 6)),
+  },
+}
+
+-- The setup phase: placing opens `setup` > `deploy`, and the last placement starts round 1.
+test {
+  id = 'into_round', name = 'setup and deployment lead into round 1',
+  ruleset = 'flow', scenario = 'duel', place = reserve(2, 1),
+  steps = {
+    act.command(0, 'place_unit', put(0, 0, 2)),
+    expect.event('phase_entered'),
+    act.command(1, 'place_unit', put(2, 5, 6)),
+    act.command(0, 'place_unit', put(1, 3, 4)),
+    expect.event('deployment_done'),
+    expect.event('setup_ended'),
+    expect.event('round_started'),
+    expect.event('turn_started'),
+  },
+}
+test {
+  id = 'early_round', name = 'a round cannot start before deployment',
+  ruleset = 'flow', scenario = 'duel', place = reserve(1, 1),
+  steps = { act.command(0, 'start_round', nil) },
+}
+test {
+  id = 'mid_setup_round', name = 'a round cannot start after only some units are placed',
+  ruleset = 'flow', scenario = 'duel', place = reserve(1, 1),
+  steps = {
+    act.command(0, 'place_unit', put(0, 0, 2)),
+    act.command(0, 'start_round', nil),
+  },
+}
+test {
+  id = 'round_once', name = 'round 1 has already started when deployment ends',
+  ruleset = 'flow', scenario = 'duel', place = reserve(1, 1),
+  steps = {
+    act.command(0, 'place_unit', put(0, 0, 2)),
+    act.command(1, 'place_unit', put(1, 5, 6)),
+    act.command(0, 'start_round', nil),
+  },
+}
+test {
+  id = 'listened', name = 'a deployment_done listener runs after the rules and before round 1',
+  ruleset = 'listened', scenario = 'duel', place = reserve(1, 1),
+  steps = {
+    act.command(0, 'place_unit', put(0, 0, 2)),
+    act.command(1, 'place_unit', put(1, 5, 6)),
+    expect.event('heard'),
+    expect.event('round_started'),
+  },
+}
+test {
+  id = 'bad_order', name = 'an unknown placement order is refused when the ruleset resolves',
+  ruleset = 'bad_order', scenario = 'duel', place = reserve(1, 1),
+  steps = { act.command(0, 'place_unit', put(0, 0, 2)) },
 }

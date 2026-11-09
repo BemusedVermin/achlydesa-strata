@@ -1,29 +1,39 @@
-//! `core:deployment`: start zones, placement order and the setup step (design §6.1, §11.2).
+//! `core:deployment`: start zones, placement order and the setup step (design §6.1, §6.4, §11.2).
 //!
-//! Before the first round, players take turns placing one unit each with the `place_unit`
-//! command, in the order of their scenario slots' `deploy_order`, round and round. A player with
-//! nothing left to place is skipped. A placement puts every figure of one of the player's
+//! Before the first round, players place their units with the `place_unit` command, in the
+//! order of their scenario slots' `deploy_order`: one unit each, round and round, or with
+//! `order = "army"` each seat's whole reserve in turn (see [`crate::deploy_order`]). A player
+//! with nothing left to place is skipped. A placement puts every figure of one of the player's
 //! reserve units on a standable, empty surface inside the player's start zone; a figure with a
 //! larger footprint needs every cell of it there. Each cell stands where the movement module
 //! would stand it, headroom included, so a figure is never placed where it could not move (see
-//! `NativeEnv::cells`). When the last unit is down the module emits `deployment_done`.
+//! `NativeEnv::cells`). When the last unit is down the module emits `deployment_done`, and its
+//! own trigger on that event closes the `deploy` step.
+//!
+//! Placing happens in the `deploy` step of the `setup` phase, which the module registers (see
+//! [`crate::setup`]). The first placement opens it, and the last one closes `setup`, which
+//! starts round 1; `core:rounds` refuses to start it earlier. While units
+//! wait, the module names the deploying player as the one who acts next, so the session asks
+//! them for the next command.
 //!
 //! The payload is `{ unit = <unit id>, at = { { q, r, z }, ... } }`: one space per figure, in
 //! the order the unit lists its figures. Figures face the default way.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::OnceLock;
 
 use strata_kernel::{ModuleId, Rotation, SlotId, Space, Sym, Value};
 use strata_model::{
-    Command, Descriptor, Event, FigureId, FigureStatus, GameState, Logic, PlayerId, TriggerDef,
-    UnitId, VarKey,
+    Command, ConfigField, Descriptor, Event, FigureId, FigureStatus, GameState, Logic, PlayerId,
+    TriggerDef, UnitId,
 };
 use strata_rules::{
-    CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, NativeEnv, NativeLogic, Registrar,
-    RuleModule,
+    CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, NativeEnv, NativeLogic, NextActor,
+    Registrar, RuleModule,
 };
 
-use crate::toy::no_config;
+use crate::deploy_order::{DeployTurn, Order, deploying, placed, seating, waiting};
+use crate::setup::{self, DEPLOY};
 
 /// The custom event emitted once every unit has been placed.
 pub const DEPLOYMENT_DONE: &str = "deployment_done";
@@ -31,8 +41,8 @@ pub const DEPLOYMENT_DONE: &str = "deployment_done";
 const REQUESTED: &str = "placement_requested";
 /// The name the driver is registered under.
 const DRIVE: &str = "core:deployment.drive";
-/// The module that owns the variables.
-const OWNER: &str = "core:deployment";
+/// The module's ID, which also owns the placement cursor (see [`crate::deploy_order`]).
+pub(crate) const OWNER: &str = "core:deployment";
 
 /// The deployment slot.
 pub struct Deployment;
@@ -51,19 +61,39 @@ impl RuleModule for Deployment {
     }
 
     fn config_schema(&self) -> &ConfigSchema {
-        no_config()
+        static SCHEMA: OnceLock<ConfigSchema> = OnceLock::new();
+        SCHEMA.get_or_init(|| {
+            let order = ConfigField {
+                kind: Sym::new("str"),
+                default: Value::Str(Sym::new("alternate")),
+            };
+            ConfigSchema::new(BTreeMap::from([(Sym::new("order"), order)]))
+        })
     }
 
-    fn register(&self, r: &mut Registrar, _: &Value) -> Result<(), ModuleError> {
+    fn register(&self, r: &mut Registrar, cfg: &Value) -> Result<(), ModuleError> {
+        let named = cfg.get("order").and_then(Value::as_str);
+        let named = named.map_err(|e| ModuleError::Invalid(e.to_string()))?;
+        let order = Order::named(named).ok_or_else(|| {
+            ModuleError::Invalid(format!(
+                "order must be `alternate` or `army`, not `{named}`"
+            ))
+        })?;
+        setup::register(r);
         r.command(Place);
-        r.native(DRIVE, Box::new(Drive));
+        r.service::<dyn NextActor>(Box::new(DeployTurn(order)));
+        r.native(DRIVE, Box::new(Drive { order }));
         let call = [(Sym::new("native"), Value::Str(Sym::new(DRIVE)))];
-        r.trigger(TriggerDef {
-            event: Sym::new(REQUESTED),
-            filter: None,
-            limit: None,
-            effect: Logic::Native(Descriptor(Value::Map(call.into()))),
-        });
+        // `deployment_done` closes the step one trigger batch after the last placement, so its
+        // other listeners resolve before `setup_ended` starts round 1.
+        for event in [REQUESTED, DEPLOYMENT_DONE] {
+            r.trigger(TriggerDef {
+                event: Sym::new(event),
+                filter: None,
+                limit: None,
+                effect: Logic::Native(Descriptor(Value::Map(call.clone().into()))),
+            });
+        }
         Ok(())
     }
 }
@@ -90,33 +120,6 @@ impl CommandHandler for Place {
             payload: asked,
         })
     }
-}
-
-fn cursor_key() -> VarKey {
-    VarKey {
-        module: ModuleId::new(OWNER),
-        name: Sym::new("cursor"),
-    }
-}
-
-/// Whether `player` still has a unit waiting off the board.
-fn waiting(state: &GameState, player: PlayerId) -> bool {
-    let mine = state.units.iter().filter(|u| u.owner == player);
-    let mut figures = mine.flat_map(|u| u.figures.iter());
-    figures.any(|f| state.figures[f.index()].status == FigureStatus::Reserve)
-}
-
-/// Every player, in the order they place.
-fn seating(state: &GameState, env: &dyn NativeEnv) -> Result<Vec<PlayerId>, Halt> {
-    let mut seats = Vec::new();
-    for seat in 0..state.players.len() {
-        let player = PlayerId(seat as u8);
-        let slot = env.deployment(state, player);
-        let slot = slot.ok_or_else(|| Halt::reject(format!("player {seat} has no start zone")))?;
-        seats.push((slot.order, player));
-    }
-    seats.sort();
-    Ok(seats.into_iter().map(|(_, player)| player).collect())
 }
 
 /// The reading of one `place_unit` payload.
@@ -148,25 +151,35 @@ fn parse(payload: &Value) -> Result<Placement, Halt> {
 }
 
 /// Checks a placement against the turn order, the unit and the board, then carries it out.
-struct Drive;
+struct Drive {
+    order: Order,
+}
 
 impl NativeLogic for Drive {
     fn run(&self, ctx: &mut dyn Ctx, env: &dyn NativeEnv, event: &Event) -> Result<(), Halt> {
-        let Event::Custom { payload, .. } = event else {
-            return Ok(());
-        };
+        match event {
+            Event::Custom { id, .. } if id.as_str() == DEPLOYMENT_DONE => finish(ctx, env),
+            Event::Custom { payload, .. } => self.place(ctx, env, payload),
+            _ => Ok(()),
+        }
+    }
+}
+
+impl Drive {
+    fn place(&self, ctx: &mut dyn Ctx, env: &dyn NativeEnv, payload: &Value) -> Result<(), Halt> {
         let placement = parse(payload)?;
-        let state = ctx.state();
-        if state.flow.round > 0 {
+        if ctx.state().flow.round > 0 {
             return Err(Halt::reject("deployment is over: the game has started"));
         }
+        if let Some(tree) = env.phases() {
+            setup::open(ctx, tree)?;
+            if setup::current(ctx.state(), tree).map(Sym::as_str) != Some(DEPLOY) {
+                return Err(Halt::reject("units are placed only in the deploy step"));
+            }
+        }
+        let state = ctx.state();
         let seats = seating(state, env)?;
-        let start = state.vars.get(&cursor_key()).and_then(|v| v.as_int().ok());
-        let start = start.unwrap_or(0) as usize;
-        let turn = (0..seats.len())
-            .map(|i| (start + i) % seats.len())
-            .find(|i| waiting(state, seats[*i]));
-        if turn.map(|i| seats[i]) != Some(placement.player) {
+        if deploying(state, env, self.order) != Some(placement.player) {
             return Err(Halt::reject("it is not your turn to deploy"));
         }
         let figures = check_unit(state, &placement)?;
@@ -180,12 +193,7 @@ impl NativeLogic for Drive {
                 cells: body,
             })?;
         }
-        let next = (turn.unwrap_or(0) + 1) % seats.len();
-        let value = Value::Int(next as i64);
-        ctx.emit(Event::VarSet {
-            key: cursor_key(),
-            value,
-        })?;
+        placed(ctx, &seats, placement.player)?;
         if seats.iter().any(|p| waiting(ctx.state(), *p)) {
             return Ok(());
         }
@@ -195,6 +203,17 @@ impl NativeLogic for Drive {
             payload: Value::Nil,
         })
     }
+}
+
+/// Closes the `deploy` step once deployment is done, which may end setup.
+fn finish(ctx: &mut dyn Ctx, env: &dyn NativeEnv) -> Result<(), Halt> {
+    let Some(tree) = env.phases() else {
+        return Ok(());
+    };
+    if setup::current(ctx.state(), tree).map(Sym::as_str) != Some(DEPLOY) {
+        return Ok(());
+    }
+    setup::finish_step(ctx, tree)
 }
 
 /// The figures of the placed unit, which must be the player's and waiting in reserve.

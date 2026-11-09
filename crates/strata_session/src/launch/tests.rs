@@ -196,7 +196,7 @@ fn a_card_stat_carries_the_trace_that_explains_it() {
 }
 
 /// The `command` fixture: player 0 has one soldier and player 1 none. The match allows the
-/// commands from deployment up to one action.
+/// commands from deployment up to one action; round 1 starts when the soldier is down.
 fn command_spec() -> LaunchSpec {
     let root = env!("CARGO_MANIFEST_DIR");
     let mut army = army("test_soldier");
@@ -209,7 +209,7 @@ fn command_spec() -> LaunchSpec {
         ruleset: Some("rs".into()),
         seed: 5,
         armies: vec![army, None],
-        commands: 6,
+        commands: 5,
     }
 }
 
@@ -243,9 +243,11 @@ fn a_real_match_offers_its_legal_commands_and_token_choice_to_the_viewer() {
     let at = Value::List(vec![Value::List([0, 0, 1].map(Value::Int).to_vec())]);
     let place = [(Sym::new("unit"), Value::Int(0)), (Sym::new("at"), at)];
     handle.send_command(custom("place_unit", Value::Map(place.into())));
-    let _ = view_after(&handle);
-    handle.send_command(custom("start_round", Value::Nil));
     let placing = view_after(&handle);
+    assert_eq!(
+        placing.state.flow.round, 1,
+        "the last placement starts round 1"
+    );
     let choice = placing.tokens.expect("player 0 has a token to place");
     assert_eq!(choice.units, [UnitId(0)]);
     let put = choice.hand.iter().map(|token| TokenPlacement {
@@ -267,4 +269,66 @@ fn a_real_match_offers_its_legal_commands_and_token_choice_to_the_viewer() {
     assert!(active.legal.contains(&Command::EndActivation));
     assert_eq!(active.names.action(DefId(99)), None);
     assert_eq!(handle.shutdown(), Ok(()));
+}
+
+/// The `command` fixture with a soldier for each player, stopping after both have deployed.
+/// `reversed` swaps the slots' `deploy_order`, so player 1 places first.
+fn both_deploy_spec(reversed: bool) -> LaunchSpec {
+    let mut spec = command_spec();
+    spec.armies = vec![spec.armies[0].clone(), spec.armies[0].clone()];
+    spec.scenario = if reversed { "reversed" } else { "duel" }.into();
+    spec.commands = 2;
+    spec
+}
+
+/// Places `unit` on `q` of the strip, at the level above the meadow.
+fn place_at(unit: i64, q: i64) -> strata_model::Command {
+    use strata_kernel::Value;
+    let at = Value::List(vec![Value::List([q, 0, 1].map(Value::Int).to_vec())]);
+    let place = [(Sym::new("unit"), Value::Int(unit)), (Sym::new("at"), at)];
+    custom("place_unit", Value::Map(place.into()))
+}
+
+/// Sends `placements` through the client channel, one per view, and returns the last view.
+fn deploy(spec: LaunchSpec, placements: &[(i64, i64)]) -> PlayerView {
+    let handle = launch(spec);
+    let mut view = view_after(&handle);
+    assert_eq!(view.state.flow.round, 0);
+    for &(unit, q) in placements {
+        handle.send_command(place_at(unit, q));
+        view = view_after(&handle);
+    }
+    assert!(matches!(
+        handle.recv_timeout(WAIT),
+        Ok(SimMessage::Finished)
+    ));
+    assert_eq!(handle.shutdown(), Ok(()));
+    view
+}
+
+#[test]
+fn both_players_deploy_through_the_client_and_round_one_starts() {
+    // Units 0 and 1 belong to players 0 and 1; each placement is submitted for the player whose
+    // turn it is to deploy, not the active player.
+    let view = deploy(both_deploy_spec(false), &[(0, 0), (1, 2)]);
+    assert_eq!(view.state.flow.round, 1);
+    assert_eq!(view.state.command_index, 2);
+    let on_board = |f: &strata_model::FigureState| f.status == strata_model::FigureStatus::OnBoard;
+    assert!(view.state.figures.iter().all(on_board));
+}
+
+#[test]
+fn the_seat_with_the_lower_deploy_order_is_asked_first() {
+    let view = deploy(both_deploy_spec(true), &[(1, 2), (0, 0)]);
+    assert_eq!(view.state.flow.round, 1);
+}
+
+#[test]
+fn deploying_into_round_one_twice_gives_the_same_hash() {
+    let hash = || {
+        deploy(both_deploy_spec(false), &[(0, 0), (1, 2)])
+            .state
+            .hash()
+    };
+    assert_eq!(hash(), hash());
 }

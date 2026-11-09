@@ -3,6 +3,7 @@
 use strata_kernel::{DefId, Sym, Value};
 use strata_model::{Command, FigureStatus, GameState, PlayerId, UnitId};
 
+use super::acting::acting;
 use super::action::ActionRunner;
 use super::activation::ActivationRules;
 use super::tree::PhaseTree;
@@ -29,8 +30,9 @@ pub struct Flow<'a> {
 }
 
 impl Flow<'_> {
-    /// What `player` may submit now: nothing while a decision is pending or out of turn. Native
-    /// actions answer their targets with `env`, the hooks' environment that also resolves them.
+    /// What `player` may submit now: nothing while a decision is pending or while another player
+    /// must act (see [`super::NextActor`]). Native actions answer their targets with `env`, the
+    /// hooks' environment that also resolves them.
     pub(crate) fn legal_commands(
         &self,
         rt: &RulesRuntime,
@@ -38,7 +40,7 @@ impl Flow<'_> {
         s: &GameState,
         player: PlayerId,
     ) -> Vec<Command> {
-        if s.pending.is_some() || s.flow.active != player {
+        if s.pending.is_some() || acting(rt, env, s) != player {
             return Vec::new();
         }
         match &s.flow.activation {

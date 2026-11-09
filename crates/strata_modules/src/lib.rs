@@ -6,12 +6,14 @@
 
 pub mod activation;
 pub mod combat;
+pub mod deploy_order;
 pub mod deployment;
 pub mod engagement;
 pub mod los;
 pub mod movement;
 pub mod relics;
 pub mod rounds;
+pub mod setup;
 mod shared;
 pub mod tokens;
 pub mod toy;

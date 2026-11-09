@@ -2,9 +2,12 @@
 
 use std::path::PathBuf;
 
+use strata_kernel::DefId;
 use strata_kernel::Space;
+use strata_kernel::Value;
 use strata_model::Event;
 use strata_modules::native_modules;
+use strata_rules::event_kind;
 use strata_session::pack_test::{PackTests, TestReport, summary};
 
 fn run() -> Vec<TestReport> {
@@ -30,12 +33,15 @@ fn passes(name: &str) {
 
 /// The test must fail at its only refused step, with `reason` in the message.
 fn refused(name: &str, reason: &str) {
+    refused_command(name, "place_unit", reason);
+}
+
+/// The test must fail at its only refused step, a `command`, with `reason` in the message.
+fn refused_command(name: &str, command: &str, reason: &str) {
     let reports = run();
     let failure = named(&reports, name).outcome.as_ref().unwrap_err();
-    assert!(
-        failure.message.contains("`place_unit` was rejected"),
-        "{failure:?}"
-    );
+    let rejected = format!("`{command}` was rejected");
+    assert!(failure.message.contains(&rejected), "{failure:?}");
     assert!(failure.message.contains(reason), "{failure:?}");
 }
 
@@ -116,4 +122,121 @@ fn every_cell_must_stand_inside_the_start_zone() {
 #[test]
 fn running_twice_gives_identical_reports_and_hashes() {
     assert_eq!(run(), run());
+}
+
+#[test]
+fn alternate_order_takes_one_unit_from_each_seat_in_turn() {
+    passes("alternate order takes one unit");
+    refused("in alternate order a seat cannot", "not your turn");
+}
+
+#[test]
+fn army_order_places_a_whole_reserve_before_the_next_seat() {
+    passes("army order places a whole reserve");
+    refused("in army order the next seat waits", "not your turn");
+}
+
+/// The `flow` ruleset's phases in tree order: `setup` > `deploy`, then `round` >
+/// (`initiative`, `turns`, `round_end`).
+const SETUP: DefId = DefId(0);
+const DEPLOY: DefId = DefId(1);
+const ROUND: DefId = DefId(2);
+const INITIATIVE: DefId = DefId(3);
+
+#[test]
+fn setup_and_deployment_lead_into_round_one() {
+    passes("setup and deployment lead into round 1");
+    let reports = run();
+    let events = &named(&reports, "setup and deployment lead").events;
+    let flow: Vec<String> = events
+        .iter()
+        .filter_map(|e| match e {
+            Event::PhaseEntered(p) => Some(format!("enter {}", p.0)),
+            Event::PhaseExited(p) => Some(format!("exit {}", p.0)),
+            Event::RoundStarted(r) => Some(format!("round {r}")),
+            Event::Custom { .. } | Event::TurnStarted { .. } => Some(event_kind(e).to_owned()),
+            _ => None,
+        })
+        .collect();
+    let at = |p: DefId| p.0;
+    let want = [
+        "placement_requested".into(),
+        format!("enter {}", at(SETUP)),
+        format!("enter {}", at(DEPLOY)),
+        "placement_requested".into(),
+        "placement_requested".into(),
+        "deployment_done".into(),
+        format!("exit {}", at(DEPLOY)),
+        format!("exit {}", at(SETUP)),
+        "setup_ended".into(),
+        "round 1".into(),
+        format!("enter {}", at(ROUND)),
+        format!("enter {}", at(INITIATIVE)),
+    ];
+    assert_eq!(flow[..want.len()], want, "{flow:?}");
+    assert!(
+        flow[want.len()..].contains(&"turn_started".to_owned()),
+        "{flow:?}"
+    );
+}
+
+#[test]
+fn a_round_cannot_start_before_deployment_and_round_one_starts_only_once() {
+    refused_command(
+        "a round cannot start before deployment",
+        "start_round",
+        "still waiting to deploy",
+    );
+    refused_command(
+        "round 1 has already started",
+        "start_round",
+        "already under way",
+    );
+}
+
+#[test]
+fn a_round_cannot_start_while_setup_is_under_way() {
+    // After one of two placements `setup` is open; the refusal names setup, not a round.
+    refused_command(
+        "a round cannot start after only some units",
+        "start_round",
+        "setup is not over",
+    );
+}
+
+#[test]
+fn a_deployment_done_listener_runs_after_the_rules_and_before_round_one() {
+    // `passes` also pins that nobody was asked to order triggers: the test answers no decision.
+    passes("a deployment_done listener runs");
+    let reports = run();
+    let events = &named(&reports, "a deployment_done listener runs").events;
+    let kinds: Vec<&str> = events.iter().map(event_kind).collect();
+    let done = kinds.iter().position(|k| *k == "deployment_done").unwrap();
+    let want = [
+        "deployment_done",
+        "phase_exited",
+        "phase_exited",
+        "setup_ended",
+        "heard",
+        "round_started",
+    ];
+    assert_eq!(kinds[done..done + want.len()], want, "{kinds:?}");
+    // The listener saw setup closed and round 1 not yet begun.
+    let heard = events.iter().find_map(|e| match e {
+        Event::Custom { id, payload } if id.as_str() == "heard" => Some(payload.clone()),
+        _ => None,
+    });
+    let heard = heard.unwrap();
+    assert_eq!(heard.get("round").unwrap(), &Value::Int(0));
+    assert_eq!(heard.get("phases").unwrap(), &Value::Int(0));
+}
+
+#[test]
+fn an_unknown_placement_order_fails_ruleset_resolution() {
+    let reports = run();
+    let report = named(&reports, "an unknown placement order");
+    let failure = report.outcome.as_ref().unwrap_err();
+    assert_eq!(failure.step, None, "{failure:?}");
+    let want = "order must be `alternate` or `army`, not `whole`";
+    assert!(failure.message.contains(want), "{failure:?}");
 }

@@ -449,8 +449,8 @@ fn custom(id: &str, payload: Value) -> Command {
     }
 }
 
-/// The `command` fixture: player 0 deploys one soldier, places its token, activates it by a
-/// click on the board and walks; player 1 has no army.
+/// The `command` fixture: player 0 deploys one soldier, which starts round 1, places its token,
+/// activates it by a click on the board and walks; player 1 has no army.
 #[test]
 fn a_real_match_is_played_from_the_client_through_tokens_activation_and_an_action() {
     let root = env!("CARGO_MANIFEST_DIR");
@@ -464,7 +464,7 @@ fn a_real_match_is_played_from_the_client_through_tokens_activation_and_an_actio
         ruleset: Some("rs".into()),
         seed: 5,
         armies: vec![soldier, None],
-        commands: 6,
+        commands: 5,
     });
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
@@ -479,9 +479,8 @@ fn a_real_match_is_played_from_the_client_through_tokens_activation_and_an_actio
     let place = [(Sym::new("unit"), Value::Int(0)), (Sym::new("at"), at)];
     let deploy = custom("place_unit", Value::Map(place.into()));
     app.world_mut().write_message(SendCommand(deploy));
+    // The last placement ends setup, which starts round 1 without a `start_round`.
     until(&mut app, "deployment", |app| index(app) == Some(1));
-    let start = custom("start_round", Value::Nil);
-    app.world_mut().write_message(SendCommand(start));
 
     // The token placement screen: a click on the soldier puts the only token on its unit.
     let input = |app: &App| app.world().resource::<CommandInput>().clone();

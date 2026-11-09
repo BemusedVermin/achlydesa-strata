@@ -17,7 +17,7 @@ use strata_model::{Answer, Command, GameState, PendingDecision, PlayerId, TokenC
 use exec::Exec;
 use names::answer_fits;
 
-use crate::flow::{Flow, TokenRules};
+use crate::flow::{Flow, TokenRules, acting};
 use crate::runtime::RulesRuntime;
 
 /// Drives a game: owns the committed state and the command log.
@@ -88,13 +88,20 @@ impl<'a> Engine<'a> {
         }
     }
 
+    /// The player who submits the next command when no decision is pending: the one a
+    /// [`NextActor`](crate::NextActor) service names, such as the player deploying during setup,
+    /// or else the active player.
+    pub fn acting(&self) -> PlayerId {
+        acting(self.rt, self.hooks.env(), &self.state)
+    }
+
     /// How `player` may place the tokens in hand, from the tokens module's [`TokenRules`]: `None`
     /// while a decision is pending, out of turn, without such a module, or with nothing to place.
-    /// Like [`legal_commands`](Self::legal_commands), only the active player is offered a choice,
-    /// because the session submits every command as the active player.
+    /// Like [`legal_commands`](Self::legal_commands), only the [acting](Self::acting) player is
+    /// offered a choice, because the session submits every command as that player.
     pub fn token_choice(&self, player: PlayerId) -> Option<TokenChoice> {
         let rules = self.rt.service::<dyn TokenRules>()?;
-        if self.state.pending.is_some() || self.state.flow.active != player {
+        if self.state.pending.is_some() || self.acting() != player {
             return None;
         }
         rules.choice(&self.state, player)
