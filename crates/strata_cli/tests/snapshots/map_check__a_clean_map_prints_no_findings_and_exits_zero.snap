@@ -1,6 +1,0 @@
----
-source: crates/strata_cli/tests/map_check.rs
-expression: stdout(&out)
----
-map t:fair (t/maps/fair.lua)
-0 error(s), 0 warning(s)

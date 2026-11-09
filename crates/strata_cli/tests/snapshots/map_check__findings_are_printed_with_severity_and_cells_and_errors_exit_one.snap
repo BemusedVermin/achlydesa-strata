@@ -12,10 +12,36 @@ map t:inventory (t/maps/inventory.lua)
 error: uses 4 `grass_1` but the inventory has 3; cells (0, 0), (1, 0), (2, 0), (3, 0)
 error: uses 1 `hill_2` but the inventory has 0; cells (4, 0)
 error: uses 2 `tree` but the inventory has 1; cells (1, 0), (2, 0)
+fairness: steps for a one-space reference figure (- = unreachable)
+  from start_a: start_b 3
+  from start_b: start_a 3
 3 error(s), 0 warning(s)
 map t:unstandable_zone (t/maps/unstandable_zone.lua)
 warning: zone `ford` covers unstandable columns; cells (2, 0), (5, 5)
+fairness: steps for a one-space reference figure (- = unreachable)
+  from start_a: start_b 1
+  from start_b: start_a 1
 0 error(s), 1 warning(s)
+map t:unreachable_relic (t/maps/unreachable_relic.lua)
+error: relic spot `island` is unreachable from every start zone; cells (3, 0)
+error: relic spot `tower` is unreachable from every start zone; cells (0, 1)
+fairness: steps for a one-space reference figure (- = unreachable)
+  objective `island` at (3, 0): start_a -, start_b -; spread -
+  objective `tower` at (0, 1): start_a -, start_b -; spread -
+  from start_a: start_b 1
+  from start_b: start_a 1
+2 error(s), 0 warning(s)
+map t:apart (t/maps/apart.lua)
+warning: start zone `start_b` is unreachable from `start_a`; cells (2, 0)
+warning: start zone `start_a` is unreachable from `start_b`; cells (0, 0)
+fairness: steps for a one-space reference figure (- = unreachable)
+  objective `west` at (0, 0): start_a 0, start_b -; spread -
+  from start_a: start_b -
+  from start_b: start_a -
+0 error(s), 2 warning(s)
 map t:small_zone (t/maps/small_zone.lua)
 error: start zone `start_a` has 2 standable spaces for an army of 3; cells (0, 0), (1, 0)
+fairness: steps for a one-space reference figure (- = unreachable)
+  from start_a: start_b 1
+  from start_b: start_a 1
 1 error(s), 0 warning(s)

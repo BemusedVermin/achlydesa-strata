@@ -14,7 +14,7 @@ fn stdout(assert: &assert_cmd::assert::Assert) -> String {
 }
 
 #[test]
-fn a_clean_map_prints_no_findings_and_exits_zero() {
+fn a_fair_map_prints_its_fairness_report_and_exits_zero() {
     let out = strata(&["map", "check", "t/maps/fair.lua", "--army-size", "2"]).success();
     insta::assert_snapshot!(stdout(&out));
 }
@@ -22,9 +22,15 @@ fn a_clean_map_prints_no_findings_and_exits_zero() {
 #[test]
 fn findings_are_printed_with_severity_and_cells_and_errors_exit_one() {
     let mut text = String::new();
-    for map in ["overlap", "unsupported", "inventory", "unstandable_zone"] {
+    let maps = ["overlap", "unsupported", "inventory", "unstandable_zone"];
+    for map in maps.into_iter().chain(["unreachable_relic", "apart"]) {
         let out = strata(&["map", "check", &format!("t/maps/{map}.lua")]);
-        let code = if map == "unstandable_zone" { 0 } else { 1 };
+        // Warnings alone do not fail the check.
+        let code = if matches!(map, "unstandable_zone" | "apart") {
+            0
+        } else {
+            1
+        };
         text.push_str(&stdout(&out.code(code)));
     }
     let out = strata(&["map", "check", "t/maps/small_zone.lua", "--army-size", "3"]).code(1);
