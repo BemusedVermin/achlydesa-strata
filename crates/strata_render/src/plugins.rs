@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 use crate::board::BoardPlugin;
 use crate::camera::CameraPlugin;
+use crate::figure::FigurePlugin;
 use crate::input::InputPlugin;
 
 macro_rules! skeleton {
@@ -18,8 +19,6 @@ macro_rules! skeleton {
 }
 
 skeleton! {
-    /// Spawns figure sprites as camera-facing billboards.
-    FigurePlugin,
     /// Plays event batches in sequence.
     PlaybackPlugin,
     /// Movement, line-of-sight and combat previews.

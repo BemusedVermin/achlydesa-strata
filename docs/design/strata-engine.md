@@ -71,7 +71,7 @@ Layers, top to bottom (diagram summarized):
 | `strata_ai` | Evaluator terms, greedy controller, later MCTS | session |
 | `strata_editor` | Map documents, edit commands, validation, fairness analysis, Lua writer | content, modules |
 | `strata_cli` | `validate`, `test`, `lint`, `stubs`, `stats`, `sim`, `replay` | Everything except client |
-| `strata_scene` | Engine-independent presentation math: hex-to-world layout, isometric view, ray picking. Floats allowed; no Bevy | kernel, model, content |
+| `strata_scene` | Engine-independent presentation math: hex-to-world layout, isometric view, ray picking, terrain meshes, the sprite catalog from `assets.lua`, billboard frames and fallback sprites. Floats allowed; no Bevy | kernel, model, lua, content |
 | `strata_render` | Bevy plugins for the scene: board, figures, playback, input, camera, previews, occlusion | scene |
 | `strata_client` | Bevy app shell, simulation link, UI panels and editor UI | Everything |
 
@@ -972,6 +972,11 @@ sprite {
 ```
 
 Sprite metadata is presentation data. It never enters the rules registry or the content hash, so changing art cannot break a replay.
+
+- **Sheet layout.** A sheet is a grid of `frame`-sized cells. Each animation takes six consecutive rows, one per direction `0..6`, with its frames left to right; animations are stacked in the order `idle`, `move`, `attack`, `hit`, `death`, then any others by name. `sheet` is relative to the pack's `assets/` folder.
+- **Direction numbering.** Direction `d` shows the figure at rotation `d` seen from camera yaw step 0. A camera step turns the picture with it, so with the client's step convention (one step turns the scene clockwise) the frame is `(rotation + step) mod 6`.
+- **Foot anchor.** `anchor` is measured in pixel edges from the frame's top-left corner; rows above `anchor.y` stand above the surface. A multi-space figure's sprite stands over the middle of its cells, on its anchor's surface.
+- **Scale.** Vertically one pixel is `1 / pixels_per_level` of a level and horizontally `1 / hex_width_px` of a hex's width across the flats, so a pack whose art uses other proportions than the terrain still lines up with it. Packs without `assets.lua` use 12 and 64.
 
 ## 14. Map editor
 

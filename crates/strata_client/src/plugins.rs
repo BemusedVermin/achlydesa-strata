@@ -6,6 +6,7 @@
 use bevy::prelude::*;
 use strata_render::RenderPlugins;
 
+use crate::assets::AssetsPlugin;
 use crate::dev::DevPlugin;
 use crate::input::PlayerInputPlugin;
 use crate::ui::UiPlugin;
@@ -24,8 +25,6 @@ macro_rules! skeleton {
 skeleton! {
     /// The map editor.
     EditorPlugin,
-    /// Resolves visual keys to files, with fallbacks.
-    AssetsPlugin,
 }
 
 /// Adds the rendering plugins and every shell plugin.

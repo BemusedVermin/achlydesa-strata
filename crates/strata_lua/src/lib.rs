@@ -7,6 +7,7 @@
 mod convert;
 mod ctx;
 mod data;
+mod declare;
 mod error;
 mod freeze;
 mod host;
@@ -18,6 +19,7 @@ pub mod stubs;
 pub use convert::{lua_to_value, value_to_lua};
 pub use ctx::RuleHost;
 pub use data::{DataStage, PackSource, Record, Source};
+pub use declare::{Declaration, Declarations, declare};
 pub use error::{ConvertError, DataError, HostError, LoadError, RuntimeError};
 pub use freeze::{Def, FrozenDef, FrozenRecord, Reference, Resolver, freeze, freeze_resolved};
 pub use host::{Halt, Limits, LuaHost};

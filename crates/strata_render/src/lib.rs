@@ -7,6 +7,7 @@
 
 mod board;
 mod camera;
+mod figure;
 mod input;
 mod plugins;
 
@@ -14,5 +15,9 @@ pub use board::{
     BoardPlugin, DirtyChunks, FeatureNames, LevelSlice, RemovedFeatures, TerrainChunk,
 };
 pub use camera::{CameraPlugin, ClientBoard, HoveredSpace, IsoCamera, IsoCameraMarker};
+pub use figure::{
+    FigureAnimation, FigureBase, FigurePlugin, FigurePose, FigurePoses, FigureSprite,
+    FigureSprites, FigureView, LookKey,
+};
 pub use input::{BoardHighlights, InputPlugin, SpaceClicked};
-pub use plugins::{FigurePlugin, OcclusionPlugin, PlaybackPlugin, PreviewPlugin, RenderPlugins};
+pub use plugins::{OcclusionPlugin, PlaybackPlugin, PreviewPlugin, RenderPlugins};

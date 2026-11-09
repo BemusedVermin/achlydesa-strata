@@ -3,8 +3,10 @@
 use std::sync::Arc;
 
 use crate::cards::UnitCard;
+use crate::looks::FigureLook;
 use crate::names::Names;
 use strata_kernel::{DefId, Sym};
+use strata_lua::PackSource;
 use strata_model::board::CompiledBoard;
 use strata_model::{Command, Event, GameState, PlayerId, TokenChoice, UnitId, Visibility};
 
@@ -20,6 +22,10 @@ pub struct BoardInfo {
     pub orientation: Sym,
     /// The name of each placed feature, indexed as the board's feature spans are.
     pub features: Vec<Sym>,
+    /// The loaded packs in load order, whose `assets.lua` files hold the sprites.
+    pub packs: Vec<PackSource>,
+    /// How each kind of figure is drawn.
+    pub looks: Vec<FigureLook>,
 }
 
 /// A per-player projection of the state: opponents' hidden tokens keep their count but lose

@@ -9,6 +9,7 @@ pub mod controller;
 pub mod human;
 pub mod inspect;
 pub mod launch;
+pub mod looks;
 pub mod names;
 pub mod pack_test;
 pub mod random;
@@ -24,6 +25,7 @@ pub use controller::Controller;
 pub use human::HumanController;
 pub use inspect::{Change, Clamp, InspectStep, Inspection, TraceMismatch};
 pub use launch::{LaunchSpec, launch};
+pub use looks::{FigureLook, figure_looks};
 pub use names::Names;
 pub use random::RandomController;
 pub use replay::{

@@ -15,6 +15,7 @@ use strata_rules::{
 };
 
 use crate::controller::Controller;
+use crate::looks::figure_looks;
 use crate::names::Names;
 use crate::pack_test::PackTests;
 use crate::pack_test::host::{Host, find};
@@ -104,6 +105,8 @@ fn play(spec: &LaunchSpec, link: &SimLink) -> Result<(), String> {
         board: built.board.clone(),
         orientation: built.orientation,
         features: built.features,
+        packs: tests.packs.clone(),
+        looks: figure_looks(registry),
     });
     let los = rt.service::<Arc<dyn LineOfSight>>().cloned();
     let movement = rt.service::<Arc<dyn Movement>>().cloned();
