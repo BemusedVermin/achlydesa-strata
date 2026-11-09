@@ -30,7 +30,8 @@ use std::sync::{Arc, OnceLock};
 use strata_kernel::{ModuleId, SlotId, Sym, Value, WindowId};
 use strata_model::{ConfigField, FigureId, GameState};
 use strata_rules::{
-    ConfigSchema, Ctx, Halt, LuaApi, ModuleError, NativeAction, NativeEnv, Registrar, RuleModule,
+    AttackView, ConfigSchema, Ctx, Halt, LuaApi, ModuleError, NativeAction, NativeEnv, Registrar,
+    RuleModule,
 };
 
 pub use self::resolve::{ATTACK_EVENT, RECORD};
@@ -109,6 +110,16 @@ impl Rules {
         }
         Ok(found)
     }
+}
+
+/// The attack in progress in `state`, as descriptors such as `cond.attack_kind` see it.
+pub fn attack_view(state: &GameState) -> Option<AttackView> {
+    let record = resolve::Record::from_value(state.vars.get(&resolve::record_key())?).ok()?;
+    Some(AttackView {
+        attacker: record.attacker,
+        target: record.target,
+        ranged: record.ranged,
+    })
 }
 
 /// The ordinary attack, on the `attack` slot.

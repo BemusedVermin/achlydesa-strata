@@ -34,6 +34,8 @@ rule_module {
           ctx.units.heal(p.figure, p.amount)
         elseif p.op == 'destroy' then
           ctx.units.destroy(p.figure)
+        elseif p.op == 'remove' then
+          ctx.units.remove(p.figure)
         elseif p.op == 'reroll' then
           local roll = ctx.dice.pool('combat', p.figure, 'attack'):reroll(0, 1)
           ctx.vars('units:harness').hits = roll:count('hit')
@@ -98,6 +100,15 @@ test {
   steps = {
     op('wound', 1, 1), expect.figure('p1.test_squad#1', 'destroyed'),
     op('destroy', 2), expect.event('unit_removed'),
+  },
+}
+test {
+  id = 'remove', name = 'a removed figure leaves play without being destroyed',
+  ruleset = 'rs', place = board(),
+  steps = {
+    op('remove', 1), expect.event('figure_removed', { figure = 'p1.test_squad#1' }),
+    expect.figure('p1.test_squad#1', 'removed'),
+    op('remove', 2), expect.event('unit_removed'), expect.figure('p1.test_squad#2', 'removed'),
   },
 }
 test {

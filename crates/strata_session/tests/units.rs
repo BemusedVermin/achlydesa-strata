@@ -98,6 +98,19 @@ fn a_squad_is_removed_when_its_last_figure_is_destroyed() {
     assert_eq!(kinds, ["destroyed", "destroyed", "removed"]);
 }
 
+#[test]
+fn removing_a_figure_is_not_destroying_it() {
+    let reports = run();
+    let removed = report(
+        &reports,
+        "a removed figure leaves play without being destroyed",
+    );
+    assert!(removed.outcome.is_ok(), "{}", summary(&reports));
+    assert_eq!(destroyed(removed, 1) + destroyed(removed, 2), 0);
+    let gone = |e: &&Event| matches!(e, Event::FigureRemoved(_));
+    assert_eq!(removed.events.iter().filter(gone).count(), 2);
+}
+
 fn hits(report: &TestReport) -> Option<i64> {
     report.events.iter().find_map(|e| match e {
         Event::VarSet { value, .. } => value.as_int().ok(),

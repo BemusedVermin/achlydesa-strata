@@ -12,8 +12,9 @@ use strata_model::{
     Logic, PlayerId, ReactionDef, ReplacementDef, ScriptRef, TriggerDef,
 };
 use strata_rules::{
-    ActionRunner, ApiHandler, Ctx, FigureVolume, Halt, HookRunner, LogicError, LosResult,
-    NativeEnv, PhaseTree, Reach, RulesRuntime, VoteQuery,
+    ActionRunner, ApiHandler, Ctx, EffectCx, EffectHost, FigureVolume, Halt, HookRunner,
+    LogicError, LosResult, NativeEnv, PhaseTree, Reach, RulesRuntime, VoteQuery, World,
+    native_effect, run_effect,
 };
 
 use crate::convert::{from_lua, lua_to_value, value_to_lua};
@@ -112,6 +113,27 @@ impl LuaRules {
         }
     }
 
+    /// Runs `logic` if it is a native effect (design §8.2) and returns true; returns false for any
+    /// other logic, which the caller runs itself.
+    fn effect(&self, logic: &Logic, ctx: &mut dyn Ctx, cx: &EffectCx<'_>) -> Result<bool, Halt> {
+        let Some(eff) = native_effect(logic) else {
+            return Ok(false);
+        };
+        let eff = eff.map_err(|e| Halt::reject(e.to_string()))?;
+        run_effect(&eff, ctx, self, cx).map(|()| true)
+    }
+
+    /// The context of a reaction: in a combat window, the defender reacts to the attacker; with
+    /// no attack in progress, nobody in particular.
+    fn reaction_cx(&self, state: &GameState) -> EffectCx<'static> {
+        let attack = self.host.world(state).and_then(|w| w.attack());
+        EffectCx {
+            subject: attack.map_or(Value::Nil, |a| Value::Int(i64::from(a.target.0))),
+            target: attack.map(|a| a.attacker),
+            replacing: None,
+        }
+    }
+
     /// Whether the optional filter holds; no filter always holds.
     fn holds(
         &self,
@@ -162,7 +184,16 @@ impl ActionRunner for LuaRules {
             return Ok(Vec::new());
         };
         let args = |_: &Lua| Ok(vec![LuaValue::Integer(i64::from(figure.0))]);
-        match self.value(logic, &mut View::new(state), &args)? {
+        // A native selector picks targets for the acting figure, as a script receives it.
+        let found = match logic {
+            Logic::Native(descriptor) => {
+                let subject = Value::Int(i64::from(figure.0));
+                let found = self.host.eval(state, descriptor, &subject);
+                found.map_err(|e| Halt::reject(e.0))?
+            }
+            Logic::Script(_) => self.value(logic, &mut View::new(state), &args)?,
+        };
+        match found {
             Value::List(targets) => Ok(targets),
             other => Err(Halt::reject(format!(
                 "targets must be a list, found {}",
@@ -182,6 +213,16 @@ impl ActionRunner for LuaRules {
             Value::List(items) => items.clone(),
             other => vec![other.clone()],
         };
+        // A native effect acts for the figure taking the action, aimed at its first target.
+        let target = spread.first().and_then(|t| t.as_int().ok());
+        let cx = EffectCx {
+            subject: Value::Int(i64::from(figure.0)),
+            target: target.and_then(|t| u32::try_from(t).ok()).map(FigureId),
+            replacing: None,
+        };
+        if self.effect(&def.resolve, ctx, &cx)? {
+            return Ok(());
+        }
         let args = |lua: &Lua| {
             let mut all = vec![LuaValue::Integer(i64::from(figure.0))];
             for item in &spread {
@@ -250,6 +291,10 @@ impl NativeEnv for LuaRules {
     }
 
     fn run_effect(&self, ctx: &mut dyn Ctx, effect: &Logic, event: &Event) -> Result<(), Halt> {
+        let cx = EffectCx::for_event(ctx.state(), event);
+        if self.effect(effect, ctx, &cx)? {
+            return Ok(());
+        }
         self.value(effect, ctx, &with_event(event)).map(drop)
     }
     fn reachable(&self, state: &GameState, figure: FigureId) -> Result<Vec<Reach>, LogicError> {
@@ -299,6 +344,14 @@ impl HookRunner for LuaRules {
         event: &Event,
         ctx: &mut dyn Ctx,
     ) -> Result<Vec<Event>, Halt> {
+        let cx = EffectCx {
+            replacing: Some(event),
+            ..EffectCx::for_event(ctx.state(), event)
+        };
+        // A native effect happens instead of the event, which is dropped.
+        if self.effect(&def.replace, ctx, &cx)? {
+            return Ok(Vec::new());
+        }
         let Logic::Script(script) = &def.replace else {
             return Err(Halt::reject("native replacements need the native runner"));
         };
@@ -312,6 +365,10 @@ impl HookRunner for LuaRules {
     }
 
     fn fire(&self, def: &TriggerDef, event: &Event, ctx: &mut dyn Ctx) -> Result<(), Halt> {
+        let cx = EffectCx::for_event(ctx.state(), event);
+        if self.effect(&def.effect, ctx, &cx)? {
+            return Ok(());
+        }
         self.value(&def.effect, ctx, &with_event(event)).map(drop)
     }
 
@@ -328,8 +385,39 @@ impl HookRunner for LuaRules {
     }
 
     fn react(&self, def: &ReactionDef, ctx: &mut dyn Ctx) -> Result<(), Halt> {
+        let cx = self.reaction_cx(ctx.state());
+        if self.effect(&def.effect, ctx, &cx)? {
+            return Ok(());
+        }
         self.value(&def.effect, ctx, &|_: &Lua| Ok(Vec::new()))
             .map(drop)
+    }
+}
+
+impl EffectHost for LuaRules {
+    fn env(&self) -> &dyn NativeEnv {
+        self
+    }
+
+    fn world<'a>(&'a self, state: &'a GameState) -> Result<Box<dyn World + 'a>, LogicError> {
+        let found = self.host.world(state);
+        found.ok_or_else(|| LogicError("the host cannot run native effects".into()))
+    }
+
+    /// Only namespaces a module exported from Rust: a native effect never enters Lua.
+    fn api(
+        &self,
+        ctx: &mut dyn Ctx,
+        namespace: &str,
+        name: &str,
+        args: &[Value],
+    ) -> Result<Value, Halt> {
+        match self.handlers.get(namespace) {
+            Some(handler) => handler.call(ctx, self, name, args),
+            None => Err(Halt::reject(format!(
+                "a native effect needs `ctx.{namespace}`, which no Rust module exports"
+            ))),
+        }
     }
 }
 

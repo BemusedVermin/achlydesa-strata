@@ -24,6 +24,24 @@ const PRELUDE: &str = include_str!("data.lua");
 /// The chunk name of the prelude that adds `data.each`.
 const PRELUDE_CHUNK: &str = "=data_prelude";
 
+/// The global that fills a card-text template, for archetypes (design §8.4).
+const CARD_TEXT_GLOBAL: &str = "card_text";
+
+/// Installs `card_text(template, params)`, which returns the text of
+/// [`strata_rules::card_text`] and raises an error when the template cannot be filled.
+fn install_card_text(lua: &mlua::Lua) -> mlua::Result<()> {
+    let fill = lua.create_function(|lua, (template, params): (String, Table)| {
+        let params = crate::convert::lua_to_value(lua, &mlua::Value::Table(params));
+        let params = match params.map_err(mlua::Error::external)? {
+            strata_kernel::Value::Map(map) => map,
+            _ => Default::default(),
+        };
+        let text = strata_rules::card_text(&template, &params);
+        text.map_err(|e| mlua::Error::runtime(format!("card_text: {e}")))
+    })?;
+    lua.globals().set(CARD_TEXT_GLOBAL, fill)
+}
+
 /// One pass over every pack's scripts (design §4.3).
 #[derive(Clone, Copy)]
 enum Stage {
@@ -111,6 +129,7 @@ impl DataStage {
         let registry: Shared = Rc::new(RefCell::new(Registry::new(packs)));
         let data = registry::install(host.lua(), &registry)?;
         require::install(host.lua(), &registry)?;
+        install_card_text(host.lua())?;
         let prelude = host.lua().load(PRELUDE).set_name(PRELUDE_CHUNK);
         prelude.call::<()>((data.clone(), host.lua().globals()))?;
         for pack in packs {

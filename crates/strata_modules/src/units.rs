@@ -1,7 +1,8 @@
 //! `core:units`: heroes and squads, wounds, destruction and removal (design §6.1).
 //!
-//! A figure dies when its wounds reach its `life` stat. The module exports `wound`, `heal` and
-//! `destroy` to scripts as `ctx.units`, and the same functions to Rust modules.
+//! A figure dies when its wounds reach its `life` stat. The module exports `wound`, `heal`,
+//! `destroy` and `remove` to scripts as `ctx.units`, and the same functions to Rust modules.
+//! A removed figure leaves the game without being destroyed.
 
 use strata_kernel::{ModuleId, SlotId, Sym, Value};
 use strata_model::{Event, FigureId, FigureStatus, GameState};
@@ -17,7 +18,8 @@ pub const KINDS: [&str; 2] = ["hero", "squad"];
 const WOUND: &str = "wound";
 /// The stat that says how many wounds a figure survives.
 const LIFE: &str = "life";
-/// The custom event emitted when a unit's last figure is destroyed, carrying `{ unit }`.
+/// The custom event emitted when a unit's last figure is destroyed or removed, carrying
+/// `{ unit }`.
 pub const UNIT_REMOVED: &str = "unit_removed";
 
 /// The units slot.
@@ -41,7 +43,8 @@ impl RuleModule for Units {
     }
 
     fn register(&self, r: &mut Registrar, _: &Value) -> Result<(), ModuleError> {
-        let functions = ["wound", "heal", "destroy"].map(Sym::new).to_vec();
+        let functions = ["wound", "heal", "destroy", "remove"];
+        let functions = functions.map(Sym::new).to_vec();
         r.lua_api_native("units", LuaApi { functions }, Box::new(Api));
         Ok(())
     }
@@ -74,6 +77,7 @@ impl ApiHandler for Api {
             "wound" => wound(ctx, env, figure, amount()?),
             "heal" => heal(ctx, env, figure, amount()?),
             "destroy" => destroy(ctx, figure),
+            "remove" => remove(ctx, figure),
             other => Err(Halt::reject(format!("ctx.units has no `{other}`"))),
         }
         .map(|()| Value::Nil)
@@ -164,6 +168,19 @@ pub fn heal(
 pub fn destroy(ctx: &mut dyn Ctx, figure: FigureId) -> Result<(), Halt> {
     require_live(ctx.state(), figure)?;
     ctx.emit(Event::FigureDestroyed(figure))?;
+    unit_left(ctx, figure)
+}
+
+/// Removes `figure` from the game without destroying it. When it was its unit's last figure in
+/// play, the unit is removed too.
+pub fn remove(ctx: &mut dyn Ctx, figure: FigureId) -> Result<(), Halt> {
+    require_live(ctx.state(), figure)?;
+    ctx.emit(Event::FigureRemoved(figure))?;
+    unit_left(ctx, figure)
+}
+
+/// Emits `unit_removed` when `figure`, just taken out of play, was its unit's last figure.
+fn unit_left(ctx: &mut dyn Ctx, figure: FigureId) -> Result<(), Halt> {
     let state = ctx.state();
     let unit = state.figures[figure.index()].unit;
     let alive = state.units[unit.index()]

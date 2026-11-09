@@ -43,7 +43,8 @@ pub(super) fn event_figure(event: &Event) -> Option<FigureId> {
         | Event::WoundsApplied { figure, .. }
         | Event::MarkerChanged { figure, .. }
         | Event::ControlChanged { figure, .. }
-        | Event::FigureDestroyed(figure) => Some(*figure),
+        | Event::FigureDestroyed(figure)
+        | Event::FigureRemoved(figure) => Some(*figure),
         _ => None,
     }
 }

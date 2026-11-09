@@ -41,6 +41,7 @@ globals.act = {
   end,
   answer = {
     figure = function(id) return { Answer = { Figure = id } } end,
+    space = function(q, r, z) return { Answer = { Space = { q = q, r = r, z = z } } } end,
     option = function(index) return { Answer = { Option = index } } end,
     yes_no = function(yes) return { Answer = { YesNo = yes } } end,
     number = function(n) return { Answer = { Number = n } } end,

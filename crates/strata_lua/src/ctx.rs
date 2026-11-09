@@ -91,6 +91,11 @@ pub trait RuleHost: Send + Sync {
     fn volume(&self, _state: &GameState, _figure: FigureId) -> Option<strata_rules::FigureVolume> {
         None
     }
+    /// The game as native descriptors see it, which native effects select from. `None` when the
+    /// host cannot provide one, so native effects fail.
+    fn world<'a>(&'a self, _state: &'a GameState) -> Option<Box<dyn strata_rules::World + 'a>> {
+        None
+    }
     /// Calls `name` of the namespace a module exported with `Registrar::lua_api`.
     fn call(
         &self,

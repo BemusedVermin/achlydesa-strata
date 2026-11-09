@@ -16,10 +16,10 @@ use strata_model::{
     TerrainDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
-    Ctx, DeploySlot, Engagement, EngagementMemo, EvalCtx, FigureVolume, Halt, LineOfSight,
-    LogicError, LogicEvaluator, Logics, LosResult, LosWorld, MoveWorld, Movement, NativeEvaluator,
-    Query, QueryEngine, QueryTrace, Reach, SourcedModifier, StatBounds, StatQuery, TerrainRules,
-    VoteQuery, World, passable_cells,
+    AttackView, Ctx, DeploySlot, Engagement, EngagementMemo, EvalCtx, FigureVolume, Halt,
+    LineOfSight, LogicError, LogicEvaluator, Logics, LosResult, LosWorld, MoveWorld, Movement,
+    NativeEvaluator, Query, QueryEngine, QueryTrace, Reach, SourcedModifier, StatBounds, StatQuery,
+    TerrainRules, VoteQuery, World, passable_cells,
 };
 
 impl CardSource for Host {
@@ -276,6 +276,10 @@ impl Host {
 }
 
 impl RuleHost for Host {
+    fn world<'a>(&'a self, state: &'a GameState) -> Option<Box<dyn World + 'a>> {
+        Some(Box::new(StateWorld { host: self, state }))
+    }
+
     fn eval(
         &self,
         state: &GameState,
@@ -521,6 +525,29 @@ impl World for StateWorld<'_> {
     fn in_los(&self, from: FigureId, to: FigureId) -> Result<bool, LogicError> {
         let seen = RuleHost::los(self.host, self.state, from, to);
         seen.map(|seen| seen.visible)
+    }
+
+    /// Asks the ruleset's engagement service, which answers its votes through the rules.
+    fn engaged(&self, figure: FigureId) -> Result<bool, LogicError> {
+        let fail = |what: &str| LogicError(what.into());
+        let service = self.host.engagement.as_deref();
+        let service = service.ok_or_else(|| fail("the ruleset has no `engagement` module"))?;
+        let rules = self.host.rules.get().and_then(Weak::upgrade);
+        let rules = rules.ok_or_else(|| fail("the rules are not running"))?;
+        let Some(at) = self.state.standing(figure) else {
+            return Ok(false);
+        };
+        let enemies = service.engaged(self.state, &*rules, figure, at)?;
+        Ok(!enemies.is_empty())
+    }
+
+    fn attack(&self) -> Option<AttackView> {
+        strata_modules::combat::attack_view(self.state)
+    }
+
+    fn levels(&self, hex: Hex) -> Vec<u32> {
+        let surfaces = self.host.board.as_ref().map(|b| b.surfaces(hex));
+        surfaces.unwrap_or_default().iter().map(|s| s.z).collect()
     }
 }
 

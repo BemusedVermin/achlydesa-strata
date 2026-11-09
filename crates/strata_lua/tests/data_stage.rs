@@ -375,3 +375,29 @@ fn run_with_applies_the_instruction_budget_to_each_stage_file() {
         "{error}"
     );
 }
+
+#[test]
+fn card_text_fills_a_template_from_descriptors() {
+    let data = r#"
+local to = { sel = 'allies', adjacent_to = 'self', trait = 'soldier' }
+ability {
+  id = 'shieldwall', name = 'Shieldwall', scope = 'figure',
+  text = card_text('{to} add {amount} to their {stat}.', { to = to, amount = 1, stat = 'defense' }),
+}
+"#;
+    let stage = run(&[("t", &[], &[("data.lua", data)])]).unwrap();
+    assert_eq!(
+        field(&stage, "ability", "t:shieldwall", "text"),
+        "Adjacent friendly soldier figures add 1 to their defense."
+    );
+}
+
+#[test]
+fn card_text_raises_for_a_template_it_cannot_fill() {
+    let data = "card_text('{missing} wins.', {})";
+    let text = message(run(&[("t", &[], &[("data.lua", data)])]));
+    assert!(
+        text.contains("card_text: the template names `{missing}`"),
+        "{text}"
+    );
+}

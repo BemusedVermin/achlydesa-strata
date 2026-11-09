@@ -181,6 +181,9 @@ pub enum Event {
         /// Pack-defined data.
         payload: Value,
     },
+    /// A figure was removed from the game without being destroyed, and left the board. Listed
+    /// last so replays written before it existed still decode.
+    FigureRemoved(FigureId),
 }
 
 impl Event {

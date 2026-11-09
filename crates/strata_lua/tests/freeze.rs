@@ -140,7 +140,7 @@ const NATIVE: &str = r#"
 local function drill(id)
   return {
     id = id, name = 'Drill', text = 'Add 1 near a friend.', scope = 'unit',
-    modifiers = {{ query = 'defense', layer = 'add', when = { cond = 'adjacent' }, value = 1 }},
+    modifiers = {{ query = 'defense', layer = 'add', when = { cond = 'engaged' }, value = 1 }},
   }
 end
 ability(drill('drill'))
@@ -162,7 +162,7 @@ fn plain_data_in_a_logic_field_freezes_as_a_native_descriptor() {
     };
     let check = |ability: &AbilityDef| {
         let modifier = &ability.modifiers[0];
-        assert_eq!(modifier.when, Some(native(&[("cond", "adjacent")])));
+        assert_eq!(modifier.when, Some(native(&[("cond", "engaged")])));
         assert_eq!(modifier.value, Logic::Native(Descriptor(Value::Int(1))));
         assert_eq!(modifier.query, Sym::new("defense"));
     };
@@ -233,6 +233,91 @@ footprint { id = 'long_snake', name = 'L', cells = {{ q = 0, r = 0 }, { q = 1, r
 footprint { id = 'long_rigid', name = 'R', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }, { q = 2, r = 0 }}, move = 'rigid', max_spread = 1 }
 footprint { id = 'two_snake', name = 'T', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }}, move = 'snake', max_spread = 1 }
 "#;
+
+const BAD_DESCRIPTORS: &str = r#"
+footprint { id = 'one', name = 'One', cells = {{ q = 0, r = 0 }}, move = 'rigid', max_spread = 1 }
+ability {
+  id = 'sulk', name = 'Sulk', text = 'Sulks.', scope = 'figure',
+  modifiers = {{ query = 'defense', layer = 'add', value = 1, when = { cond = 'sulking' } }},
+}
+unit {
+  id = 'grump', name = 'Grump', kind = 'squad', rarity = 'common', stats = {},
+  figures = {{
+    id = 'f', count = 1, footprint = 'one', height = 1,
+    los = { target = 10, hit_zone = {0, 12}, samples = {'center'} },
+  }},
+  abilities = {
+    { name = 'Fine', text = 'Fine.', scope = 'figure', reactions = {{
+      window = 'w', when = { cond = 'attack_kind', is = 'ranged' }, effect = { eff = 'cancel_wounds' },
+    }} },
+    { name = 'Typo', text = 'Typo.', scope = 'figure',
+      triggers = {{ event = 'attack', effect = { eff = 'wound', amonut = 2 } }} },
+  },
+}
+relic {
+  id = 'dud', name = 'Dud', mode = 'on_claim', claim = 'ends_move_on',
+  effect = { sel = 'enemies' },
+}
+"#;
+
+#[test]
+fn unknown_or_malformed_descriptors_fail_at_load_with_their_route() {
+    let errors = run(BAD_DESCRIPTORS).expect_err("bad descriptors must not freeze");
+    let routes: Vec<(&str, &str)> = errors
+        .iter()
+        .map(|e| (e.field_path.as_str(), e.message.as_str()))
+        .collect();
+    assert_eq!(
+        routes,
+        [
+            (
+                "modifiers/1/when",
+                "`t:sulk`: unknown descriptor `cond.sulking`"
+            ),
+            (
+                "effect",
+                "relic `t:dud`: an effect must be an `eff` descriptor, `{ native = \"<name>\" }` or a function",
+            ),
+            (
+                "abilities/2/triggers/1/effect",
+                "`t:grump`: `eff.wound` has no field `amonut`",
+            ),
+        ],
+        "{errors:#?}"
+    );
+}
+
+#[test]
+fn every_descriptor_of_the_vocabulary_freezes() {
+    let records = run(r#"
+ability {
+  id = 'all', name = 'All', text = 'All.', scope = 'figure',
+  modifiers = {{ query = 'attack', layer = 'add', value = { val = 'count', of = { sel = 'target' } },
+                 select = { sel = 'allies', engaged = true, in_los = 'self' },
+                 when = { cond = 'all', of = { { cond = 'engaged' }, { cond = 'in_los', to = 'target' },
+                                               { cond = 'attack_kind', is = 'melee' } } } }},
+  actions = {{ id = 'mend', slots = { 'attack' }, targets = { sel = 'allies', within = 1 },
+               resolve = { eff = 'heal', amount = 2 } }},
+  triggers = {
+    { event = 'a', effect = { eff = 'wound' } },
+    { event = 'b', effect = { eff = 'place', within = 2 } },
+    { event = 'c', effect = { eff = 'remove' } },
+    { event = 'd', effect = { eff = 'move', up_to = 1 } },
+    { event = 'e', effect = { eff = 'grant_slot', slot = 'attack' } },
+    { event = 'f', effect = { eff = 'add_marker', marker = 'stunned', rounds = 1 } },
+    { event = 'g', effect = { eff = 'take_control' } },
+  },
+  replacements = {{ event = 'wounds_applied', replace = { eff = 'cancel_wounds' } }},
+  reactions = {{ window = 'w', effect = { eff = 'excess_blocks_wound_attacker' } }},
+}
+"#);
+    let records = records.unwrap();
+    let FrozenDef::Ability(ability) = &records[0].def else {
+        panic!("not an ability")
+    };
+    assert!(strata_rules::check_ability(ability).is_ok());
+    assert_eq!(ability.triggers.len(), 7);
+}
 
 #[test]
 fn unusable_footprint_shapes_are_refused_by_name() {

@@ -1,7 +1,7 @@
 //! Names and owners of commands and events.
 
 use strata_kernel::Sym;
-use strata_model::{Answer, Command, Decision, DecisionKind, Event, GameState, PlayerId};
+use strata_model::{Answer, Command, Decision, DecisionKind, Event, FigureId, GameState, PlayerId};
 
 /// The name a handler registers for `command`.
 pub(crate) fn command_kind(command: &Command) -> &str {
@@ -21,6 +21,7 @@ pub fn event_kind(event: &Event) -> &str {
         Event::DiceRolled { .. } => "dice_rolled",
         Event::WoundsApplied { .. } => "wounds_applied",
         Event::FigureDestroyed(_) => "figure_destroyed",
+        Event::FigureRemoved(_) => "figure_removed",
         Event::MarkerChanged { .. } => "marker_changed",
         Event::TokenPlaced { .. } => "token_placed",
         Event::TokenRevealed { .. } => "token_revealed",
@@ -51,6 +52,25 @@ pub(crate) fn is_kind(name: &Sym, kind: &str) -> bool {
     name == kind
 }
 
+/// The figure an event is about, if it is about one. A relic claim is about the figure standing
+/// on the relic.
+pub fn event_figure(state: &GameState, event: &Event) -> Option<FigureId> {
+    match event {
+        Event::FigureMoved { figure, .. }
+        | Event::WoundsApplied { figure, .. }
+        | Event::MarkerChanged { figure, .. }
+        | Event::ControlChanged { figure, .. }
+        | Event::SlotsChanged { figure, .. }
+        | Event::FigureDestroyed(figure)
+        | Event::FigureRemoved(figure) => Some(*figure),
+        Event::RelicClaimed { relic, .. } => {
+            let at = state.relics.get(relic.index())?.location?;
+            state.occupant(at)
+        }
+        _ => None,
+    }
+}
+
 /// The player an event happens to: a figure's controller, a unit's owner, or the active player.
 pub(crate) fn affected_player(state: &GameState, event: &Event) -> PlayerId {
     let figure = match event {
@@ -58,7 +78,8 @@ pub(crate) fn affected_player(state: &GameState, event: &Event) -> PlayerId {
         | Event::WoundsApplied { figure, .. }
         | Event::MarkerChanged { figure, .. }
         | Event::ControlChanged { figure, .. }
-        | Event::FigureDestroyed(figure) => state.figures.get(figure.index()),
+        | Event::FigureDestroyed(figure)
+        | Event::FigureRemoved(figure) => state.figures.get(figure.index()),
         _ => None,
     };
     let unit = match event {

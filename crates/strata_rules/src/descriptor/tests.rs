@@ -81,6 +81,7 @@ struct Fig {
 struct TestWorld {
     board: CompiledBoard,
     figs: Vec<Fig>,
+    attack: Option<AttackView>,
 }
 
 /// Figures 0 and 1 are team 0 soldier squads; 2 is a team 1 archer hero on the hill; 3 is a
@@ -101,6 +102,7 @@ fn world() -> TestWorld {
             fig(2, 3, 1, "archer", "hero", 5),
             fig(3, 1, 1, "soldier", "squad", 6),
         ],
+        attack: None,
     }
 }
 
@@ -150,6 +152,15 @@ impl World for TestWorld {
     fn in_los(&self, from: FigureId, to: FigureId) -> Result<bool, LogicError> {
         Ok(from.0 != 3 && to.0 != 3)
     }
+    /// A figure next to an enemy is engaged: figures 1 and 2, but not 0 or 3.
+    fn engaged(&self, f: FigureId) -> Result<bool, LogicError> {
+        let me = &self.figs[f.index()];
+        let near = |o: &Fig| o.player != me.player && o.at.hex().distance(me.at.hex()) == 1;
+        Ok(self.figs.iter().any(near))
+    }
+    fn attack(&self) -> Option<AttackView> {
+        self.attack
+    }
 }
 
 fn s(text: &str) -> Value {
@@ -195,13 +206,21 @@ fn space(z: i64) -> Value {
 }
 
 fn try_eval(subject: Value, descriptor: Value) -> Result<Value, LogicError> {
-    let world = world();
-    let evaluator = NativeEvaluator { world: &world };
+    eval_in(&world(), subject, Value::Nil, descriptor)
+}
+
+fn eval_in(
+    world: &TestWorld,
+    subject: Value,
+    context: Value,
+    descriptor: Value,
+) -> Result<Value, LogicError> {
+    let evaluator = NativeEvaluator { world };
     let source = Sym::new("test");
     let cx = EvalCtx {
         source: &source,
         subject: &subject,
-        context: &Value::Nil,
+        context: &context,
     };
     evaluator.eval(&Descriptor(descriptor), &cx)
 }
@@ -559,7 +578,11 @@ fn unknown_descriptor_fails_at_load_not_at_runtime() {
     };
     assert!(check_ability(&ability(cond("phase", &[("is", s("turns"))]))).is_ok());
     let err = check_ability(&ability(cond("sulking", &[]))).unwrap_err();
-    assert_eq!(err.to_string(), "unknown descriptor `cond.sulking`");
+    assert_eq!(err.path, "modifiers/1/when");
+    assert_eq!(
+        err.to_string(),
+        "modifiers/1/when: unknown descriptor `cond.sulking`"
+    );
 }
 
 #[test]
@@ -680,4 +703,162 @@ fn sel_in_los_has_a_phrase_and_rejects_bad_selectors() {
     );
     let bad = sel("enemies", &[("in_los", s("nobody"))]);
     assert!(compile(&Descriptor(bad)).is_err());
+}
+
+#[test]
+fn sel_target_is_the_context_figure() {
+    assert_eq!(node(s("target")), Node::Sel(Sel::target()));
+    let w = world();
+    let got = eval_in(&w, n(0), n(2), sel("target", &[])).unwrap();
+    assert_eq!(got, ids(&[2]));
+    let none = eval_in(&w, n(0), Value::Nil, sel("target", &[])).unwrap();
+    assert_eq!(none, ids(&[]));
+    // Adjacent to the target: figures 1 and 3 flank figure 2.
+    let near = sel("allies", &[("adjacent_to", s("target"))]);
+    assert_eq!(eval_in(&w, n(3), n(2), near.clone()).unwrap(), ids(&[]));
+    assert_eq!(eval_in(&w, n(0), n(2), near).unwrap(), ids(&[1]));
+}
+
+#[test]
+fn a_nil_subject_still_reaches_the_target() {
+    let w = world();
+    assert_eq!(
+        eval_in(&w, Value::Nil, n(1), s("target")).unwrap(),
+        ids(&[1])
+    );
+    assert!(eval_in(&w, Value::Nil, n(1), s("self")).is_err());
+}
+
+#[test]
+fn sel_engaged_filter_keeps_engaged_or_free_figures() {
+    let Node::Sel(engaged) = node(sel("allies", &[("engaged", Value::Bool(true))])) else {
+        panic!("not a selector")
+    };
+    assert_eq!(engaged.engaged, Some(true));
+    assert_eq!(
+        eval(1, sel("my_units", &[("engaged", Value::Bool(true))])),
+        ids(&[1])
+    );
+    assert_eq!(
+        eval(1, sel("my_units", &[("engaged", Value::Bool(false))])),
+        ids(&[0])
+    );
+    let err = compile(&Descriptor(sel("allies", &[("engaged", n(1))]))).unwrap_err();
+    assert!(matches!(err, DescriptorError::Invalid(_)), "{err}");
+}
+
+#[test]
+fn cond_engaged_asks_the_world() {
+    assert!(!yes(0, cond("engaged", &[])));
+    assert!(yes(1, cond("engaged", &[])));
+    let front = sel("enemies", &[("adjacent_to", sel("allies", &[]))]);
+    assert!(yes(0, cond("engaged", &[("who", front)])));
+    // Every selected figure must be engaged, and figure 3 is not.
+    assert!(!yes(0, cond("engaged", &[("who", sel("enemies", &[]))])));
+    // No figure selected: not engaged.
+    let nobody = sel("allies", &[("trait", s("wizard"))]);
+    assert!(!yes(0, cond("engaged", &[("who", nobody)])));
+}
+
+#[test]
+fn cond_engaged_fails_without_an_engagement_service() {
+    struct Blind(TestWorld);
+    impl World for Blind {
+        fn figures(&self) -> Vec<FigureId> {
+            self.0.figures()
+        }
+        fn location(&self, f: FigureId) -> Option<Space> {
+            self.0.location(f)
+        }
+        fn controller(&self, f: FigureId) -> PlayerId {
+            self.0.controller(f)
+        }
+        fn team(&self, p: PlayerId) -> u8 {
+            p.0
+        }
+        fn has_trait(&self, f: FigureId, value: &str) -> bool {
+            self.0.has_trait(f, value)
+        }
+        fn kind(&self, f: FigureId) -> Sym {
+            self.0.kind(f)
+        }
+        fn stat(&self, f: FigureId, stat: &str) -> Result<i64, LogicError> {
+            self.0.stat(f, stat)
+        }
+        fn terrain_at(&self, space: Space) -> Option<Sym> {
+            self.0.terrain_at(space)
+        }
+        fn occupant(&self, space: Space) -> Option<FigureId> {
+            self.0.occupant(space)
+        }
+        fn phase(&self) -> Sym {
+            self.0.phase()
+        }
+    }
+    let blind = Blind(world());
+    let evaluator = NativeEvaluator { world: &blind };
+    let source = Sym::new("test");
+    let cx = EvalCtx {
+        source: &source,
+        subject: &n(0),
+        context: &Value::Nil,
+    };
+    let found = evaluator.eval(&Descriptor(cond("engaged", &[])), &cx);
+    assert!(found.unwrap_err().0.contains("engagement"));
+    assert_eq!(blind.attack(), None);
+    assert!(blind.levels(Hex::new(0, 0)).is_empty());
+}
+
+#[test]
+fn cond_in_los_needs_one_sighting() {
+    let enemies = sel("enemies", &[]);
+    assert!(yes(0, cond("in_los", &[("to", enemies.clone())])));
+    // Figure 3 sees nothing, and nobody sees figure 3.
+    assert!(!yes(3, cond("in_los", &[("to", sel("allies", &[]))])));
+    let only_3 = sel("enemies", &[("trait", s("soldier"))]);
+    assert!(!yes(0, cond("in_los", &[("to", only_3)])));
+    let from = [("from", sel("my_units", &[])), ("to", enemies)];
+    assert!(yes(1, cond("in_los", &from)));
+    assert!(compile(&Descriptor(cond("in_los", &[]))).is_err());
+}
+
+#[test]
+fn cond_attack_kind_reads_the_attack_in_progress() {
+    let melee = cond("attack_kind", &[("is", s("melee"))]);
+    let ranged = cond("attack_kind", &[("is", s("ranged"))]);
+    let mut w = world();
+    let ask = |w: &TestWorld, c: &Value| eval_in(w, n(0), Value::Nil, c.clone()).unwrap();
+    assert_eq!(ask(&w, &melee), Value::Bool(false));
+    assert_eq!(ask(&w, &ranged), Value::Bool(false));
+    w.attack = Some(AttackView {
+        attacker: FigureId(0),
+        target: FigureId(2),
+        ranged: true,
+    });
+    assert_eq!(ask(&w, &melee), Value::Bool(false));
+    assert_eq!(ask(&w, &ranged), Value::Bool(true));
+    let bad = compile(&Descriptor(cond("attack_kind", &[("is", s("psychic"))]))).unwrap_err();
+    assert!(bad.to_string().contains("psychic"), "{bad}");
+}
+
+#[test]
+fn an_effect_has_no_value() {
+    let err = try_eval(n(0), tagged("eff", "cancel_wounds", &[])).unwrap_err();
+    assert!(err.0.contains("run_effect"), "{err}");
+}
+
+#[test]
+fn new_selectors_and_conditions_evaluate_the_same_twice() {
+    let all = [
+        sel("enemies", &[("engaged", Value::Bool(true))]),
+        cond("engaged", &[]),
+        cond("in_los", &[("to", sel("enemies", &[]))]),
+        cond("attack_kind", &[("is", s("melee"))]),
+    ];
+    for descriptor in all {
+        assert_eq!(
+            try_eval(n(1), descriptor.clone()),
+            try_eval(n(1), descriptor)
+        );
+    }
 }

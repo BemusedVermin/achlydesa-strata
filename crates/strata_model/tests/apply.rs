@@ -200,6 +200,20 @@ fn figure_destroyed_leaves_the_board() {
 }
 
 #[test]
+fn figure_removed_leaves_the_board_as_removed() {
+    let mut s = base();
+    applied(&mut s, &mv(0, 1));
+    applied(&mut s, &Event::FigureRemoved(FigureId(0)));
+    assert_eq!(s.figures[0].status, FigureStatus::Removed);
+    assert_eq!(s.figures[0].location, None);
+    assert!(s.board_changes.occupancy.is_empty());
+    assert_eq!(
+        rejected(&s, &Event::FigureRemoved(FigureId(0))),
+        ApplyError::WrongStatus(FigureId(0), FigureStatus::Removed)
+    );
+}
+
+#[test]
 fn a_body_covers_every_cell_and_moves_as_a_whole() {
     let mut s = base();
     applied(&mut s, &mv_two(0, 1));
