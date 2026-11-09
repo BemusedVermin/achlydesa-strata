@@ -15,6 +15,6 @@ inventory {
 }
 
 for _, name in ipairs({ 'fair', 'overlap', 'unsupported', 'inventory', 'unstandable_zone',
-                        'small_zone', 'unreachable_relic', 'apart' }) do
+                        'small_zone', 'unreachable_relic', 'apart', 'cliff' }) do
   require('maps.' .. name)
 end

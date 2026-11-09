@@ -227,6 +227,49 @@ fn the_reference_figure_drops_where_it_cannot_climb() {
 }
 
 #[test]
+fn the_reference_figure_drops_any_height_and_walks_on() {
+    // From the top of the cliff the figure drops four levels, more than `core:movement`'s
+    // default fall limit of two, and still walks on to the relic spot. A fall limit would end
+    // its move at the foot of the cliff.
+    let validation = check("cliff", None);
+    assert_eq!(findings(&validation), vec![]);
+    let fairness = validation.fairness.as_ref().unwrap();
+    let foot = &fairness.objectives[0];
+    assert_eq!(
+        (foot.at, foot.steps.clone()),
+        (Hex::new(2, 0), vec![Some(2)])
+    );
+}
+
+#[test]
+fn a_start_zone_with_nowhere_to_stand_is_only_unstandable() {
+    // `start_b` is moved onto water, off the board, and emptied in turn. Each time it is
+    // unstandable, and no zone-to-zone reachability is reported on top of that.
+    for cells in [hexes(&[(2, 0)]), hexes(&[(9, 9)]), vec![]] {
+        let mut document = document("fair");
+        let edit = Edit::SetZone {
+            zone: sym("start_b"),
+            cells: Some(cells.clone()),
+        };
+        document.apply(edit).unwrap();
+        let validation = document.validate(&ValidationOptions::default());
+        let kind = FindingKind::UnstandableZone {
+            zone: sym("start_b"),
+        };
+        assert_eq!(
+            findings(&validation),
+            vec![(Severity::Warning, kind, cells.clone())],
+            "{cells:?}"
+        );
+        let fairness = validation.fairness.as_ref().unwrap();
+        assert_eq!(
+            fairness.between,
+            vec![vec![Some(0), None], vec![None, None]]
+        );
+    }
+}
+
+#[test]
 fn a_relic_spot_one_start_zone_reaches_is_not_unreachable() {
     let validation = check("apart", None);
     let fairness = validation.fairness.as_ref().unwrap();
@@ -259,7 +302,7 @@ fn start_zones_that_cannot_reach_each_other() {
 }
 
 #[test]
-fn moving_a_relic_spot_onto_the_hill_changes_the_report() {
+fn moving_a_relic_spot_changes_the_report_through_undo_and_redo() {
     let mut document = document("fair");
     let options = ValidationOptions::default();
     let before = document.validate(&options);
@@ -276,6 +319,8 @@ fn moving_a_relic_spot_onto_the_hill_changes_the_report() {
     );
     document.undo().unwrap();
     assert_eq!(*document.validate(&options), *before);
+    document.redo().unwrap();
+    assert_eq!(*document.validate(&options), *after);
 }
 
 #[test]

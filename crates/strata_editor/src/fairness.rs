@@ -4,13 +4,20 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use strata_kernel::{Hex, Sym};
+use strata_kernel::{Hex, Space, Sym};
 use strata_model::MapDef;
 use strata_model::board::CompiledBoard;
 
 use crate::defs::EditorDefs;
 use crate::reach::distances;
-use crate::standing::standable_spaces;
+
+/// A start zone and the spaces in it a figure can stand on.
+pub(crate) struct StartZone {
+    /// The zone's name.
+    pub(crate) name: Sym,
+    /// Its standable spaces, where walks from it begin.
+    pub(crate) spaces: Vec<Space>,
+}
 
 /// The shortest walk from each start zone to one relic spot.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -49,18 +56,19 @@ pub struct Fairness {
 }
 
 impl Fairness {
-    /// Measures `map` on its compiled `board` for the named start zones.
+    /// Measures `map` on its compiled `board` for `starts`, walking from their standable spaces.
     pub(crate) fn measure(
         map: &MapDef,
         board: &CompiledBoard,
         defs: &impl EditorDefs,
-        start_zones: Vec<Sym>,
+        starts: &[StartZone],
     ) -> Self {
         let cells = |zone: &Sym| map.zones.get(zone).map_or(&[][..], Vec::as_slice);
-        let reach: Vec<BTreeMap<Hex, u32>> = start_zones
+        let reach: Vec<BTreeMap<Hex, u32>> = starts
             .iter()
-            .map(|zone| distances(board, defs, &standable_spaces(board, defs, cells(zone))))
+            .map(|zone| distances(board, defs, &zone.spaces))
             .collect();
+        let start_zones: Vec<Sym> = starts.iter().map(|zone| zone.name.clone()).collect();
         let objectives = map.relic_spots.iter().map(|(spot, &at)| Objective {
             spot: spot.clone(),
             at,

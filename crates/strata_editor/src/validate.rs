@@ -7,7 +7,7 @@ use strata_model::MapDef;
 use strata_model::board::{BoardError, CompiledBoard};
 
 use crate::defs::EditorDefs;
-use crate::fairness::Fairness;
+use crate::fairness::{Fairness, StartZone};
 use crate::finding::{Finding, FindingKind, Severity};
 use crate::standing::standable_spaces;
 
@@ -58,8 +58,8 @@ pub(crate) fn validate(
     check_inventory(map, defs, &mut findings);
     let fairness = board.ok().map(|board| {
         let starts = check_zones(map, board, defs, options, &mut findings);
-        let fairness = Fairness::measure(map, board, defs, starts);
-        check_reach(map, &fairness, &mut findings);
+        let fairness = Fairness::measure(map, board, defs, &starts);
+        check_reach(map, &fairness, &starts, &mut findings);
         fairness
     });
     Validation { findings, fairness }
@@ -131,28 +131,29 @@ fn overruns<'a>(
     }
 }
 
-/// Reports unstandable zone cells, small start zones and a map with no start zone, and returns
-/// the start zones in name order.
+/// Reports unstandable zone cells, empty zones, small start zones and a map with no start
+/// zone, and returns the start zones in name order with their standable spaces.
 fn check_zones(
     map: &MapDef,
     board: &CompiledBoard,
     defs: &impl EditorDefs,
     options: &ValidationOptions,
     findings: &mut Vec<Finding>,
-) -> Vec<Sym> {
+) -> Vec<StartZone> {
     let mut starts = Vec::new();
     for (zone, cells) in &map.zones {
         let unstandable = |&&hex: &&Hex| standable_spaces(board, defs, &[hex]).is_empty();
         let bad: Vec<Hex> = cells.iter().filter(unstandable).copied().collect();
-        if !bad.is_empty() {
+        // A zone with no cells has nowhere to stand either.
+        if !bad.is_empty() || cells.is_empty() {
             let kind = FindingKind::UnstandableZone { zone: zone.clone() };
             findings.push(Finding::new(kind, bad));
         }
         if !zone.as_str().starts_with(START_ZONE_PREFIX) {
             continue;
         }
-        starts.push(zone.clone());
-        let spaces = u32::try_from(standable_spaces(board, defs, cells).len()).unwrap_or(u32::MAX);
+        let standing = standable_spaces(board, defs, cells);
+        let spaces = u32::try_from(standing.len()).unwrap_or(u32::MAX);
         if let Some(army) = options.army_size
             && spaces < army
         {
@@ -160,6 +161,10 @@ fn check_zones(
             let kind = FindingKind::StartZoneTooSmall { zone, spaces, army };
             findings.push(Finding::new(kind, cells.clone()));
         }
+        starts.push(StartZone {
+            name: zone.clone(),
+            spaces: standing,
+        });
     }
     if starts.is_empty() {
         findings.push(Finding::new(FindingKind::NoStartZones, Vec::new()));
@@ -169,21 +174,27 @@ fn check_zones(
 
 /// Reports start zones that cannot reach each other, and relic spots no start zone reaches.
 ///
-/// A map without start zones already has a [`FindingKind::NoStartZones`] warning, so its relic
-/// spots are not reported as well.
-fn check_reach(map: &MapDef, fairness: &Fairness, findings: &mut Vec<Finding>) {
-    let zones = &fairness.start_zones;
-    for (from, row) in zones.iter().zip(&fairness.between) {
-        for (to, steps) in zones.iter().zip(row) {
-            if to != from && steps.is_none() {
-                let cells = map.zones.get(to).cloned().unwrap_or_default();
-                let (from, to) = (from.clone(), to.clone());
+/// A start zone with nowhere to stand already has a [`FindingKind::UnstandableZone`] warning, so
+/// it is left out of the zone-to-zone check. A map without start zones already has a
+/// [`FindingKind::NoStartZones`] warning, so its relic spots are not reported as well.
+fn check_reach(
+    map: &MapDef,
+    fairness: &Fairness,
+    starts: &[StartZone],
+    findings: &mut Vec<Finding>,
+) {
+    for (from, row) in starts.iter().zip(&fairness.between) {
+        for (to, steps) in starts.iter().zip(row) {
+            let both_stand = !from.spaces.is_empty() && !to.spaces.is_empty();
+            if to.name != from.name && both_stand && steps.is_none() {
+                let cells = map.zones.get(&to.name).cloned().unwrap_or_default();
+                let (from, to) = (from.name.clone(), to.name.clone());
                 let kind = FindingKind::StartZoneUnreachable { from, to };
                 findings.push(Finding::new(kind, cells));
             }
         }
     }
-    if zones.is_empty() {
+    if starts.is_empty() {
         return;
     }
     for objective in &fairness.objectives {

@@ -62,7 +62,7 @@ pub enum FindingKind {
         /// How many the inventory holds.
         available: u32,
     },
-    /// Zone cells have no surface a figure can stand on.
+    /// Zone cells have no surface a figure can stand on, or the zone has no cells.
     UnstandableZone {
         /// The zone.
         zone: Sym,
