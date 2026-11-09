@@ -47,6 +47,11 @@ impl<D: BoardDefs> MapDocument<D> {
         &self.map
     }
 
+    /// Returns the definitions the map is resolved against.
+    pub fn defs(&self) -> &D {
+        &self.defs
+    }
+
     /// Returns the compiled board, or why the current map does not compile.
     ///
     /// A map mid-edit may overlap or name a missing tile, so this is a `Result` rather than a

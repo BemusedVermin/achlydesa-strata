@@ -7,7 +7,7 @@
 #![warn(missing_docs)]
 
 pub use self::layout::{LEVEL_HEIGHT, Orientation, surface_point};
-pub use self::pick::{SceneBoard, pick};
+pub use self::pick::{SceneBoard, pick, pick_level};
 pub use self::terrain::{
     ChunkKey, Material, MeshData, MeshOptions, chunk_meshes, chunk_of, chunks, feature_chunks,
 };

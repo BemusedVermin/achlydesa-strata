@@ -142,6 +142,9 @@ pub enum Edit {
     },
     /// Changes a descriptive field.
     SetMetadata(Metadata),
+    /// Applies several edits in order as one step, so one undo reverts them all. A brush stroke
+    /// that places many one-hex tiles is one batch.
+    Batch(Vec<Edit>),
 }
 
 impl Edit {
@@ -149,15 +152,15 @@ impl Edit {
     ///
     /// Constraints count because `require_support` changes what compiles.
     pub fn affects_board(&self) -> bool {
-        let off_board = matches!(
-            self,
+        match self {
             Self::PaintZone { .. }
-                | Self::EraseZone { .. }
-                | Self::SetZone { .. }
-                | Self::SetRelicSpot { .. }
-                | Self::SetMetadata(_)
-        );
-        !off_board || matches!(self, Self::SetMetadata(Metadata::Constraints(_)))
+            | Self::EraseZone { .. }
+            | Self::SetZone { .. }
+            | Self::SetRelicSpot { .. } => false,
+            Self::SetMetadata(change) => matches!(change, Metadata::Constraints(_)),
+            Self::Batch(edits) => edits.iter().any(Edit::affects_board),
+            _ => true,
+        }
     }
 
     /// Applies the edit to `map` and returns the edit that undoes it.
@@ -267,6 +270,27 @@ impl Edit {
                 Self::SetRelicSpot { name, at: old }
             }
             Self::SetMetadata(change) => Self::SetMetadata(change.swap(map)),
+            Self::Batch(edits) => Self::Batch(apply_batch(edits, map)?),
         })
     }
+}
+
+/// Applies `edits` in order and returns their inverses in reverse order. If one fails, the edits
+/// already applied are undone, so the map is unchanged.
+fn apply_batch(edits: Vec<Edit>, map: &mut MapDef) -> Result<Vec<Edit>, EditError> {
+    let mut inverses = Vec::with_capacity(edits.len());
+    for edit in edits {
+        match edit.apply(map) {
+            Ok(inverse) => inverses.push(inverse),
+            Err(error) => {
+                for inverse in inverses.into_iter().rev() {
+                    // Each inverse restores the map its edit saw, so it cannot fail.
+                    let _ = inverse.apply(map);
+                }
+                return Err(error);
+            }
+        }
+    }
+    inverses.reverse();
+    Ok(inverses)
 }
