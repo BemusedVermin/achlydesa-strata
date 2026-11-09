@@ -4,9 +4,12 @@ use std::path::PathBuf;
 use std::sync::OnceLock;
 
 use strata_kernel::{ModuleId, SlotId, Sym, Value};
-use strata_model::{Command, Event, PlayerId, UnitId};
+use strata_model::{Command, Descriptor, Event, FigureId, Logic, PlayerId, TriggerDef, UnitId};
 use strata_modules::native_modules;
-use strata_rules::{CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, Registrar, RuleModule};
+use strata_rules::{
+    CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, NativeEnv, NativeLogic, Registrar,
+    RuleModule,
+};
 use strata_session::pack_test::{PackTests, TestReport, summary};
 
 /// Handles `pass`: the active player's activation starts and ends, which ends their turn.
@@ -58,11 +61,92 @@ impl RuleModule for Pass {
     }
 }
 
+/// Handles `mark { figure, rounds }` by passing it on as a `mark` event, since only native logic
+/// can look markers up.
+struct MarkHandler;
+
+impl CommandHandler for MarkHandler {
+    fn kind(&self) -> &str {
+        "mark"
+    }
+
+    fn resolve(&self, ctx: &mut dyn Ctx, _: PlayerId, command: &Command) -> Result<(), Halt> {
+        let Command::Custom { payload, .. } = command else {
+            return Err(Halt::reject("not a custom command"));
+        };
+        ctx.emit(Event::Custom {
+            id: Sym::new("mark"),
+            payload: payload.clone(),
+        })
+    }
+}
+
+/// Puts one `stunned` marker on the figure, lasting `rounds` rounds the way `eff.add_marker`
+/// counts them: the current round is the first.
+struct Stun;
+
+impl NativeLogic for Stun {
+    fn run(&self, ctx: &mut dyn Ctx, env: &dyn NativeEnv, event: &Event) -> Result<(), Halt> {
+        let Event::Custom { payload, .. } = event else {
+            return Ok(());
+        };
+        let int = |name| payload.get(name).and_then(Value::as_int).ok();
+        let figure = FigureId(int("figure").ok_or_else(|| Halt::reject("no figure"))? as u32);
+        let round = ctx.state().flow.round;
+        let expiry = int("rounds").map(|n| round + n as u32 - 1);
+        let marker = env
+            .marker("stunned")
+            .ok_or_else(|| Halt::reject("no marker"))?;
+        ctx.emit(Event::MarkerChanged {
+            figure,
+            marker,
+            delta: 1,
+            source: None,
+            expiry,
+        })
+    }
+}
+
+struct Mark;
+
+impl RuleModule for Mark {
+    fn id(&self) -> ModuleId {
+        ModuleId::new("test:mark")
+    }
+
+    fn slot(&self) -> Option<SlotId> {
+        None
+    }
+
+    fn depends_on(&self) -> &[ModuleId] {
+        &[]
+    }
+
+    fn config_schema(&self) -> &ConfigSchema {
+        static EMPTY: OnceLock<ConfigSchema> = OnceLock::new();
+        EMPTY.get_or_init(ConfigSchema::default)
+    }
+
+    fn register(&self, r: &mut Registrar, _: &Value) -> Result<(), ModuleError> {
+        r.command(MarkHandler);
+        r.native("test:mark.stun", Box::new(Stun));
+        let call = [(Sym::new("native"), Value::Str(Sym::new("test:mark.stun")))];
+        r.trigger(TriggerDef {
+            event: Sym::new("mark"),
+            filter: None,
+            limit: None,
+            effect: Logic::Native(Descriptor(Value::Map(call.into()))),
+        });
+        Ok(())
+    }
+}
+
 fn run() -> Vec<TestReport> {
     let root = env!("CARGO_MANIFEST_DIR");
     let roots = [PathBuf::from(root).join("../../fixtures/packs/rounds")];
     let mut modules = native_modules();
     modules.push(Box::new(Pass));
+    modules.push(Box::new(Mark));
     let loaded = PackTests::load(&roots).unwrap();
     let tests = modules.into_iter().try_fold(loaded, PackTests::with_native);
     tests.unwrap().run(None)
@@ -165,4 +249,56 @@ fn the_round_counter_advances_each_round() {
 #[test]
 fn running_the_rounds_pack_twice_gives_identical_events_and_hashes() {
     assert_eq!(run(), run());
+}
+
+/// Each marker change in the test as `(round, round_ended already, delta, expiry)`.
+fn marker_changes(report: &TestReport) -> Vec<(u32, bool, i32, Option<u32>)> {
+    let (mut round, mut ended) = (0, false);
+    let mut changes = Vec::new();
+    for event in &report.events {
+        match event {
+            Event::RoundStarted(n) => (round, ended) = (*n, false),
+            e if is_named(e, "round_ended") => ended = true,
+            Event::MarkerChanged { delta, expiry, .. } => {
+                changes.push((round, ended, *delta, *expiry));
+            }
+            _ => {}
+        }
+    }
+    changes
+}
+
+#[test]
+fn a_marker_lasts_through_its_last_round_and_lapses_when_that_round_ends() {
+    let reports = run();
+    let expire = report(
+        &reports,
+        "markers with a duration lapse when their last round ends",
+    );
+    assert!(expire.outcome.is_ok(), "{}", summary(&reports));
+    assert_eq!(count(expire, |e| is_named(e, "round_ended")), 3);
+    let changes = marker_changes(expire);
+    let added: Vec<_> = changes.iter().filter(|c| c.2 > 0).copied().collect();
+    // Placed during round 1: `rounds = 1` ends with round 1, `rounds = 2` with round 2.
+    assert_eq!(
+        added,
+        [
+            (1, false, 1, Some(1)),
+            (1, false, 1, Some(2)),
+            (1, false, 1, None)
+        ]
+    );
+    let removed: Vec<_> = changes.iter().filter(|c| c.2 < 0).copied().collect();
+    // Each is removed only once its last round has ended, and the marker without a duration
+    // is still there after round 3.
+    assert_eq!(removed, [(1, true, -1, Some(1)), (2, true, -1, Some(2))]);
+}
+
+#[test]
+fn marker_expiry_gives_the_same_hashes_on_every_run() {
+    let name = "markers with a duration lapse when their last round ends";
+    let hashes = || report(&run(), name).outcome.clone().unwrap();
+    let first = hashes();
+    assert!(!first.is_empty());
+    assert_eq!(first, hashes());
 }

@@ -72,7 +72,7 @@ pub enum Event {
         delta: i32,
         /// The figure that caused it, if any.
         source: Option<FigureId>,
-        /// The round after which it lapses, if any.
+        /// The last round the marker lasts, if any; it is removed when that round ends.
         expiry: Option<u32>,
     },
     /// A token moved from its owner's hand onto a unit's card.

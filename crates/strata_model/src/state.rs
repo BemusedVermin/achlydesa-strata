@@ -131,7 +131,7 @@ pub struct Marker {
     pub count: u32,
     /// The figure that caused it.
     pub source: Option<FigureId>,
-    /// The round after which it lapses.
+    /// The last round it lasts; it is removed when that round ends (design §6.4).
     pub expiry: Option<u32>,
 }
 

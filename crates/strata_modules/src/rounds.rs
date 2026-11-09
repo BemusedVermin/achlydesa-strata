@@ -4,7 +4,7 @@
 //! command begins a round: every player rolls the initiative die, ties are broken, and the
 //! players take turns in that order, `turns_per_round` times each. A turn ends when its
 //! activation ends. Other modules slot phases in around these, such as token placement after
-//! `initiative`.
+//! `initiative`. When a round ends, markers whose duration runs out with it are removed.
 
 use std::cmp::Reverse;
 use std::collections::BTreeMap;
@@ -12,7 +12,8 @@ use std::sync::OnceLock;
 
 use strata_kernel::{ModuleId, SlotId, Sym, Value};
 use strata_model::{
-    Command, ConfigField, Descriptor, Event, GameState, Logic, PlayerId, TriggerDef, VarKey,
+    Command, ConfigField, Descriptor, Event, FigureId, GameState, Logic, Marker, PlayerId,
+    TriggerDef, VarKey,
 };
 use strata_rules::{
     Anchor, CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, NativeEnv, NativeLogic, PhaseDef,
@@ -263,14 +264,35 @@ fn start_turn(ctx: &mut dyn Ctx, turn: u32) -> Result<(), Halt> {
     ctx.emit(Event::TurnStarted { turn, active })
 }
 
-/// Announces the end of the round, then leaves its phases.
+/// Announces the end of the round, removes the markers that lapse with it, then leaves its
+/// phases.
 fn end_round(ctx: &mut dyn Ctx, tree: &PhaseTree) -> Result<(), Halt> {
-    let round = Value::Int(i64::from(ctx.state().flow.round));
+    let round = ctx.state().flow.round;
     ctx.emit(Event::Custom {
         id: Sym::new(ROUND_ENDED),
-        payload: Value::Map([(Sym::new("round"), round)].into()),
+        payload: Value::Map([(Sym::new("round"), Value::Int(i64::from(round)))].into()),
     })?;
+    expire_markers(ctx, round)?;
     tree.advance(ctx)
+}
+
+/// Removes, through `MarkerChanged`, every marker whose expiry is `round` or earlier (design
+/// §6.4). Figures go in ID order and each figure's markers in their stored order.
+fn expire_markers(ctx: &mut dyn Ctx, round: u32) -> Result<(), Halt> {
+    let mut lapsed = Vec::new();
+    for (index, figure) in ctx.state().figures.iter().enumerate() {
+        let ended = |m: &&Marker| m.expiry.is_some_and(|last| last <= round);
+        for marker in figure.markers.iter().filter(ended) {
+            lapsed.push(Event::MarkerChanged {
+                figure: FigureId(index as u32),
+                marker: marker.def,
+                delta: -i32::try_from(marker.count).unwrap_or(i32::MAX),
+                source: marker.source,
+                expiry: marker.expiry,
+            });
+        }
+    }
+    lapsed.into_iter().try_for_each(|event| ctx.emit(event))
 }
 
 /// Moves to the phase after the current one and does what that phase calls for: the first turn

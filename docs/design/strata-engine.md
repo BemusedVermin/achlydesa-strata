@@ -339,6 +339,8 @@ ruleset {
 
 Game flow is a tree of phases: setup, then rounds, each containing initiative, token placement, turns and round end. Entering and leaving a phase emits events, which is what "at the start of your turn" hooks. Modules insert phases at named anchors (`after = "turns.round_end"`).
 
+A marker may carry an expiry: the last round it lasts. `eff.add_marker { rounds = n }` placed during round `r` sets it to `r + n - 1`, so `rounds = 1` lasts until the end of the current round and `rounds = 2` until the end of the next. When `round_end` opens, `core:rounds` emits `round_ended`, then removes every marker whose expiry is the ending round or earlier with a `MarkerChanged` that takes its count to zero, and only then leaves the round. Markers without an expiry stay until something removes them. Triggers on `round_ended` resolve after this, so they see the lapsed markers already gone.
+
 ### 6.5 Actions
 
 An activation gives each figure a budget of slots, by default one `move` and one `attack`. Every action declares the slots it consumes, its targeting, and its resolver. The ordinary move and attack are themselves actions from the movement and combat modules. A special attack is just another action that consumes `attack`, and "may move again after attacking" grants one extra `move`.
