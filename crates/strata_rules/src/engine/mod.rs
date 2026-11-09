@@ -83,7 +83,7 @@ impl<'a> Engine<'a> {
     /// Commands `player` may legally submit; empty until [`Engine::with_flow`] is called.
     pub fn legal_commands(&self, player: PlayerId) -> Vec<Command> {
         match &self.flow {
-            Some(flow) => flow.legal_commands(self.rt, &self.state, player),
+            Some(flow) => flow.legal_commands(self.rt, self.hooks.env(), &self.state, player),
             None => Vec::new(),
         }
     }

@@ -8,8 +8,13 @@ use strata_model::{
 
 use crate::engine::{Ctx, Halt};
 use crate::flow::PhaseTree;
+use crate::los::{FigureVolume, LosResult};
 use crate::movement::Reach;
+
+mod action;
+
 use crate::query::{LogicError, VoteQuery};
+pub use action::{NativeAction, NativeActions};
 
 /// The most dice one pool may hold.
 pub const MAX_POOL: i64 = 1024;
@@ -88,6 +93,20 @@ pub trait NativeEnv: Send + Sync {
     /// Every space `figure` can reach, as the ruleset's `movement` module defines it.
     fn reachable(&self, _state: &GameState, _figure: FigureId) -> Result<Vec<Reach>, LogicError> {
         Err(LogicError("the ruleset has no `movement` module".into()))
+    }
+    /// Whether `from` sees `to`, as the ruleset's `los` module decides.
+    fn los(
+        &self,
+        _state: &GameState,
+        _from: FigureId,
+        _to: FigureId,
+    ) -> Result<LosResult, LogicError> {
+        Err(LogicError("the ruleset has no `los` module".into()))
+    }
+    /// The volume of a figure on the board: its footprint cells and hit zone. `None` if it is off
+    /// the board or the environment cannot tell.
+    fn volume(&self, _state: &GameState, _figure: FigureId) -> Option<FigureVolume> {
+        None
     }
     /// Results that replace the next roll of `count` dice named `die`, for tests that rig the
     /// dice, as in the script host. `None` leaves the roll to the command's random stream.

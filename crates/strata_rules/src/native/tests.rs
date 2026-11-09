@@ -402,3 +402,39 @@ fn a_reroll_needs_a_die_at_the_index_and_an_answer() {
     // Without an answer the decision halts the command, as it would for a player.
     assert!(reroll(&mut Bench::new(), &Fixed, PlayerId(0), "d", &first, 0).is_err());
 }
+
+/// A native action whose only target is the number it holds.
+struct Only(i64);
+
+impl NativeAction for Only {
+    fn targets(&self, _: &GameState, _: &dyn NativeEnv, _: FigureId) -> Result<Vec<Value>, Halt> {
+        Ok(vec![Value::Int(self.0)])
+    }
+
+    fn resolve(
+        &self,
+        _: &mut dyn Ctx,
+        _: &dyn NativeEnv,
+        _: FigureId,
+        _: &Value,
+    ) -> Result<(), Halt> {
+        Ok(())
+    }
+}
+
+#[test]
+fn a_clashing_native_action_keeps_the_first_and_records_the_clash() {
+    let mut r = Registrar::default();
+    r.native_action("strike", &["attack"], "t.strike", Box::new(Only(1)));
+    r.native_action("strike", &["attack"], "t.strike", Box::new(Only(2)));
+    assert_eq!(r.actions.len(), 1);
+    let kept = r.native_actions.get("t.strike").unwrap();
+    let state = GameState::default();
+    assert_eq!(
+        kept.targets(&state, &NoEnv, FigureId(0)),
+        Ok(vec![Value::Int(1)])
+    );
+    let clash = r.take_conflict().unwrap();
+    assert!(clash.contains("t.strike"), "{clash}");
+    assert_eq!(r.take_conflict(), None);
+}

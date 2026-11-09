@@ -10,8 +10,8 @@ use strata_model::{
 };
 use strata_modules::native_modules;
 use strata_rules::{
-    ActivationRules, Engagement, Engine, Flow, Movement, PhaseTree, RulesetSource, SourcedModifier,
-    resolve,
+    ActivationRules, Engagement, Engine, Flow, LineOfSight, Movement, PhaseTree, RulesetSource,
+    SourcedModifier, resolve,
 };
 
 use crate::controller::Controller;
@@ -105,10 +105,12 @@ fn play(spec: &LaunchSpec, link: &SimLink) -> Result<(), String> {
         orientation: built.orientation,
         features: built.features,
     });
+    let los = rt.service::<Arc<dyn LineOfSight>>().cloned();
     let movement = rt.service::<Arc<dyn Movement>>().cloned();
     let engagement = rt.service::<Arc<dyn Engagement>>().cloned();
     let host = Host::new(registry, pack, modifiers.collect(), Some(built.board));
-    let host = host.with_movement(movement).with_engagement(engagement);
+    let host = host.with_los(los).with_movement(movement);
+    let host = host.with_engagement(engagement);
     let tree = PhaseTree::build(rt.phases()).unwrap_or_default();
     let actions = rt.actions().iter().map(|a| &a.id);
     let names = Names::of(registry, tree.phases()).with_actions(actions);

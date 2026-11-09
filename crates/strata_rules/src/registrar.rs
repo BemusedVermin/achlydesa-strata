@@ -6,11 +6,12 @@ use std::sync::Arc;
 
 use strata_kernel::{Sym, Value, WindowId};
 use strata_model::{
-    ActionDef, Command, ModifierDef, PlayerId, ReactionDef, ReplacementDef, TriggerDef,
+    ActionDef, Command, Descriptor, Logic, ModifierDef, PlayerId, ReactionDef, ReplacementDef,
+    TriggerDef,
 };
 
 use crate::engine::{Ctx, Halt};
-use crate::native::{NativeEnv, NativeLogic};
+use crate::native::{NativeAction, NativeEnv, NativeLogic};
 
 /// A node in the phase tree.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -79,6 +80,7 @@ pub struct Registrar {
     pub(crate) lua_apis: BTreeMap<Sym, LuaApi>,
     pub(crate) api_handlers: BTreeMap<Sym, Arc<dyn ApiHandler>>,
     pub(crate) natives: BTreeMap<Sym, Box<dyn NativeLogic>>,
+    pub(crate) native_actions: BTreeMap<Sym, Box<dyn NativeAction>>,
     conflicts: Vec<String>,
 }
 
@@ -164,6 +166,32 @@ impl Registrar {
             self.conflicts
                 .push(format!("native logic `{name}` is already provided"));
         }
+    }
+
+    /// Adds the action `id`, which spends `slots`, with targeting and resolver written in Rust and
+    /// registered as `name`. Names are unique.
+    pub fn native_action(
+        &mut self,
+        id: &str,
+        slots: &[&str],
+        name: &str,
+        action: Box<dyn NativeAction>,
+    ) {
+        // The first registration stays; a clash is only recorded.
+        if self.native_actions.contains_key(name) {
+            self.conflicts
+                .push(format!("native action `{name}` is already provided"));
+            return;
+        }
+        self.native_actions.insert(Sym::new(name), action);
+        let call = [(Sym::new("native"), Value::Str(Sym::new(name)))];
+        let logic = Logic::Native(Descriptor(Value::Map(call.into())));
+        self.actions.push(ActionDef {
+            id: Sym::new(id),
+            slots: slots.iter().map(|s| Sym::new(s)).collect(),
+            targets: Some(logic.clone()),
+            resolve: logic,
+        });
     }
 
     /// Removes and returns the oldest recorded registration conflict.

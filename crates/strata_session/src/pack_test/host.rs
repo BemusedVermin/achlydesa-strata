@@ -339,6 +339,22 @@ impl RuleHost for Host {
         service.reachable(&world, figure)
     }
 
+    fn los(
+        &self,
+        state: &GameState,
+        from: FigureId,
+        to: FigureId,
+    ) -> Result<LosResult, LogicError> {
+        let service = self.los.as_ref();
+        let service =
+            service.ok_or_else(|| LogicError("the ruleset has no `los` module".into()))?;
+        service.query(&StateLos { host: self, state }, from, to)
+    }
+
+    fn volume(&self, state: &GameState, figure: FigureId) -> Option<FigureVolume> {
+        StateLos { host: self, state }.volume(figure)
+    }
+
     fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
         let (id, def) = find::<DieDef>(&self.registry, &self.pack, name)?;
         Some((id, def.kind.clone()))
@@ -503,14 +519,8 @@ impl World for StateWorld<'_> {
     }
 
     fn in_los(&self, from: FigureId, to: FigureId) -> Result<bool, LogicError> {
-        let service = self.host.los.as_ref();
-        let service =
-            service.ok_or_else(|| LogicError("the ruleset has no `los` module".into()))?;
-        let world = StateLos {
-            host: self.host,
-            state: self.state,
-        };
-        service.query(&world, from, to).map(|seen| seen.visible)
+        let seen = RuleHost::los(self.host, self.state, from, to);
+        seen.map(|seen| seen.visible)
     }
 }
 

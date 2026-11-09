@@ -15,7 +15,7 @@ use super::hooks::HookRunner;
 use super::names::{affected_player, answer_fits, command_kind, event_kind, is_kind};
 use crate::engagement::Engagement;
 use crate::flow::{ActivationGate, ActivationRules, take_action};
-use crate::native::native_name;
+use crate::native::{NativeActions, native_name};
 use crate::runtime::RulesRuntime;
 
 mod window;
@@ -259,9 +259,8 @@ impl Ctx for Exec<'_> {
         command: &Command,
     ) -> Result<(), Halt> {
         let (rt, hooks) = (self.rt, self.hooks);
-        let runner = hooks.action_runner();
-        let runner = runner.ok_or_else(|| Halt::reject("no action runner is available"))?;
-        take_action(rt.actions(), rules, runner, self, player, command)
+        let runner = NativeActions::new(rt, hooks.action_runner(), hooks.env());
+        take_action(rt.actions(), rules, &runner, self, player, command)
     }
 
     fn rng(&mut self) -> &mut CommandRng {

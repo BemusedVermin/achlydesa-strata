@@ -24,6 +24,7 @@ use strata_rules::{
 
 pub use self::reprisal::REPRISAL;
 use self::reprisal::Reprisal;
+use crate::shared::{height, id_value, overlaps};
 
 #[cfg(test)]
 mod tests;
@@ -46,25 +47,9 @@ struct Service {
     reprisal: Reprisal,
 }
 
-/// The figure's ID as query subjects and contexts carry it.
-fn id_value(figure: FigureId) -> Value {
-    Value::Int(i64::from(figure.0))
-}
-
 /// The team of the player controlling `figure`.
 fn team(state: &GameState, figure: &FigureState) -> u8 {
     state.team(figure.controller)
-}
-
-/// How many levels `figure` spans, at least one.
-fn height(env: &dyn NativeEnv, figure: &FigureState) -> u32 {
-    let def = env.figure_def(&figure.def);
-    def.map_or(1, |d| u32::from(d.height).max(1))
-}
-
-/// Whether the level ranges `[a, a + a_height)` and `[b, b + b_height)` share a level.
-pub(crate) fn overlaps(a: u32, a_height: u32, b: u32, b_height: u32) -> bool {
-    a < b.saturating_add(b_height) && b < a.saturating_add(a_height)
 }
 
 impl Engagement for Service {

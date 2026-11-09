@@ -5,12 +5,14 @@
 #![warn(missing_docs)]
 
 pub mod activation;
+pub mod combat;
 pub mod deployment;
 pub mod engagement;
 pub mod los;
 pub mod movement;
 pub mod relics;
 pub mod rounds;
+mod shared;
 pub mod tokens;
 pub mod toy;
 pub mod units;
@@ -31,5 +33,6 @@ pub fn native_modules() -> Vec<Box<dyn RuleModule>> {
         Box::new(relics::Relics),
         Box::new(engagement::EngagementModule),
         Box::new(deployment::Deployment),
+        Box::new(combat::CombatModule),
     ]
 }
