@@ -10,6 +10,7 @@ use std::rc::Rc;
 use mlua::Table;
 use strata_kernel::PackId;
 
+use crate::convert::contents;
 use crate::error::{DataError, HostError};
 use crate::host::{Limits, LuaHost};
 use registry::{Registry, Shared, chunk_name};
@@ -23,6 +24,8 @@ pub(crate) fn registry_kinds() -> Vec<&'static str> {
 const PRELUDE: &str = include_str!("data.lua");
 /// The chunk name of the prelude that adds `data.each`.
 const PRELUDE_CHUNK: &str = "=data_prelude";
+/// The stage named in errors raised while the environments are frozen.
+const SEAL_STAGE: &str = "freeze";
 
 /// One pass over every pack's scripts (design §4.3).
 #[derive(Clone, Copy)]
@@ -123,6 +126,7 @@ impl DataStage {
                 run_file(&host, pack, stage)?;
             }
         }
+        seal(&host, &registry, packs)?;
         Ok(Self {
             host,
             data,
@@ -130,7 +134,9 @@ impl DataStage {
         })
     }
 
-    /// Returns the loader state, which still holds every record table.
+    /// Returns the loader state, which still holds every record table. The data stage has
+    /// ended: pack environments and every table reachable from them are frozen, and the
+    /// constructors refuse new records.
     pub fn host(&self) -> &LuaHost {
         &self.host
     }
@@ -150,9 +156,31 @@ impl DataStage {
 
     /// The record table for a full ID, including any edits made by later stages.
     pub fn table(&self, kind: &str, id: &str) -> Option<Table> {
-        let records: Table = self.data.raw_get(kind).ok()?;
-        records.raw_get(id).ok()
+        let lua = self.host.lua();
+        let records: Table = contents(lua, &self.data).raw_get(kind).ok()?;
+        contents(lua, &records).raw_get(id).ok()
     }
+}
+
+/// Ends the data stage (design §9.3): constructors and new `require`s are refused, and every
+/// pack environment is frozen with the tables reachable from it, so runtime scripts cannot
+/// keep state in globals or shared tables.
+fn seal(host: &LuaHost, registry: &Shared, packs: &[PackSource]) -> Result<(), DataError> {
+    registry.borrow_mut().sealed = true;
+    for pack in packs {
+        let env: Table = host
+            .lua()
+            .named_registry_value(&require::env_key(pack.id.as_str()))?;
+        host.freeze_env(&env).map_err(|error| match error {
+            HostError::Script(message) => DataError::Script {
+                pack: pack.id.clone(),
+                stage: SEAL_STAGE,
+                message: format!("cannot freeze the environment: {message}"),
+            },
+            other => DataError::Host(other),
+        })?;
+    }
+    Ok(())
 }
 
 fn run_file(host: &LuaHost, pack: &PackSource, stage: Stage) -> Result<(), DataError> {

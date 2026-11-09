@@ -35,6 +35,41 @@ fn nested_functions_inside_a_hook_see_its_locals_and_its_upvalues() {
 }
 
 #[test]
+fn hooks_may_not_assign_globals() {
+    let source = "f { h = function()\n  calls = (calls or 0) + 1\n  local ok = 1\n  ok = 2\nend }";
+    assert_eq!(
+        upvalues(source),
+        vec!["2: hook assigns to the global `calls`"]
+    );
+    let declared = "f { h = function()\n  function helper() end\nend }";
+    assert_eq!(
+        upvalues(declared),
+        vec!["2: hook assigns to the global `helper`"]
+    );
+    // Outside hooks, the data stage may still set globals.
+    assert!(upvalues("shared = {}\nlocal function g() other = 1 end").is_empty());
+}
+
+#[test]
+fn hooks_may_not_write_into_captured_or_global_tables() {
+    let source = "local cache = {}\nf { h = function(ctx, k)\n  cache[k] = true\n  cache.n.m = 1\n  seen.last = k\nend }";
+    assert_eq!(
+        upvalues(source),
+        vec![
+            "3: hook writes into the upvalue table `cache`",
+            "4: hook writes into the upvalue table `cache`",
+            "5: hook writes into the global table `seen`",
+        ]
+    );
+}
+
+#[test]
+fn hooks_may_write_into_their_own_tables_and_call_results() {
+    let source = "f { h = function(ctx, self)\n  local out = {}\n  out[1] = 2\n  self.x = 1\n  ctx.vars(self).n = 3\n  local function m() end\nend }";
+    assert!(upvalues(source).is_empty(), "{:?}", upvalues(source));
+}
+
+#[test]
 fn only_functions_inside_call_tables_are_hooks() {
     assert!(upvalues("local n = 0\nf(function() n = 1 end)").is_empty());
     assert!(upvalues("local n = 0\nlocal t = { h = function() n = 1 end }").is_empty());
@@ -79,9 +114,16 @@ fn method_calls_define_hooks_too() {
 }
 
 #[test]
-fn only_plain_names_are_checked() {
+fn fields_of_captured_tables_and_globals_are_checked_too() {
     let source = "local t = {}\nf { h = function() t.x = 1; t[1] = 2; global = 3 end }";
-    assert!(upvalues(source).is_empty());
+    assert_eq!(
+        upvalues(source),
+        vec![
+            "2: hook writes into the upvalue table `t`",
+            "2: hook writes into the upvalue table `t`",
+            "2: hook assigns to the global `global`",
+        ]
+    );
 }
 
 #[test]

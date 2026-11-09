@@ -3,7 +3,7 @@
 use std::collections::BTreeSet;
 
 use super::lexer;
-use super::parser::{self, Events, Field};
+use super::parser::{self, Events, Field, Target};
 use super::{Diagnostic, Severity};
 
 /// Fields of a definition that are not archetype parameters.
@@ -56,15 +56,32 @@ impl Checker {
         }
     }
 
-    fn is_upvalue(&self, name: &str) -> bool {
-        let Some(base) = self.hook_base else {
-            return false;
+    /// What a hook writing `target` would keep between calls, as a message and a fix, or
+    /// `None` outside hooks and for the hook's own locals and parameters.
+    fn hidden_state(&self, target: &Target) -> Option<(String, &'static str)> {
+        let base = self.hook_base?;
+        let depth = self.scopes.iter().rposition(|s| s.contains(&target.name));
+        let name = &target.name;
+        let found = match (depth, target.field) {
+            (Some(d), false) if d < base => (
+                format!("hook assigns to the upvalue `{name}`"),
+                "keep per-instance state in `ctx.vars(self)` and declare its default in `vars = {}`",
+            ),
+            (Some(d), true) if d < base => (
+                format!("hook writes into the upvalue table `{name}`"),
+                "build the table inside the hook, or keep per-instance state in `ctx.vars(self)`; a table shared between calls is hidden state",
+            ),
+            (None, false) => (
+                format!("hook assigns to the global `{name}`"),
+                "declare it `local` inside the hook; globals are frozen once the packs load, and per-instance state belongs in `ctx.vars(self)`",
+            ),
+            (None, true) => (
+                format!("hook writes into the global table `{name}`"),
+                "copy what you need into a local table; tables reachable from globals are frozen once the packs load",
+            ),
+            _ => return None,
         };
-        let depth = self
-            .scopes
-            .iter()
-            .rposition(|s| s.iter().any(|n| n == name));
-        depth.is_some_and(|d| d < base)
+        Some(found)
     }
 }
 
@@ -146,15 +163,14 @@ impl Events for Checker {
         }
     }
 
-    fn assignment(&mut self, at: usize, names: Vec<(String, usize)>) {
-        for (name, line) in names {
-            if self.is_upvalue(&name) {
+    fn assignment(&mut self, at: usize, targets: Vec<Target>) {
+        for target in targets {
+            if let Some((message, fix)) = self.hidden_state(&target) {
                 let diagnostic = Diagnostic {
                     severity: Severity::Error,
-                    line,
-                    message: format!("hook assigns to the upvalue `{name}`"),
-                    fix: "keep per-instance state in `ctx.vars(self)` and declare its default in `vars = {}`"
-                        .to_owned(),
+                    line: target.line,
+                    message,
+                    fix: fix.to_owned(),
                 };
                 self.found.push((at, diagnostic));
             }

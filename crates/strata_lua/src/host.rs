@@ -8,12 +8,15 @@ use mlua::{
     UserData, Value, VmState,
 };
 
+use crate::convert::contents;
 use crate::error::HostError;
 
 const PRELUDE: &str = include_str!("prelude.lua");
 pub(crate) const FROZEN_KEY: &str = "strata.frozen";
 /// The sandbox global that makes one table read-only.
 pub(crate) const FREEZE_GLOBAL: &str = "freeze";
+/// The registry key of the function that makes a pack environment read-only.
+const FREEZE_ENV_KEY: &str = "strata.freeze_env";
 /// Instructions between hook invocations; budgets are rounded up to a multiple of this.
 const STEP: u32 = 100;
 
@@ -75,13 +78,14 @@ impl LuaHost {
             Ok(halted || flag.get())
         })?;
         globals.set("Halt", lua.create_userdata(Halt)?)?;
-        lua.load(PRELUDE).set_name("=sandbox").call::<()>((
+        let freeze_env: Function = lua.load(PRELUDE).set_name("=sandbox").call((
             globals,
             raw_pcall.clone(),
             raw_xpcall,
             is_fatal,
             frozen,
         ))?;
+        lua.set_named_registry_value(FREEZE_ENV_KEY, freeze_env)?;
 
         let budget = limits.instructions.div_ceil(STEP).max(1);
         let (count, flag) = (used.clone(), tripped.clone());
@@ -127,6 +131,50 @@ impl LuaHost {
         Ok(freeze.call::<()>(table)?)
     }
 
+    /// Makes the pack environment `env` read-only, with every table reachable from it
+    /// (design §9.3). Writing a global then raises an error naming the global, and writing
+    /// into a reachable table raises the frozen-table error. Functions are left alone, so
+    /// tables only their upvalues hold stay writable.
+    ///
+    /// The instruction budget restarts before each table, so a large pack cannot exhaust it.
+    pub fn freeze_env(&self, env: &Table) -> Result<(), HostError> {
+        let lock: Function = self.lua.named_registry_value(FREEZE_ENV_KEY)?;
+        self.used.set(0);
+        lock.call::<()>(env)
+            .map_err(|error| HostError::Script(plain(&error)))?;
+        for pair in contents(&self.lua, env).pairs::<Value, Value>() {
+            let (key, value) = pair?;
+            if let Value::Table(table) = value {
+                self.freeze_tree(&table).map_err(|error| {
+                    let key = key.to_string().unwrap_or_default();
+                    HostError::Script(format!("global `{key}`: {}", message(&error)))
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Freezes `table` and every table reachable through its values, as [`freeze_deep`]
+    /// does, but restarts the instruction budget before each table.
+    pub(crate) fn freeze_tree(&self, table: &Table) -> Result<(), HostError> {
+        let frozen: Table = self.lua.named_registry_value(FROZEN_KEY)?;
+        let freeze: Function = self.lua.globals().get(FREEZE_GLOBAL)?;
+        let mut pending = vec![table.clone()];
+        while let Some(table) = pending.pop() {
+            if !frozen.raw_get::<Value>(&table)?.is_nil() {
+                continue;
+            }
+            for pair in table.pairs::<Value, Value>() {
+                if let (_, Value::Table(child)) = pair? {
+                    pending.push(child);
+                }
+            }
+            self.used.set(0);
+            freeze.call::<()>(&table)?;
+        }
+        Ok(())
+    }
+
     /// Compiles source text as a function running in `env`.
     pub fn load(&self, env: &Table, name: &str, source: &str) -> Result<Function, HostError> {
         Ok(self
@@ -162,6 +210,15 @@ impl LuaHost {
                 other.as_ref().map_or("nil", Value::type_name)
             )),
         })
+    }
+}
+
+/// The message of a failed call into the host, without the wrapper text of either layer.
+fn message(error: &HostError) -> String {
+    match error {
+        HostError::Lua(error) => plain(error),
+        HostError::Script(text) => text.clone(),
+        other => other.to_string(),
     }
 }
 

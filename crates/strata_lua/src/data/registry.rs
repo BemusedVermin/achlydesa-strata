@@ -66,6 +66,8 @@ pub(crate) struct Registry {
     pub sources: BTreeMap<(String, String), Source>,
     pub packs: BTreeMap<PackId, PackInfo>,
     pub loading: BTreeSet<String>,
+    /// Set when the data stage ends: constructors and new `require`s are refused after it.
+    pub sealed: bool,
 }
 
 pub(crate) type Shared = Rc<RefCell<Registry>>;
@@ -158,6 +160,9 @@ fn constructor(lua: &Lua, shared: Shared, kind: &'static str, records: Table) ->
     lua.create_function(move |lua, record: Table| {
         let (pack, file, line) = caller(lua)?;
         let fail = |what: String| mlua::Error::runtime(format!("{file}:{line}: {kind} {what}"));
+        if shared.borrow().sealed {
+            return Err(fail("can only be called while the packs load".to_owned()));
+        }
         let text = |field: &str| match record.raw_get(field) {
             Ok(Value::String(s)) => Ok(s.to_str()?.to_owned()),
             _ => Err(fail(format!("needs a string `{field}`"))),

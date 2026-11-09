@@ -36,8 +36,15 @@ impl Events for Recorder {
     fn call_table(&mut self, at: usize, fields: Vec<Field>) {
         self.0.push(format!("call table @{at} {fields:?}"));
     }
-    fn assignment(&mut self, at: usize, names: Vec<(String, usize)>) {
-        self.0.push(format!("assign @{at} {names:?}"));
+    fn assignment(&mut self, at: usize, targets: Vec<Target>) {
+        let shown: Vec<String> = targets
+            .iter()
+            .map(|t| {
+                let field = if t.field { ".." } else { "" };
+                format!("{}{field}:{}", t.name, t.line)
+            })
+            .collect();
+        self.0.push(format!("assign @{at} {shown:?}"));
     }
     fn division(&mut self, at: usize, line: usize) {
         self.0.push(format!("divide @{at} line {line}"));
@@ -63,7 +70,7 @@ fn nested_functions_open_parameter_then_block_scopes() {
     assert_eq!(
         inner("x = function(a, ...) return function(b) end end"),
         vec![
-            "assign @0 [(\"x\", 1)]",
+            "assign @0 [\"x:1\"]",
             "function",
             "open [\"a\"]",
             "open []",
@@ -166,29 +173,47 @@ fn method_calls_with_table_and_string_arguments() {
 fn method_declarations_take_only_their_explicit_parameters() {
     assert_eq!(
         inner("function obj:m(x) end"),
-        vec!["open [\"x\"]", "open []", "close", "close"]
+        vec![
+            "assign @0 [\"obj..:1\"]",
+            "open [\"x\"]",
+            "open []",
+            "close",
+            "close"
+        ]
     );
 }
 
 #[test]
-fn assignments_report_their_plain_name_targets() {
+fn assignments_report_targets_rooted_at_a_name() {
     assert_eq!(
         inner("a, b.c, (d), e[1], f = 1"),
-        vec!["assign @0 [(\"a\", 1), (\"f\", 1)]"]
+        vec!["assign @0 [\"a:1\", \"b..:1\", \"e..:1\", \"f:1\"]"]
     );
-    assert_eq!(inner("x.y = 1"), vec!["assign @0 []"]);
+    assert_eq!(inner("x.y[1].z = 1"), vec!["assign @0 [\"x..:1\"]"]);
+    let calls = inner("f().y, (g).z, h:m().k = 1, 2, 3");
+    assert_eq!(calls.last().unwrap(), "assign @0 []");
+}
+
+#[test]
+fn function_statements_assign_their_name() {
+    let plain = inner("function f() end");
+    assert_eq!(plain[0], "assign @0 [\"f:1\"]");
+    let method = inner("function m.a:b() end");
+    assert_eq!(method[0], "assign @0 [\"m..:1\"]");
+    let local = inner("local function g() end");
+    assert!(local.iter().all(|e| !e.starts_with("assign")), "{local:?}");
 }
 
 #[test]
 fn division_is_keyed_by_its_left_operand() {
     assert_eq!(
         inner("x = a + b / c // d"),
-        vec!["assign @0 [(\"x\", 1)]", "divide @8 line 1"]
+        vec!["assign @0 [\"x:1\"]", "divide @8 line 1"]
     );
     assert_eq!(
         inner("x = -a / b /\n c"),
         vec![
-            "assign @0 [(\"x\", 1)]",
+            "assign @0 [\"x:1\"]",
             "divide @4 line 1",
             "divide @4 line 1"
         ]

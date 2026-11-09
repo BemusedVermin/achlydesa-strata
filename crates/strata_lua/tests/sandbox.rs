@@ -248,6 +248,44 @@ fn frozen_tables_still_iterate_in_order() {
 }
 
 #[test]
+fn freezing_keeps_an_index_fallback_and_refuses_other_metatables() {
+    assert_eq!(
+        run_str(
+            "local base = freeze { greet = 'hi' }
+             local t = freeze(setmetatable({ own = 'x' }, { __index = base }))
+             local ok = pcall(function() t.greet = 1 end)
+             local refused = pcall(freeze, setmetatable({}, { __add = function() end }))
+             return t.own .. t.greet .. tostring(ok) .. tostring(refused)"
+        ),
+        "xhifalsefalse"
+    );
+}
+
+#[test]
+fn a_frozen_environment_names_the_global_a_script_tried_to_set() {
+    let host = host();
+    let env = host.new_env().unwrap();
+    let set = host.load(&env, "a.lua", "kept = { 1 }").unwrap();
+    host.call(&set, ()).unwrap();
+    host.freeze_env(&env).unwrap();
+    let write = host.load(&env, "a2.lua", "fresh = 2").unwrap();
+    let Err(HostError::Script(message)) = host.call(&write, ()) else {
+        panic!("a global write must fail");
+    };
+    assert!(
+        message.contains("a2.lua:1: cannot set global `fresh`"),
+        "{message}"
+    );
+    let nested = host.load(&env, "a3.lua", "kept[2] = 2").unwrap();
+    assert!(matches!(host.call(&nested, ()), Err(HostError::Script(m)) if m.contains("frozen")));
+    let local = host
+        .load(&env, "a4.lua", "local n = #kept n = n + 1 return n")
+        .unwrap();
+    let out = host.call(&local, ()).unwrap();
+    assert!(matches!(out.into_iter().next(), Some(LuaValue::Integer(2))));
+}
+
+#[test]
 fn standard_libraries_are_frozen() {
     for lib in ["string", "table", "math", "utf8"] {
         let src = format!("{lib}.extra = 1");

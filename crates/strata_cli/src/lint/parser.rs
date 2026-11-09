@@ -29,6 +29,17 @@ pub struct Field {
     pub numbers: Vec<String>,
 }
 
+/// An assignment target that starts at a name: the name itself, or a field or index of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Target {
+    /// The name the target starts at.
+    pub name: String,
+    /// Line of that name.
+    pub line: usize,
+    /// True for `name.x` or `name[k]` (any depth, with no call between), false for `name`.
+    pub field: bool,
+}
+
 /// What the walk reports, in source order. `at` values are token offsets that order
 /// findings the way a tree walk visits their nodes.
 pub trait Events {
@@ -52,8 +63,9 @@ pub trait Events {
     fn table_end(&mut self);
     /// A call whose argument is a table constructor `f { ... }`, with the table's named fields.
     fn call_table(&mut self, at: usize, fields: Vec<Field>);
-    /// An assignment statement; `names` are its targets that are plain names, with their lines.
-    fn assignment(&mut self, at: usize, names: Vec<(String, usize)>);
+    /// An assignment statement, or a `function` statement, which assigns its name. `targets`
+    /// are the targets that start at a name; `(e).x` and `f().x` are left out.
+    fn assignment(&mut self, at: usize, targets: Vec<Target>);
     /// A `/` operator on `line`.
     fn division(&mut self, at: usize, line: usize);
 }
@@ -78,6 +90,8 @@ type Parse<T = ()> = Result<T, SyntaxError>;
 enum Tail {
     /// A plain name with no suffix.
     Name,
+    /// A name followed only by `.name` and `[expr]` suffixes.
+    Field,
     /// A call.
     Call,
     /// A parenthesized expression or an index.
@@ -239,7 +253,16 @@ impl Parser<'_> {
             "local" => self.local()?,
             "for" => self.for_loop(token.line)?,
             "function" => {
-                self.name_at(self.cur().line, "expected function name")?;
+                let name = self.name_at(self.cur().line, "expected function name")?;
+                let field = self.is(".") || self.is(":");
+                self.events.assignment(
+                    token.offset,
+                    vec![Target {
+                        name: name.text,
+                        line: name.line,
+                        field,
+                    }],
+                );
                 while let Some(separator) = self.eat(".").or_else(|| self.eat(":")) {
                     let message = format!("expected name after `{}`", separator.text);
                     self.name_at(self.cur().line, &message)?;
@@ -361,7 +384,7 @@ impl Parser<'_> {
     /// A call statement or an assignment, starting at a name or `(`.
     fn expression_statement(&mut self) -> Parse {
         let start = self.cur().offset;
-        let mut names = Vec::new();
+        let mut targets = Vec::new();
         let mut target = self.cur().clone();
         let mut tail = self.suffixed()?;
         if tail == Tail::Call {
@@ -377,7 +400,11 @@ impl Parser<'_> {
                     let line = self.last;
                     return Err(self.error(line, "can't assign to the result of a call"));
                 }
-                Tail::Name => names.push((target.text, target.line)),
+                Tail::Name | Tail::Field => targets.push(Target {
+                    field: tail == Tail::Field,
+                    name: target.text,
+                    line: target.line,
+                }),
                 Tail::Other => {}
             }
             let Some(comma) = self.eat(",") else {
@@ -390,7 +417,7 @@ impl Parser<'_> {
             tail = self.suffixed()?;
         }
         let equal = self.expect("=", "expected `=` after name")?;
-        self.events.assignment(start, names);
+        self.events.assignment(start, targets);
         if !self.expression_list()? {
             return Err(self.error(equal.line, "expected values to set to"));
         }
@@ -476,6 +503,11 @@ impl Parser<'_> {
     fn suffixed(&mut self) -> Parse<Tail> {
         let first = self.bump();
         let mut tail = Tail::Name;
+        // An index stays rooted at the first name until a call or parenthesis intervenes.
+        let index = |tail: &Tail| match tail {
+            Tail::Name | Tail::Field => Tail::Field,
+            _ => Tail::Other,
+        };
         if first.kind != Kind::Name {
             self.expression(first.line, "expected an expression after `(`")?;
             let line = self.cur().line;
@@ -489,7 +521,7 @@ impl Parser<'_> {
                 tail = Tail::Call;
             } else if self.eat(".").is_some() {
                 self.name_at(token.line, "expected identifier after `.`")?;
-                tail = Tail::Other;
+                tail = index(&tail);
             } else if self.eat("[").is_some() {
                 self.expression(token.line, "expected expression after `[`")?;
                 self.close(
@@ -498,7 +530,7 @@ impl Parser<'_> {
                     "expected `]` to close index expression",
                     true,
                 )?;
-                tail = Tail::Other;
+                tail = index(&tail);
             } else if self.eat(":").is_some() {
                 let name = self.name_at(token.line, "expected identifier after `:`")?;
                 let next = self.cur();

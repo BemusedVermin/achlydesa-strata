@@ -57,6 +57,11 @@ pub(crate) fn install(lua: &Lua, shared: &Shared) -> Result<()> {
         if !cached.is_nil() {
             return Ok(cached);
         }
+        if registry.borrow().sealed {
+            return Err(fail(
+                "modules load only while the packs load; require it at the top of a file".into(),
+            ));
+        }
         if !registry.borrow_mut().loading.insert(key.clone()) {
             return Err(fail("modules require each other in a cycle".into()));
         }
