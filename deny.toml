@@ -13,9 +13,7 @@ deny = [
 
 [advisories]
 ignore = [
-    # `paste` is a compile-time proc macro pulled in by `full_moon` (approved for `strata lint`).
-    # It is archived but has no known vulnerability and no code in the shipped binary.
-    { id = "RUSTSEC-2024-0436", reason = "unmaintained proc macro used by full_moon at build time" },
-    # `ttf-parser` is pulled in by Bevy's text stack (`strata_client` only). Unmaintained, no known vulnerability.
-    { id = "RUSTSEC-2026-0192", reason = "unmaintained font parser used by Bevy text rendering" },
+    # `ttf-parser` comes from Bevy's `wayland` feature (winit's adwaita window decorations), in
+    # `strata_client` only. Unmaintained, no known vulnerability. Tracked in #171.
+    { id = "RUSTSEC-2026-0192", reason = "unmaintained font parser used by Bevy's Wayland window decorations" },
 ]
