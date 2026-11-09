@@ -97,11 +97,34 @@ fn state(enemies: &[(i32, i32)]) -> GameState {
         team,
         ..PlayerState::default()
     };
-    GameState {
+    let mut state = GameState {
         players: vec![team(0), team(1)],
         figures,
         ..GameState::default()
+    };
+    let anchors = (0u32..).zip(&state.figures).map(|(id, f)| (f.location, id));
+    let anchors: Vec<_> = anchors.collect();
+    for (at, id) in anchors {
+        state
+            .board_changes
+            .occupancy
+            .insert(at.unwrap(), FigureId(id));
     }
+    state
+}
+
+/// Gives figure `id` extra covered cells, as a multi-cell footprint would.
+fn cover(state: &mut GameState, id: u32, cells: &[(i32, i32, u32)]) {
+    for &(q, r, z) in cells {
+        let at = Space::new(q, r, z);
+        state.board_changes.occupancy.insert(at, FigureId(id));
+    }
+}
+
+/// Whom figure 0 is engaged with standing on `at`.
+fn engaged(state: &GameState, at: Space) -> Vec<FigureId> {
+    use strata_rules::Engagement;
+    service().engaged(state, &Plain, FigureId(0), at).unwrap()
 }
 
 /// The enemies owed a reprisal when figure 0's body moves from `before` to `after`.
@@ -148,6 +171,47 @@ fn each_enemy_is_judged_on_its_own() {
     assert_eq!(owed(&state, &before, &[(-1, 1), (0, 0)]), [FigureId(2)]);
     // Moving towards enemy 2 keeps it, and the old anchor's cell keeps enemy 1.
     assert!(owed(&state, &before, &[(1, -1), (0, 0)]).is_empty());
+}
+
+#[test]
+fn an_enemys_rear_cell_engages() {
+    // The enemy's anchor at (3, 0) is out of reach; its rear on (2, 0) and (1, 0) is not.
+    let mut state = state(&[(3, 0)]);
+    let at = Space::new(0, 0, 1);
+    assert!(engaged(&state, at).is_empty());
+    cover(&mut state, 1, &[(2, 0, 1), (1, 0, 1)]);
+    assert_eq!(engaged(&state, at), [FigureId(1)]);
+    // Two of its cells are next to (1, -1): it is still listed once.
+    assert_eq!(engaged(&state, Space::new(1, -1, 1)), [FigureId(1)]);
+}
+
+#[test]
+fn heights_are_compared_cell_by_cell() {
+    // The enemy's anchor is far away; its rear cell on (1, 0) stands one level up, so the two
+    // one-level-tall bodies only touch.
+    let mut state = state(&[(3, 0)]);
+    cover(&mut state, 1, &[(1, 0, 2)]);
+    assert!(
+        engaged(&state, Space::new(0, 0, 1)).is_empty(),
+        "a level apart"
+    );
+    assert_eq!(engaged(&state, Space::new(0, 0, 2)), [FigureId(1)]);
+    // A figure's own cells never engage it.
+    let mut state = self::state(&[]);
+    cover(&mut state, 0, &[(1, 0, 1)]);
+    assert!(engaged(&state, Space::new(2, 0, 1)).is_empty());
+}
+
+#[test]
+fn leaving_a_long_enemy_is_judged_on_every_cell() {
+    // The enemy's rear on (1, 0) touches the mover's old cell; moving west leaves it.
+    let mut state = state(&[(3, 0)]);
+    cover(&mut state, 1, &[(2, 0, 1), (1, 0, 1)]);
+    assert_eq!(owed(&state, &[(0, 0)], &[(-1, 0)]), [FigureId(1)]);
+    assert!(
+        owed(&state, &[(0, 0)], &[(0, 1)]).is_empty(),
+        "(0, 1) touches (1, 0)"
+    );
 }
 
 proptest! {

@@ -1,10 +1,12 @@
 //! `core:relics`: relic spots, claiming, reveal and duration (design §6.1, §10.6).
 //!
-//! A relic is claimed when a figure's move ends on its spot (`claim = "ends_move_on"`). A
-//! `while_occupied` relic follows its occupant: its abilities are attached to the occupant's army
-//! while they stand on it and detached the moment they leave, are destroyed or lose control of
-//! the figure. An `on_claim` relic runs its effect once, for the first player to end a move on
-//! it. A face-down relic is turned up when it is claimed.
+//! A relic is claimed when a figure's move ends with any cell of its footprint on the relic's
+//! spot (`claim = "ends_move_on"`), its anchor or a rear cell alike, so one large figure can hold
+//! several spots. A `while_occupied` relic follows its occupant: its abilities are attached to
+//! the occupant's army while some cell of theirs covers it and detached the moment that cell
+//! leaves, the figure is destroyed or its controller loses it. An `on_claim` relic runs its
+//! effect once, for the first player to end a move on it. A face-down relic is turned up when it
+//! is claimed.
 
 use std::collections::BTreeMap;
 
@@ -84,10 +86,10 @@ impl NativeLogic for Drive {
     }
 }
 
-/// The player controlling the figure on the relic's spot, if there is one.
+/// The player controlling the figure covering the relic's spot with any cell, if there is one.
 fn occupant(state: &GameState, relic: RelicId) -> Option<PlayerId> {
     let at = state.relics[relic.index()].location?;
-    let figure = state.board_changes.occupancy.get(&at)?;
+    let figure = state.occupant(at)?;
     let figure = &state.figures[figure.index()];
     (figure.status == FigureStatus::OnBoard).then_some(figure.controller)
 }

@@ -1,6 +1,6 @@
 //! `GameState::apply`, the only mutator of game state (design §5.1).
 
-use strata_kernel::{DefId, Value};
+use strata_kernel::{DefId, Space, Value};
 use thiserror::Error;
 
 use crate::ability_key::AbilityKey;
@@ -29,9 +29,16 @@ pub enum ApplyError {
     /// The figure's status does not allow the event.
     #[error("figure {0:?} cannot take this event while {1:?}")]
     WrongStatus(FigureId, FigureStatus),
-    /// Another figure already stands on the target space.
+    /// Another figure already covers one of the target spaces.
     #[error("space is occupied by figure {0:?}")]
     Occupied(FigureId),
+    /// A move's `cells` do not include its anchor; an empty list never does.
+    #[error("figure {0:?}'s cells do not include its anchor")]
+    AnchorNotCovered(FigureId),
+    /// A move would change how many spaces a figure on the board covers, as an emitter that
+    /// left out some of its cells would.
+    #[error("figure {0:?} covers {1} spaces, but its move lists {2}")]
+    BodyResized(FigureId, usize, usize),
     /// A marker change of zero, or a count that would leave `1..=u32::MAX` (or `0` on removal).
     #[error("marker count for figure {0:?} would be out of range")]
     MarkerCount(FigureId),
@@ -75,19 +82,11 @@ impl GameState {
                 figure,
                 to,
                 rotation,
+                cells,
                 ..
             } => {
-                let fig = self.live_figure(*figure)?;
-                let from = fig.location;
-                if let Some(&other) = self.board_changes.occupancy.get(to) {
-                    if other != *figure {
-                        return Err(ApplyError::Occupied(other));
-                    }
-                }
-                if let Some(from) = from {
-                    self.board_changes.occupancy.remove(&from);
-                }
-                self.board_changes.occupancy.insert(*to, *figure);
+                self.live_figure(*figure)?;
+                self.cover(*figure, *to, cells)?;
                 let fig = &mut self.figures[figure.index()];
                 fig.location = Some(*to);
                 fig.rotation = *rotation;
@@ -106,10 +105,8 @@ impl GameState {
                 expiry,
             } => self.change_marker(*figure, *marker, i64::from(*delta), *source, *expiry)?,
             Event::FigureDestroyed(id) => {
-                let at = self.live_figure(*id)?.location;
-                if let Some(at) = at {
-                    self.board_changes.occupancy.remove(&at);
-                }
+                self.live_figure(*id)?;
+                self.board_changes.occupancy.retain(|_, f| f != id);
                 let fig = &mut self.figures[id.index()];
                 fig.location = None;
                 fig.status = FigureStatus::Destroyed;
@@ -258,6 +255,27 @@ impl GameState {
             FigureStatus::Reserve | FigureStatus::OnBoard => Ok(fig),
             status => Err(ApplyError::WrongStatus(id, status)),
         }
+    }
+
+    /// Moves `figure`'s entries in the occupancy index to `body`, the spaces it covers with its
+    /// anchor on `to`. Refuses a body without its anchor, one of another size than the body the
+    /// figure already covers, or one that overlaps another figure.
+    fn cover(&mut self, figure: FigureId, to: Space, body: &[Space]) -> Result<(), ApplyError> {
+        if !body.contains(&to) {
+            return Err(ApplyError::AnchorNotCovered(figure));
+        }
+        let held = self.covered(figure).len();
+        if held != 0 && held != body.len() {
+            return Err(ApplyError::BodyResized(figure, held, body.len()));
+        }
+        let mut others = body.iter().filter_map(|s| self.occupant(*s));
+        if let Some(other) = others.find(|o| *o != figure) {
+            return Err(ApplyError::Occupied(other));
+        }
+        let index = &mut self.board_changes.occupancy;
+        index.retain(|_, f| *f != figure);
+        index.extend(body.iter().map(|s| (*s, figure)));
+        Ok(())
     }
 
     fn unit(&self, id: UnitId) -> Result<&UnitState, ApplyError> {

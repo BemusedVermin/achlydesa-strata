@@ -33,7 +33,7 @@ pub use flow::{
 };
 pub use los::{FigureVolume, LineOfSight, LosResult, LosWorld};
 pub use module::{ModuleError, RuleModule};
-pub use movement::{MoveWorld, Movement, Reach, TerrainRules};
+pub use movement::{MoveWorld, Movement, Reach, TerrainRules, footprint_cells, passable_cells};
 pub use native::{
     DeploySlot, DicePool, MAX_POOL, NativeAction, NativeActions, NativeEnv, NativeLogic, NoEnv,
     Roll, native_name, reroll, roll_pool,

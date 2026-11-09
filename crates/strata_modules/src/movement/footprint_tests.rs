@@ -10,7 +10,7 @@ use strata_model::{
     FeatureDef, FigureId, FootprintDef, MapConstraints, MapDef, MoveMode, PlacedPiece, SourceLoc,
     Text, TileDef,
 };
-use strata_rules::{LogicError, MoveWorld, Reach, TerrainRules};
+use strata_rules::{LogicError, MoveWorld, Movement, Reach, TerrainRules, passable_cells};
 
 use super::body::Body;
 use super::search::search;
@@ -105,6 +105,8 @@ struct Scene {
     board: CompiledBoard,
     figures: Vec<Figure>,
     allowance: i64,
+    /// Every figure's height, in levels.
+    height: u32,
     /// Enemies, engaged with any cell in an adjacent column. They are not figures, so they block
     /// nothing.
     enemies: Vec<Hex>,
@@ -121,6 +123,7 @@ impl Scene {
             board,
             figures: vec![mover],
             allowance: 1,
+            height: 1,
             enemies: Vec::new(),
         }
     }
@@ -134,7 +137,7 @@ impl Scene {
     fn cells(&self, figure: &Figure) -> Vec<Space> {
         match &figure.footprint {
             Some(def) => def
-                .spaces(&self.board, figure.at, figure.rotation)
+                .spaces_where(&self.board, figure.at, figure.rotation, |_, _| true)
                 .map_or_else(
                     || vec![figure.at],
                     |s| s.into_iter().map(|(space, _)| space).collect(),
@@ -165,7 +168,7 @@ impl MoveWorld for Scene {
         at.map(|i| FigureId(i as u32))
     }
     fn height(&self, _: FigureId) -> u32 {
-        1
+        self.height
     }
     fn allowance(&self, _: FigureId) -> Result<i64, LogicError> {
         Ok(self.allowance)
@@ -544,4 +547,120 @@ proptest! {
             prop_assert_eq!(run(&scene), bare);
         }
     }
+}
+
+/// The reach at anchor `(q, r, z)` facing the default way, if any.
+fn at(reach: &[Reach], q: i32, r: i32, z: u32) -> Option<&Reach> {
+    let here = |x: &&Reach| x.space == Space::new(q, r, z) && x.rotation == Rotation::default();
+    reach.iter().find(here)
+}
+
+#[test]
+fn every_cell_of_a_rigid_shape_climbs_within_the_limit() {
+    // The anchor steps south-east on the flat; the rear's column there is two levels higher.
+    let steep = board(&[
+        (0, 0, 0, false),
+        (1, 0, 0, false),
+        (0, 1, 0, false),
+        (1, 1, 2, false),
+    ]);
+    let mut scene = Scene::new(steep, Some(footprint(&TWO, MoveMode::Rigid, 2)));
+    assert!(
+        at(&run(&scene), 0, 1, 1).is_none(),
+        "the rear would climb two levels"
+    );
+    // One level is within `max_climb`, and the step still costs only the anchor's.
+    scene.board = board(&[
+        (0, 0, 0, false),
+        (1, 0, 0, false),
+        (0, 1, 0, false),
+        (1, 1, 1, false),
+    ]);
+    let up = run(&scene);
+    let up = at(&up, 0, 1, 1).expect("one level is a legal climb");
+    assert_eq!(up.cells, [Space::new(0, 1, 1), Space::new(1, 1, 2)]);
+    assert_eq!(up.cost, 1);
+}
+
+#[test]
+fn a_rear_cell_may_drop_further_than_it_may_climb() {
+    // Climbing is limited per cell; dropping is not, like the anchor's own steps.
+    let pieces = [
+        (0, 0, 0, false),
+        (1, 0, 2, false),
+        (0, 1, 0, false),
+        (1, 1, 0, false),
+    ];
+    let mut scene = Scene::new(board(&pieces), Some(footprint(&TWO, MoveMode::Rigid, 2)));
+    scene.figures[0].at = Space::new(0, 0, 1);
+    let reach = run(&scene);
+    let down = at(&reach, 0, 1, 1).expect("the rear drops two levels");
+    assert_eq!(down.cells, [Space::new(0, 1, 1), Space::new(1, 1, 1)]);
+}
+
+#[test]
+fn only_a_rigid_shape_checks_each_cell_climb() {
+    // A snake's rear walks where its leader walked, and one cell is just the anchor's step.
+    let rigid = footprint(&TWO, MoveMode::Rigid, 2);
+    let snake = footprint(&TWO, MoveMode::Snake, 2);
+    let before = [Space::new(0, 0, 1), Space::new(1, 0, 1)];
+    let after = [Space::new(0, 1, 1), Space::new(1, 1, 3)];
+    assert!(!Body::Shaped(&rigid).climbs(LIMITS, &before, &after));
+    assert!(Body::Shaped(&snake).climbs(LIMITS, &before, &after));
+    assert!(Body::One.climbs(LIMITS, &before[..1], &after[..1]));
+}
+
+#[test]
+fn a_rear_cell_falls_back_to_the_next_surface_with_room() {
+    // A figure two levels tall. Stepping east puts the rear on column (1, 0): ground at 1 under
+    // an overhang with one free level, and the overhang's top at 3, both a level from the anchor.
+    let pieces = [
+        (-1, 0, 1, false),
+        (0, 0, 1, false),
+        (1, 0, 0, false),
+        (1, 0, 2, false),
+    ];
+    let mut scene = Scene::new(board(&pieces), Some(footprint(&TWO, MoveMode::Rigid, 1)));
+    scene.figures[0].at = Space::new(-1, 0, 2);
+    scene.height = 2;
+    let reach = run(&scene);
+    let east = at(&reach, 0, 0, 2).expect("the rear stands on the overhang's top");
+    assert_eq!(east.cells, [Space::new(0, 0, 2), Space::new(1, 0, 3)]);
+    // A figure one level tall fits under the overhang, the nearer surface on a tie.
+    scene.height = 1;
+    let reach = run(&scene);
+    let east = at(&reach, 0, 0, 2).unwrap();
+    assert_eq!(east.cells, [Space::new(0, 0, 2), Space::new(1, 0, 1)]);
+}
+
+#[test]
+fn placement_stands_cells_where_a_move_would() {
+    // The board of the fallback test above: the anchor's column stands at 2; column (1, 0) has
+    // ground at 1 under one free level, and the overhang's top at 3.
+    let pieces = [
+        (-1, 0, 1, false),
+        (0, 0, 1, false),
+        (1, 0, 0, false),
+        (1, 0, 2, false),
+    ];
+    let mut scene = Scene::new(board(&pieces), Some(footprint(&TWO, MoveMode::Rigid, 1)));
+    scene.height = 2;
+    let service = super::Service { limits: LIMITS };
+    let (anchor, turned) = (Space::new(0, 0, 2), Rotation::default());
+    let placed = service.cells(&scene, FigureId(0), anchor, turned);
+    assert_eq!(placed, Some(vec![anchor, Space::new(1, 0, 3)]));
+    // It is the cell set a step onto the same anchor ends with.
+    scene.figures[0].at = Space::new(-1, 0, 2);
+    let reach = run(&scene);
+    assert_eq!(placed.as_deref(), at(&reach, 0, 0, 2).map(|r| &r.cells[..]));
+    // Without a movement module only passability counts, so the rear takes the ground.
+    let passable = passable_cells(&scene, FigureId(0), anchor, turned);
+    assert_eq!(passable, Some(vec![anchor, Space::new(1, 0, 1)]));
+    // With headroom ignored, the move's fit is passability alone too.
+    let ignore = Limits {
+        headroom: Headroom::Ignore,
+        ..LIMITS
+    };
+    let service = super::Service { limits: ignore };
+    assert_eq!(service.cells(&scene, FigureId(0), anchor, turned), passable);
 }

@@ -27,8 +27,10 @@ impl CommandHandler for Attack {
 
 /// Handles `move_to`, a stand-in for the movement action in tests: the payload `{ figure, q, r, z }`
 /// puts the figure there, whatever the terrain, in one step or through the spaces of an optional
-/// `via` list of `{ q, r, z }`. Like a move, it first resolves the reprisals for leaving engagement
-/// along that path, and stays put if they take the figure out of play.
+/// `via` list of `{ q, r, z }`. A figure covering more than its anchor lists every space it covers
+/// there, anchor included and in offset order, as `cells`; without it the figure covers `to`
+/// alone. Like a move, it first resolves the reprisals for leaving engagement along that path,
+/// and stays put if they take the figure out of play.
 struct MoveTo;
 
 impl CommandHandler for MoveTo {
@@ -63,12 +65,19 @@ impl CommandHandler for MoveTo {
         if moving && ctx.state().standing(figure).is_none() {
             return Ok(());
         }
+        let cells = payload.as_map().ok().and_then(|m| m.get("cells"));
+        let cells = match cells.map(Value::as_list).transpose() {
+            Ok(Some(listed)) => listed.iter().map(space).collect::<Result<Vec<_>, _>>()?,
+            Ok(None) => vec![to],
+            Err(e) => return Err(Halt::reject(format!("move_to cells: {e}"))),
+        };
         let rotation = Rotation::default();
         ctx.emit(Event::FigureMoved {
             figure,
             to,
             rotation,
             path: Vec::new(),
+            cells,
         })
     }
 }

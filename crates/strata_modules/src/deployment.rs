@@ -3,8 +3,10 @@
 //! Before the first round, players take turns placing one unit each with the `place_unit`
 //! command, in the order of their scenario slots' `deploy_order`, round and round. A player with
 //! nothing left to place is skipped. A placement puts every figure of one of the player's
-//! reserve units on a standable, empty surface inside the player's start zone. When the last
-//! unit is down the module emits `deployment_done`.
+//! reserve units on a standable, empty surface inside the player's start zone; a figure with a
+//! larger footprint needs every cell of it there. Each cell stands where the movement module
+//! would stand it, headroom included, so a figure is never placed where it could not move (see
+//! `NativeEnv::cells`). When the last unit is down the module emits `deployment_done`.
 //!
 //! The payload is `{ unit = <unit id>, at = { { q, r, z }, ... } }`: one space per figure, in
 //! the order the unit lists its figures. Figures face the default way.
@@ -168,14 +170,14 @@ impl NativeLogic for Drive {
             return Err(Halt::reject("it is not your turn to deploy"));
         }
         let figures = check_unit(state, &placement)?;
-        check_spaces(state, env, &placement)?;
-        for (figure, to) in figures.into_iter().zip(&placement.at) {
-            let rotation = Rotation::default();
+        let bodies = check_spaces(state, env, &placement, &figures)?;
+        for ((figure, to), body) in figures.into_iter().zip(&placement.at).zip(bodies) {
             ctx.emit(Event::FigureMoved {
                 figure,
                 to: *to,
-                rotation,
+                rotation: Rotation::default(),
                 path: Vec::new(),
+                cells: body,
             })?;
         }
         let next = (turn.unwrap_or(0) + 1) % seats.len();
@@ -213,22 +215,39 @@ fn check_unit(state: &GameState, put: &Placement) -> Result<Vec<FigureId>, Halt>
     Ok(unit.figures.clone())
 }
 
-/// Every space must be a standable, empty surface of the player's start zone, used once.
-fn check_spaces(state: &GameState, env: &dyn NativeEnv, put: &Placement) -> Result<(), Halt> {
+/// Every figure's body, with its anchor where the placement puts it, must stand on standable,
+/// empty surfaces of the player's start zone, and no two bodies may share a space. Returns the
+/// spaces each figure covers.
+fn check_spaces(
+    state: &GameState,
+    env: &dyn NativeEnv,
+    put: &Placement,
+    figures: &[FigureId],
+) -> Result<Vec<Vec<Space>>, Halt> {
     let slot = env.deployment(state, put.player);
     let slot = slot.ok_or_else(|| Halt::reject("you have no start zone"))?;
     let mut used = BTreeSet::new();
-    for space in &put.at {
-        if !slot.zone.contains(&space.hex()) {
-            return Err(Halt::reject("that space is outside your start zone"));
+    let mut bodies = Vec::new();
+    for (figure, anchor) in figures.iter().zip(&put.at) {
+        let fits = |space: &Space| -> Result<(), Halt> {
+            if !slot.zone.contains(&space.hex()) {
+                return Err(Halt::reject("that space is outside your start zone"));
+            }
+            if !env.standable(*space) {
+                return Err(Halt::reject("a figure cannot stand there"));
+            }
+            Ok(())
+        };
+        fits(anchor)?;
+        let body = env.cells(state, *figure, *anchor, Rotation::default());
+        let body = body.ok_or_else(|| Halt::reject("a figure cannot stand there"))?;
+        for space in &body {
+            fits(space)?;
+            if state.occupant(*space).is_some() || !used.insert(*space) {
+                return Err(Halt::reject("that space is occupied"));
+            }
         }
-        if !env.standable(*space) {
-            return Err(Halt::reject("a figure cannot stand there"));
-        }
-        let taken = state.board_changes.occupancy.contains_key(space);
-        if taken || !used.insert(*space) {
-            return Err(Halt::reject("that space is occupied"));
-        }
+        bodies.push(body);
     }
-    Ok(())
+    Ok(bodies)
 }

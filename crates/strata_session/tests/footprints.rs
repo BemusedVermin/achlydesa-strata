@@ -147,8 +147,87 @@ fn a_snake_moves_with_engagement_in_the_ruleset() {
 }
 
 #[test]
+fn a_rigid_rear_cell_climbs_no_further_than_the_anchor_may() {
+    let reports = run();
+    refused(
+        &reports,
+        &["a rigid rear cell cannot climb further than the anchor may"],
+    );
+    // The control: the same slide with the rear rising one level instead of two.
+    let what = "a rigid rear cell may climb as far as the anchor may";
+    allowed(&reports, &[what]);
+    let (to, _, _) = last_move(report(&reports, what));
+    assert_eq!(to, Space::new(0, 1, 1));
+}
+
+#[test]
+fn a_rear_cell_without_headroom_falls_back_to_the_next_surface() {
+    let reports = run();
+    let what = "a rear cell without headroom stands on the next surface up";
+    allowed(&reports, &[what]);
+    let cells = report(&reports, what).events.iter().find_map(|e| match e {
+        Event::FigureMoved { cells, .. } => Some(cells.clone()),
+        _ => None,
+    });
+    assert_eq!(cells, Some(vec![Space::new(0, 0, 2), Space::new(1, 0, 3)]));
+}
+
+#[test]
+fn a_rear_cell_is_occupied_for_moves_and_placements() {
+    let reports = run();
+    refused(
+        &reports,
+        &["a figure cannot stop on another figure's rear cell"],
+    );
+    let what = "a test cannot place a figure on another figure's rear cell";
+    let failed = report(&reports, what).outcome.as_ref().unwrap_err();
+    assert!(failed.message.contains("share space"), "{failed:?}");
+}
+
+#[test]
+fn a_moved_body_records_every_cell() {
+    let reports = run();
+    let slid = report(&reports, "a rigid shape translates").events.iter();
+    let cells = slid.filter_map(|e| match e {
+        Event::FigureMoved { cells, .. } => Some(cells.clone()),
+        _ => None,
+    });
+    let cells: Vec<_> = cells.collect();
+    assert_eq!(cells, [vec![Space::new(0, 1, 1), Space::new(1, 1, 1)]]);
+}
+
+#[test]
+fn a_test_cannot_place_a_figure_where_there_is_no_surface() {
+    // Every placed figure, one-cell ones included, must stand on a surface it fits on.
+    let reports = run();
+    let what = "a test cannot place a figure where there is no surface";
+    let failed = report(&reports, what).outcome.as_ref().unwrap_err();
+    assert_eq!(failed.step, None, "{failed:?}");
+    let message = "place: `test_soldier` cannot stand at (0, 0, 5): no surface fits every cell";
+    assert_eq!(failed.message, message);
+}
+
+#[test]
+fn deployment_stands_a_rear_cell_where_movement_would() {
+    let reports = run();
+    let what = "a deployed rear cell without headroom stands on the next surface up";
+    allowed(&reports, &[what]);
+    let moves = report(&reports, what)
+        .events
+        .iter()
+        .filter_map(|e| match e {
+            Event::FigureMoved { cells, .. } => Some(cells.clone()),
+            _ => None,
+        });
+    let moves: Vec<_> = moves.collect();
+    let placed = vec![Space::new(0, 0, 2), Space::new(1, 0, 3)];
+    let walked = vec![Space::new(-1, 0, 2), Space::new(0, 0, 2)];
+    assert_eq!(moves, [placed, walked]);
+}
+
+#[test]
 fn every_footprint_test_is_checked_here() {
-    assert_eq!(run().len(), 14, "{}", summary(&run()));
+    assert_eq!(run().len(), 21, "{}", summary(&run()));
 }
 
 #[test]

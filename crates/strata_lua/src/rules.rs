@@ -220,6 +220,16 @@ impl NativeEnv for LuaRules {
         self.host.standable(space)
     }
 
+    fn cells(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        anchor: strata_kernel::Space,
+        rotation: strata_kernel::Rotation,
+    ) -> Option<Vec<strata_kernel::Space>> {
+        self.host.cells(state, figure, anchor, rotation)
+    }
+
     fn relic(&self, id: DefId) -> Option<strata_model::RelicDef> {
         self.host.relic(id)
     }

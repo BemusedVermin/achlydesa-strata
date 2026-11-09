@@ -1,6 +1,6 @@
 //! Rust logic that a registered trigger runs in place of a Lua script.
 
-use strata_kernel::{DefId, Hex, Space, Sym};
+use strata_kernel::{DefId, Hex, Rotation, Space, Sym};
 use strata_model::{
     Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureDef, FigureDefRef, FigureId,
     GameState, Logic, PlayerId, RelicDef,
@@ -52,6 +52,23 @@ pub trait NativeEnv: Send + Sync {
     /// Whether a figure can stand at `space`: it is a standable surface of the board.
     fn standable(&self, _space: Space) -> bool {
         false
+    }
+    /// The spaces `figure`'s footprint covers with its anchor on `anchor` turned by `rotation`,
+    /// in offset order, each cell standing where the ruleset's movement module would stand it
+    /// (see [`Movement::cells`](crate::Movement::cells)).
+    ///
+    /// `None` when the figure is unknown, `anchor` is not a surface, or some cell has no surface
+    /// it fits on within the footprint's level spread: passable, and with headroom when movement
+    /// checks it. Occupancy, start zones and `can_enter` are left to the caller. The default, for
+    /// hosts without footprints, covers the anchor alone.
+    fn cells(
+        &self,
+        _state: &GameState,
+        _figure: FigureId,
+        anchor: Space,
+        _rotation: Rotation,
+    ) -> Option<Vec<Space>> {
+        Some(vec![anchor])
     }
     /// The relic with this definition ID.
     fn relic(&self, _id: DefId) -> Option<RelicDef> {
