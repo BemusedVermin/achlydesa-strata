@@ -1,11 +1,16 @@
-//! `core:movement`: where a one-space figure can move (design §7.4).
+//! `core:movement`: where a figure can move (design §7.3, §7.4).
 //!
-//! `reachable` runs Dijkstra over surfaces. Costs, climbing and entry come from the `move_cost`,
-//! `can_climb` and `can_enter` queries, asked once per terrain and level change. Stop-on-enter
+//! `reachable` runs Dijkstra over (anchor space, rotation) nodes, so footprints of any size move
+//! in their `snake` or `rigid` mode with every cell on a surface. Costs, climbing and entry come
+//! from the `move_cost`, `can_climb` and `can_enter` queries, asked once per terrain and level
+//! change. Stop-on-enter
 //! terrain and falls end a move; occupied spaces can be passed through but not stopped on. A
-//! space whose route leaves engagement is flagged `provokes_reprisal`.
+//! space whose route takes any cell out of engagement is flagged `provokes_reprisal`. A move
+//! that ends in a fall emits `figure_fell`; `fall_wounds` turns on the native falling damage.
 
 mod api;
+mod body;
+mod fall;
 mod search;
 
 use std::collections::BTreeMap;
@@ -18,8 +23,12 @@ use strata_rules::{
     RuleModule,
 };
 
+pub use self::api::FIGURE_FELL;
+use self::fall::Fall;
 pub use self::search::{Headroom, Limits, reachable};
 
+#[cfg(test)]
+mod footprint_tests;
 #[cfg(test)]
 mod tests;
 
@@ -65,6 +74,7 @@ impl RuleModule for MovementModule {
                 (Sym::new("headroom"), field("str", headroom)),
                 (Sym::new("max_climb"), field("int", Value::Int(1))),
                 (Sym::new("max_fall"), field("int", Value::Int(2))),
+                (Sym::new("fall_wounds"), field("int", Value::Int(0))),
             ]))
         })
     }
@@ -91,6 +101,11 @@ impl RuleModule for MovementModule {
             max_climb: levels("max_climb")?,
             max_fall: levels("max_fall")?,
         };
+        Fall {
+            per_level: levels("fall_wounds")?,
+            max_fall: limits.max_fall,
+        }
+        .register(r);
         let service: Arc<dyn Movement> = Arc::new(Service { limits });
         r.service(Box::new(service));
         let functions = ["reachable", "move"].map(Sym::new).to_vec();
