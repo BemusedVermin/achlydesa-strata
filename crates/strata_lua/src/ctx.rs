@@ -53,6 +53,10 @@ pub trait RuleHost: Send + Sync {
     fn relic(&self, _id: strata_kernel::DefId) -> Option<strata_model::RelicDef> {
         None
     }
+    /// The definition of a figure entry of a unit.
+    fn figure_def(&self, _figure: &strata_model::FigureDefRef) -> Option<&strata_model::FigureDef> {
+        None
+    }
     /// Every space `figure` can reach under the ruleset's `movement` module.
     fn reachable(&self, _state: &GameState, _figure: FigureId) -> Result<Vec<Reach>, LogicError> {
         Err(LogicError("the ruleset has no `movement` module".into()))

@@ -6,6 +6,7 @@
 
 pub mod activation;
 pub mod deployment;
+pub mod engagement;
 pub mod los;
 pub mod movement;
 pub mod relics;
@@ -28,6 +29,7 @@ pub fn native_modules() -> Vec<Box<dyn RuleModule>> {
         Box::new(movement::MovementModule),
         Box::new(activation::Activation),
         Box::new(relics::Relics),
+        Box::new(engagement::EngagementModule),
         Box::new(deployment::Deployment),
     ]
 }

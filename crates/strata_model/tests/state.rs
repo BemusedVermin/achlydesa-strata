@@ -148,3 +148,11 @@ fn visibility_tags() {
         Visibility::Public
     );
 }
+
+#[test]
+fn a_listed_player_has_its_team_and_an_unlisted_one_its_own() {
+    let mut state = base();
+    state.players[0].team = 3;
+    assert_eq!(state.team(PlayerId(0)), 3);
+    assert_eq!(state.team(PlayerId(5)), 5);
+}

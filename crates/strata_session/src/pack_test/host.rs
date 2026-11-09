@@ -11,9 +11,9 @@ use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::{BoardDefs, CompiledBoard};
 use strata_model::{
-    AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus, FootprintDef,
-    GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef, StatDef, TerrainDef, TileDef,
-    UnitDef, UnitId, UnitState,
+    AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureDef, FigureDefRef, FigureId,
+    FigureStatus, FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef,
+    StatDef, TerrainDef, TileDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
     Ctx, DeploySlot, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics,
@@ -308,16 +308,29 @@ impl RuleHost for Host {
         NativeEvaluator { world: &world }.eval(descriptor, &cx)
     }
 
+    /// Answers `stat` with `[figure, stat]`, and `vote` with `[key, default, figure, context]`.
     fn query(&self, state: &GameState, name: &str, args: &[Value]) -> Result<Value, LogicError> {
         let asked = |e: strata_kernel::ValueError| LogicError(format!("query `{name}`: {e}"));
-        if name != "stat" || args.len() != 2 {
-            return Err(LogicError(format!(
+        match (name, args) {
+            ("stat", [figure, stat]) => {
+                let figure = FigureId(figure.as_int().map_err(asked)? as u32);
+                let stat = stat.as_str().map_err(asked)?;
+                self.stat(state, figure, stat).map(Value::Int)
+            }
+            ("vote", [key, default, subject, context]) => {
+                let query = VoteQuery {
+                    key: Sym::new(key.as_str().map_err(asked)?),
+                    default: default.as_bool().map_err(asked)?,
+                    subject: subject.clone(),
+                    context: context.clone(),
+                };
+                let figure = FigureId(subject.as_int().map_err(asked)? as u32);
+                self.ask(state, figure, &query).map(Value::Bool)
+            }
+            _ => Err(LogicError(format!(
                 "the harness cannot answer query `{name}`"
-            )));
+            ))),
         }
-        let figure = FigureId(args[0].as_int().map_err(asked)? as u32);
-        let stat = args[1].as_str().map_err(asked)?;
-        self.stat(state, figure, stat).map(Value::Int)
     }
 
     fn reachable(&self, state: &GameState, figure: FigureId) -> Result<Vec<Reach>, LogicError> {
@@ -366,6 +379,11 @@ impl RuleHost for Host {
 
     fn relic(&self, id: DefId) -> Option<RelicDef> {
         self.registry.get::<RelicDef>(id).cloned()
+    }
+
+    fn figure_def(&self, figure: &FigureDefRef) -> Option<&FigureDef> {
+        let unit = self.registry.get::<UnitDef>(figure.unit)?;
+        unit.figures.iter().find(|f| f.id == figure.figure)
     }
 
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
@@ -434,8 +452,7 @@ impl World for StateWorld<'_> {
     }
 
     fn team(&self, player: PlayerId) -> u8 {
-        let player_state = self.state.players.get(player.index());
-        player_state.map_or(player.0, |p| p.team)
+        self.state.team(player)
     }
 
     fn has_trait(&self, figure: FigureId, value: &str) -> bool {
