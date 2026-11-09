@@ -10,7 +10,8 @@ use strata_model::{
 };
 use strata_modules::native_modules;
 use strata_rules::{
-    Engagement, Engine, Movement, PhaseTree, RulesetSource, SourcedModifier, resolve,
+    ActivationRules, Engagement, Engine, Flow, Movement, PhaseTree, RulesetSource, SourcedModifier,
+    resolve,
 };
 
 use crate::controller::Controller;
@@ -20,6 +21,7 @@ use crate::pack_test::host::{Host, find};
 use crate::session::Session;
 use crate::setup::{build_match, pack_identities};
 use crate::sim::{SimHandle, SimLink};
+use crate::view::BoardInfo;
 
 /// What to play. Every seat is a human seat served by the client's channels, which suits hot-seat.
 #[derive(Clone, Debug)]
@@ -98,14 +100,19 @@ fn play(spec: &LaunchSpec, link: &SimLink) -> Result<(), String> {
         priority: 0,
         def: m.clone(),
     });
+    link.send_board(BoardInfo {
+        board: built.board.clone(),
+        orientation: built.orientation,
+        features: built.features,
+    });
     let movement = rt.service::<Arc<dyn Movement>>().cloned();
     let engagement = rt.service::<Arc<dyn Engagement>>().cloned();
     let host = Host::new(registry, pack, modifiers.collect(), Some(built.board));
     let host = host.with_movement(movement).with_engagement(engagement);
-    let phases = PhaseTree::build(rt.phases()).map(|t| t.phases().to_vec());
-    let _ = host
-        .names
-        .set(Arc::new(Names::of(registry, &phases.unwrap_or_default())));
+    let tree = PhaseTree::build(rt.phases()).unwrap_or_default();
+    let actions = rt.actions().iter().map(|a| &a.id);
+    let names = Names::of(registry, tree.phases()).with_actions(actions);
+    let _ = host.names.set(Arc::new(names));
     let host = Arc::new(host);
     let bindings = rt
         .configs()
@@ -119,7 +126,15 @@ fn play(spec: &LaunchSpec, link: &SimLink) -> Result<(), String> {
     let rules = LuaRules::new(&rt, scripts, packs, bindings.collect(), host.clone());
     let rules = Arc::new(rules);
     let _ = host.rules.set(Arc::downgrade(&rules));
-    let engine = Engine::new(&rt, &*rules, built.state);
+    let mut engine = Engine::new(&rt, &*rules, built.state);
+    if let Some(activation) = rt.service::<ActivationRules>() {
+        engine = engine.with_flow(Flow {
+            tree,
+            rules: activation.clone(),
+            runner: &*rules,
+            turn_phase: strata_kernel::Sym::new(strata_modules::rounds::TURNS),
+        });
+    }
     let controllers: Vec<Box<dyn Controller>> = (0..seats)
         .map(|_| Box::new(link.human()) as Box<dyn Controller>)
         .collect();

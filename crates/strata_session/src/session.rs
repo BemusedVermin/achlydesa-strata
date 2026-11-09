@@ -1,6 +1,8 @@
 //! The command loop: asks the right controller, feeds the engine, records the match.
 
-use strata_model::{Event, GameState, PlayerId};
+use std::cell::OnceCell;
+
+use strata_model::{Command, Event, GameState, PlayerId, TokenChoice};
 use strata_rules::{Engine, Outcome, RuleViolation};
 
 use crate::controller::Controller;
@@ -29,6 +31,9 @@ pub struct Session<'a> {
     engine: Engine<'a>,
     controllers: Vec<Box<dyn Controller>>,
     snapshots: Vec<Snapshot>,
+    /// The legal commands of one player in the committed state, so the view sent out and the
+    /// next step share one evaluation of the action `targets` scripts. Reset on every change.
+    legal: OnceCell<(PlayerId, Vec<Command>)>,
 }
 
 impl<'a> Session<'a> {
@@ -38,12 +43,31 @@ impl<'a> Session<'a> {
             engine,
             controllers,
             snapshots: Vec::new(),
+            legal: OnceCell::new(),
         }
     }
 
     /// The committed state.
     pub fn state(&self) -> &GameState {
         self.engine.state()
+    }
+
+    /// The commands `player` may submit now. The first player asked about after each change is
+    /// remembered, so asking again does not run the `targets` scripts again.
+    pub fn legal_commands(&self, player: PlayerId) -> Vec<Command> {
+        let (cached, legal) = self
+            .legal
+            .get_or_init(|| (player, self.engine.legal_commands(player)));
+        if *cached == player {
+            legal.clone()
+        } else {
+            self.engine.legal_commands(player)
+        }
+    }
+
+    /// How `player` may place the tokens in hand, if they have any to place.
+    pub fn token_choice(&self, player: PlayerId) -> Option<TokenChoice> {
+        self.engine.token_choice(player)
     }
 
     /// Asks whoever must act next, and returns the events that committed (none when the
@@ -65,7 +89,7 @@ impl<'a> Session<'a> {
             None => {
                 let active = state.flow.active;
                 let view = PlayerView::of(state, active);
-                let legal = self.engine.legal_commands(active);
+                let legal = self.legal_commands(active);
                 let seat = self.seat(active)?;
                 let command = seat.choose_command(&view, &legal);
                 if seat.abandoned() {
@@ -74,6 +98,7 @@ impl<'a> Session<'a> {
                 self.engine.submit(active, command)
             }
         };
+        self.legal = OnceCell::new();
         match outcome {
             Outcome::Committed(events) => {
                 self.snapshot();

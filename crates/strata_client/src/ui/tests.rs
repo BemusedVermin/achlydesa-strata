@@ -37,6 +37,10 @@ pub(crate) fn launched_view() -> PlayerView {
         armies: vec![army(), army()],
         commands: 0,
     });
+    assert!(matches!(
+        handle.recv_timeout(Duration::from_secs(60)),
+        Ok(SimMessage::Board(_))
+    ));
     match handle.recv_timeout(Duration::from_secs(60)) {
         Ok(SimMessage::View(view)) => *view,
         other => panic!("expected a view, got {other:?}"),
@@ -220,4 +224,65 @@ fn drawing_the_prompt_with_no_input_leaves_the_decision_input_unchanged() {
         assert_eq!(answer, None);
         assert_eq!(input, before);
     }
+}
+
+#[test]
+fn drawing_the_command_panel_and_token_screen_with_no_input_changes_nothing() {
+    use bevy_egui::egui;
+    use strata_model::{Command, FigureId, TokenChoice};
+
+    use crate::input::CommandInput;
+
+    let walk = Command::Action {
+        figure: FigureId(0),
+        action: DefId(0),
+        args: Value::Nil,
+    };
+    let offers = [
+        (vec![Command::ActivateUnit(UnitId(0))], None),
+        (vec![walk, Command::EndActivation], None),
+        (vec![Command::EndActivation], None),
+        (Vec::new(), None),
+        (
+            Vec::new(),
+            Some(TokenChoice {
+                hand: vec![DefId(1), DefId(0)],
+                units: vec![UnitId(0)],
+            }),
+        ),
+    ];
+    for (legal, tokens) in offers {
+        let mut view = launched_view();
+        view.legal = legal;
+        view.tokens = tokens;
+        let mut input = CommandInput::of(&view);
+        let before = input.clone();
+        let ctx = egui::Context::default();
+        let mut built = None;
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                built = match input.tokens {
+                    Some(_) => super::command::tokens(ui, &view, &mut input),
+                    None => super::command::command(ui, &view, &mut input),
+                };
+            });
+            output.textures_delta.clear();
+        }
+        assert_eq!(built, None);
+        assert_eq!(input, before);
+    }
+}
+
+#[test]
+fn tokens_and_steps_are_worded_for_the_player() {
+    use super::command::{step_text, token_label};
+    use crate::input::builder::Step;
+
+    assert_eq!(token_label(DefId(0)), "Decoy");
+    assert_eq!(token_label(DefId(2)), "Token 2");
+    assert_eq!(step_text(Step::Unit), "Pick a unit to activate.");
+    assert_eq!(
+        step_text(Step::End),
+        "No figure can act. End the activation."
+    );
 }

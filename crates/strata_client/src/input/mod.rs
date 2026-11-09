@@ -1,8 +1,10 @@
-//! Decision input (design §13.3, §13.5).
+//! Decision and command input (design §13.3, §13.5).
 //!
 //! What is highlighted, what a click means and why a click is refused are decided by the
-//! Bevy-free [`decision`] and [`pick`] modules. The systems here only feed them the newest view
-//! and the board's clicks, and send the answers they produce to the simulation.
+//! Bevy-free [`decision`], [`builder`], [`tokens`] and [`pick`] modules. The systems here only
+//! feed them the newest view and the board's clicks, and send the answers and commands they
+//! produce to the simulation. A pending decision takes clicks first; otherwise they build a
+//! command.
 
 use bevy::prelude::*;
 use bevy_egui::input::EguiWantsInput;
@@ -10,10 +12,15 @@ use strata_model::Answer;
 use strata_render::{BoardHighlights, SpaceClicked};
 use strata_session::PlayerView;
 
-use crate::sim_link::{LatestView, SendAnswer, SimStatus};
+use crate::sim_link::{LatestView, SendAnswer, SendCommand, SimStatus};
 
+pub mod builder;
+mod command;
 pub mod decision;
 pub mod pick;
+pub mod tokens;
+
+pub use command::{CommandInput, Press};
 
 use decision::{Highlights, Widget};
 use pick::{Pick, Refusal};
@@ -58,6 +65,12 @@ impl DecisionInput {
         self.settle(result.ok())
     }
 
+    /// The reason the last click was refused, while it still applies: none once an answer has
+    /// gone out.
+    pub fn refusal(&self) -> Option<Refusal> {
+        self.why.filter(|_| !self.sent)
+    }
+
     /// Notes that `answer`, if any, is going out.
     pub fn settle(&mut self, answer: Option<Answer>) -> Option<Answer> {
         self.sent |= answer.is_some();
@@ -74,30 +87,40 @@ impl DecisionInput {
     }
 }
 
-/// The figures and spaces of the pending decision that are highlighted. The board itself draws
-/// [`BoardHighlights`], which holds only spaces; this keeps the figures too, for tests.
+/// The figures and spaces that are highlighted: the pending decision's, or else what the command
+/// being built allows. The board itself draws [`BoardHighlights`], which holds only spaces; this
+/// keeps the figures too, for the panels and tests.
 #[derive(Resource, Default, Debug, PartialEq, Eq)]
 pub struct Highlighted(pub Highlights);
 
-/// Turns board clicks into answers and keeps the highlights current.
-pub struct DecisionInputPlugin;
+/// Turns board clicks into answers and commands, and keeps the highlights current.
+pub struct PlayerInputPlugin;
 
-impl Plugin for DecisionInputPlugin {
+impl Plugin for PlayerInputPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<DecisionInput>()
+            .init_resource::<CommandInput>()
             .init_resource::<Highlighted>()
             .init_resource::<BoardHighlights>()
             .add_message::<SpaceClicked>()
+            .add_message::<SendCommand>()
             .add_systems(Update, (refresh, on_click, highlight).chain());
     }
 }
 
 /// Starts over whenever a new view arrives, and clears the input once the match has stopped.
-fn refresh(view: Res<LatestView>, status: Res<SimStatus>, mut input: ResMut<DecisionInput>) {
+fn refresh(
+    view: Res<LatestView>,
+    status: Res<SimStatus>,
+    mut input: ResMut<DecisionInput>,
+    mut command: ResMut<CommandInput>,
+) {
     if *status != SimStatus::Running {
         input.set_if_neq(DecisionInput::default());
+        command.set_if_neq(CommandInput::default());
     } else if let Some(view) = view.0.as_deref().filter(|_| view.is_changed()) {
         *input = DecisionInput::of(view);
+        *command = CommandInput::of(view);
     }
 }
 
@@ -106,15 +129,22 @@ fn on_click(
     egui: Option<Res<EguiWantsInput>>,
     view: Res<LatestView>,
     mut input: ResMut<DecisionInput>,
+    mut command: ResMut<CommandInput>,
     mut answers: MessageWriter<SendAnswer>,
+    mut commands: MessageWriter<SendCommand>,
 ) {
     let over_panel = egui.is_some_and(|e| e.is_pointer_over_area());
     for SpaceClicked(space) in clicks.read() {
         let Some(view) = view.0.as_deref().filter(|_| !over_panel) else {
             continue;
         };
-        if let Some(answer) = input.click(&Pick::at(&view.state, *space)) {
-            answers.write(SendAnswer(answer));
+        let pick = Pick::at(&view.state, *space);
+        if input.widget.is_some() {
+            if let Some(answer) = input.click(&pick) {
+                answers.write(SendAnswer(answer));
+            }
+        } else if let Some(built) = command.click(&view.state, &pick) {
+            commands.write(SendCommand(built));
         }
     }
 }
@@ -122,14 +152,18 @@ fn on_click(
 fn highlight(
     view: Res<LatestView>,
     input: Res<DecisionInput>,
+    command: Res<CommandInput>,
     mut shown: ResMut<Highlighted>,
     mut board: ResMut<BoardHighlights>,
 ) {
     let Some(state) = view.0.as_deref().map(|v| &v.state) else {
         return;
     };
-    if view.is_changed() || input.is_changed() {
-        let highlights = input.highlights();
+    if view.is_changed() || input.is_changed() || command.is_changed() {
+        let highlights = match input.widget {
+            Some(_) => input.highlights(),
+            None => command.highlights(state),
+        };
         board.set_if_neq(BoardHighlights(highlights.board_spaces(state)));
         shown.set_if_neq(Highlighted(highlights));
     }

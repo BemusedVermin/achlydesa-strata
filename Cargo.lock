@@ -5091,6 +5091,7 @@ dependencies = [
  "strata_modules",
  "strata_render",
  "strata_rules",
+ "strata_scene",
  "strata_session",
 ]
 
@@ -5191,6 +5192,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "strata_kernel",
+ "strata_model",
  "strata_scene",
 ]
 

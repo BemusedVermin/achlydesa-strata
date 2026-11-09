@@ -22,6 +22,7 @@ strata_ai = { path = "../strata_ai" }
 strata_editor = { path = "../strata_editor" }
 bevy = { workspace = true }
 strata_render = { path = "../strata_render" }
+strata_scene = { path = "../strata_scene" }
 bevy_egui = "=0.43.1"
 clap = { version = "4", features = ["derive"] }
 

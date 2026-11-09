@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use strata_render::RenderPlugins;
 
 use crate::dev::DevPlugin;
-use crate::input::DecisionInputPlugin;
+use crate::input::PlayerInputPlugin;
 use crate::ui::UiPlugin;
 
 macro_rules! skeleton {
@@ -36,7 +36,7 @@ impl Plugin for ClientPlugins {
         app.add_plugins((
             RenderPlugins,
             UiPlugin,
-            DecisionInputPlugin,
+            PlayerInputPlugin,
             EditorPlugin,
             AssetsPlugin,
             DevPlugin,

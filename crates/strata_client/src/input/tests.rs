@@ -13,11 +13,11 @@ use strata_session::{LaunchSpec, PlayerView, SimHandle, SimMessage, launch};
 use super::decision::{Highlights, Widget, reorder};
 use super::pick::{Pick, Refusal};
 use super::*;
-use crate::sim_link::{SendCommand, SimLinkPlugin, SimStatus};
+use crate::sim_link::{EventLog, SendCommand, SimLinkPlugin, SimStatus};
 
 // ---- fixtures -------------------------------------------------------------------------------
 
-fn figure(unit: u32, owner: u8, at: Option<Space>) -> FigureState {
+pub(super) fn figure(unit: u32, owner: u8, at: Option<Space>) -> FigureState {
     FigureState {
         unit: UnitId(unit),
         controller: PlayerId(owner),
@@ -31,13 +31,13 @@ fn figure(unit: u32, owner: u8, at: Option<Space>) -> FigureState {
     }
 }
 
-fn space(q: i32) -> Space {
+pub(super) fn space(q: i32) -> Space {
     Space::new(q, 0, 1)
 }
 
 /// Unit 0 (player 0) has figures 0 and 1; unit 1 (player 1) has figures 2 and 3, with 3 in
 /// reserve.
-fn state() -> GameState {
+pub(super) fn state() -> GameState {
     let unit = |owner: u8, figures: [u32; 2]| UnitState {
         owner: PlayerId(owner),
         figures: figures.map(FigureId).to_vec(),
@@ -62,7 +62,7 @@ fn decision(kind: DecisionKind) -> Decision {
     }
 }
 
-fn figures(ids: &[u32]) -> BTreeSet<FigureId> {
+pub(super) fn figures(ids: &[u32]) -> BTreeSet<FigureId> {
     ids.iter().copied().map(FigureId).collect()
 }
 
@@ -217,7 +217,7 @@ fn input_app() -> App {
         .init_resource::<LatestView>()
         .init_resource::<SimStatus>()
         .add_message::<SendAnswer>()
-        .add_plugins(DecisionInputPlugin);
+        .add_plugins(PlayerInputPlugin);
     app
 }
 
@@ -337,9 +337,12 @@ fn attack(attacker: i64, target: i64) -> Command {
 }
 
 fn next_view(handle: &SimHandle) -> PlayerView {
-    match handle.recv_timeout(WAIT) {
-        Ok(SimMessage::View(view)) => *view,
-        other => panic!("expected a view, got {other:?}"),
+    loop {
+        match handle.recv_timeout(WAIT) {
+            Ok(SimMessage::View(view)) => return *view,
+            Ok(SimMessage::Board(_)) => {}
+            other => panic!("expected a view, got {other:?}"),
+        }
     }
 }
 
@@ -348,7 +351,7 @@ fn view_after_events(handle: &SimHandle) -> PlayerView {
     loop {
         match handle.recv_timeout(WAIT) {
             Ok(SimMessage::View(view)) => return *view,
-            Ok(SimMessage::Events(_)) => {}
+            Ok(SimMessage::Events(_) | SimMessage::Board(_)) => {}
             other => panic!("expected a view, got {other:?}"),
         }
     }
@@ -404,7 +407,7 @@ fn the_client_highlights_the_choices_of_a_decision_it_receives() {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .add_plugins(SimLinkPlugin::new(decide()))
-        .add_plugins(DecisionInputPlugin);
+        .add_plugins(PlayerInputPlugin);
     let mut frames = 0;
     let mut sent = false;
     while app.world().resource::<Highlighted>().0.figures.is_empty() {
@@ -424,4 +427,118 @@ fn the_client_highlights_the_choices_of_a_decision_it_receives() {
     );
     let input = app.world().resource::<DecisionInput>();
     assert!(matches!(input.widget, Some(Widget::Figures(_))));
+}
+
+// ---- end to end: a real match from deployment to an action ----------------------------------
+
+/// Runs frames until `ready` holds for the app, failing after a while.
+fn until(app: &mut App, what: &str, ready: impl Fn(&App) -> bool) {
+    let mut frames = 0;
+    while !ready(app) {
+        app.update();
+        frames += 1;
+        assert!(frames < 2000, "{what} never happened");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
+fn custom(id: &str, payload: Value) -> Command {
+    Command::Custom {
+        id: Sym::new(id),
+        payload,
+    }
+}
+
+/// The `command` fixture: player 0 deploys one soldier, places its token, activates it by a
+/// click on the board and walks; player 1 has no army.
+#[test]
+fn a_real_match_is_played_from_the_client_through_tokens_activation_and_an_action() {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let mut soldier = army("test_soldier");
+    if let Some(list) = &mut soldier {
+        list.units[0].copies = 1;
+    }
+    let handle = launch(LaunchSpec {
+        roots: vec![PathBuf::from(root).join("../../fixtures/packs/command")],
+        scenario: "duel".into(),
+        ruleset: Some("rs".into()),
+        seed: 5,
+        armies: vec![soldier, None],
+        commands: 6,
+    });
+    let mut app = App::new();
+    app.add_plugins(MinimalPlugins)
+        .add_plugins(SimLinkPlugin::new(handle))
+        .add_plugins(PlayerInputPlugin);
+    let index = |app: &App| {
+        let view = app.world().resource::<LatestView>().0.as_deref();
+        view.map(|v| v.state.command_index)
+    };
+    until(&mut app, "the first view", |app| index(app) == Some(0));
+    let at = Value::List(vec![Value::List([0, 0, 1].map(Value::Int).to_vec())]);
+    let place = [(Sym::new("unit"), Value::Int(0)), (Sym::new("at"), at)];
+    let deploy = custom("place_unit", Value::Map(place.into()));
+    app.world_mut().write_message(SendCommand(deploy));
+    until(&mut app, "deployment", |app| index(app) == Some(1));
+    let start = custom("start_round", Value::Nil);
+    app.world_mut().write_message(SendCommand(start));
+
+    // The token placement screen: a click on the soldier puts the only token on its unit.
+    let input = |app: &App| app.world().resource::<CommandInput>().clone();
+    until(&mut app, "token placement", |app| {
+        input(app).tokens.is_some()
+    });
+    let soldier = Space::new(0, 0, 1);
+    assert_eq!(
+        app.world().resource::<Highlighted>().0.figures,
+        figures(&[0])
+    );
+    app.world_mut().write_message(SpaceClicked(soldier));
+    app.update();
+    let placement = input(&app).tokens.and_then(|t| t.command());
+    let placement = placement.expect("the click placed the whole hand");
+    app.world_mut().write_message(SendCommand(placement));
+
+    // The turn: a click on the soldier activates its unit, a second selects it to act.
+    until(&mut app, "the turn", |app| {
+        input(app).builder.step() == builder::Step::Unit
+    });
+    assert_eq!(
+        app.world().resource::<Highlighted>().0.figures,
+        figures(&[0])
+    );
+    app.world_mut().write_message(SpaceClicked(soldier));
+    until(&mut app, "the activation", |app| {
+        input(app).builder.step() == builder::Step::Figure
+    });
+    app.world_mut().write_message(SpaceClicked(soldier));
+    app.update();
+    let mut built = input(&app);
+    assert_eq!(built.builder.step(), builder::Step::Action(FigureId(0)));
+    let walk = built.builder.actions()[0];
+    let names = app
+        .world()
+        .resource::<LatestView>()
+        .0
+        .as_ref()
+        .unwrap()
+        .names
+        .clone();
+    assert_eq!(names.action(walk), Some("walk"));
+    let action = built
+        .builder
+        .choose_action(walk)
+        .expect("walk takes no target");
+    assert!(matches!(
+        action,
+        Command::Action {
+            figure: FigureId(0),
+            ..
+        }
+    ));
+    app.world_mut().write_message(SendCommand(action));
+    let walked = |e: &Event| matches!(e, Event::Custom { id, .. } if id.as_str() == "walked");
+    until(&mut app, "the walk", |app| {
+        app.world().resource::<EventLog>().0.iter().any(walked)
+    });
 }

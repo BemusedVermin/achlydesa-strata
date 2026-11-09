@@ -2,7 +2,7 @@ use strata_kernel::DefId;
 use strata_model::{
     FigureId, GameState, PlayerId, PlayerState, Token, UnitId, UnitState, Visibility,
 };
-use strata_rules::ActivationGate;
+use strata_rules::{ActivationGate, TokenRules};
 
 use super::*;
 
@@ -80,4 +80,50 @@ fn a_player_cannot_activate_a_unit_that_is_not_theirs() {
     let third = state(3);
     assert!(!may(&third, 0, 2), "unit 2 is player 1's");
     assert!(!may(&third, 0, 99), "an unknown unit is refused");
+}
+
+/// Player 0 owns units 0 and 1, both with a figure on the board, and unit 3, whose only figure
+/// is destroyed. Player 1 owns unit 2. Player 0 holds a 1 and a decoy.
+fn placing(on: bool) -> GameState {
+    let unit = |owner: u8, figure: u32| UnitState {
+        owner: PlayerId(owner),
+        figures: vec![FigureId(figure)],
+        ..Default::default()
+    };
+    let figure = |status| strata_model::FigureState {
+        status,
+        ..Default::default()
+    };
+    let mut state = GameState {
+        players: vec![PlayerState::default(); 2],
+        units: vec![unit(0, 0), unit(0, 1), unit(1, 2), unit(0, 3)],
+        figures: vec![
+            figure(FigureStatus::OnBoard),
+            figure(FigureStatus::Reserve),
+            figure(FigureStatus::OnBoard),
+            figure(FigureStatus::Destroyed),
+        ],
+        ..Default::default()
+    };
+    state.players[0].hand = vec![numbered(1), DECOY];
+    if on {
+        state.vars.insert(key("placing"), Value::Bool(true));
+    }
+    state
+}
+
+#[test]
+fn the_choice_is_the_hand_on_the_players_live_units_while_placing() {
+    let choice = Choice.choice(&placing(true), PlayerId(0));
+    let want = TokenChoice {
+        hand: vec![numbered(1), DECOY],
+        units: vec![UnitId(0), UnitId(1)],
+    };
+    assert_eq!(choice, Some(want));
+    assert_eq!(Choice.choice(&placing(false), PlayerId(0)), None);
+    assert_eq!(
+        Choice.choice(&placing(true), PlayerId(1)),
+        None,
+        "an empty hand has nothing to place"
+    );
 }
