@@ -574,6 +574,11 @@ fn a_next_actor_service_decides_who_acts_and_who_is_offered_commands() {
     let engine = into_turns(&rt, &runner, &rules);
     assert_eq!(engine.state().flow.active, PlayerId(0));
     assert_eq!(engine.acting(), PlayerId(1));
-    // Player 0 is active but not the one to act, so nothing is offered to them.
+    // Player 0 is active but not the one to act, so nothing is offered to them; player 1 is
+    // offered their own unit.
     assert!(engine.legal_commands(PlayerId(0)).is_empty());
+    assert_eq!(
+        engine.legal_commands(PlayerId(1)),
+        [Command::ActivateUnit(UnitId(1))]
+    );
 }

@@ -7,7 +7,8 @@
 //! reserve units on a standable, empty surface inside the player's start zone; a figure with a
 //! larger footprint needs every cell of it there. Each cell stands where the movement module
 //! would stand it, headroom included, so a figure is never placed where it could not move (see
-//! `NativeEnv::cells`). When the last unit is down the module emits `deployment_done`.
+//! `NativeEnv::cells`). When the last unit is down the module emits `deployment_done`, and its
+//! own trigger on that event closes the `deploy` step.
 //!
 //! Placing happens in the `deploy` step of the `setup` phase, which the module registers (see
 //! [`crate::setup`]). The first placement opens it, and the last one closes `setup`, which
@@ -40,8 +41,8 @@ pub const DEPLOYMENT_DONE: &str = "deployment_done";
 const REQUESTED: &str = "placement_requested";
 /// The name the driver is registered under.
 const DRIVE: &str = "core:deployment.drive";
-/// The module's ID.
-const OWNER: &str = "core:deployment";
+/// The module's ID, which also owns the placement cursor (see [`crate::deploy_order`]).
+pub(crate) const OWNER: &str = "core:deployment";
 
 /// The deployment slot.
 pub struct Deployment;
@@ -83,12 +84,16 @@ impl RuleModule for Deployment {
         r.service::<dyn NextActor>(Box::new(DeployTurn(order)));
         r.native(DRIVE, Box::new(Drive { order }));
         let call = [(Sym::new("native"), Value::Str(Sym::new(DRIVE)))];
-        r.trigger(TriggerDef {
-            event: Sym::new(REQUESTED),
-            filter: None,
-            limit: None,
-            effect: Logic::Native(Descriptor(Value::Map(call.into()))),
-        });
+        // `deployment_done` closes the step one trigger batch after the last placement, so its
+        // other listeners resolve before `setup_ended` starts round 1.
+        for event in [REQUESTED, DEPLOYMENT_DONE] {
+            r.trigger(TriggerDef {
+                event: Sym::new(event),
+                filter: None,
+                limit: None,
+                effect: Logic::Native(Descriptor(Value::Map(call.clone().into()))),
+            });
+        }
         Ok(())
     }
 }
@@ -153,6 +158,7 @@ struct Drive {
 impl NativeLogic for Drive {
     fn run(&self, ctx: &mut dyn Ctx, env: &dyn NativeEnv, event: &Event) -> Result<(), Halt> {
         match event {
+            Event::Custom { id, .. } if id.as_str() == DEPLOYMENT_DONE => finish(ctx, env),
             Event::Custom { payload, .. } => self.place(ctx, env, payload),
             _ => Ok(()),
         }
@@ -195,12 +201,19 @@ impl Drive {
         ctx.emit(Event::Custom {
             id,
             payload: Value::Nil,
-        })?;
-        match env.phases() {
-            Some(tree) => setup::finish_step(ctx, tree),
-            None => Ok(()),
-        }
+        })
     }
+}
+
+/// Closes the `deploy` step once deployment is done, which may end setup.
+fn finish(ctx: &mut dyn Ctx, env: &dyn NativeEnv) -> Result<(), Halt> {
+    let Some(tree) = env.phases() else {
+        return Ok(());
+    };
+    if setup::current(ctx.state(), tree).map(Sym::as_str) != Some(DEPLOY) {
+        return Ok(());
+    }
+    setup::finish_step(ctx, tree)
 }
 
 /// The figures of the placed unit, which must be the player's and waiting in reserve.

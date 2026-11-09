@@ -8,8 +8,7 @@ use strata_kernel::{ModuleId, Sym, Value};
 use strata_model::{Event, FigureStatus, GameState, PlayerId, VarKey};
 use strata_rules::{Ctx, Halt, NativeEnv, NextActor};
 
-/// The module that owns the placement cursor.
-const OWNER: &str = "core:deployment";
+use crate::deployment::OWNER;
 
 /// How the seats take turns placing their units.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

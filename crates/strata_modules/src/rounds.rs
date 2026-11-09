@@ -195,13 +195,14 @@ impl Drive {
     /// Starts the next round and rolls initiative, leaving the game in the phase after it.
     fn begin(&self, ctx: &mut dyn Ctx, env: &dyn NativeEnv, tree: &PhaseTree) -> Result<(), Halt> {
         let state = ctx.state();
-        if !state.flow.phases.is_empty() {
-            return Err(Halt::reject("a round is already under way"));
-        }
+        // Checked first: mid-setup the stack holds `setup`, which is not a round under way.
         if setup::unfinished(state, env, tree) {
             return Err(Halt::reject(
                 "setup is not over: units are still waiting to deploy",
             ));
+        }
+        if !state.flow.phases.is_empty() {
+            return Err(Halt::reject("a round is already under way"));
         }
         let seats = state.players.len();
         if seats == 0 {

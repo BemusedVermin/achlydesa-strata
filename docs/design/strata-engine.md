@@ -200,7 +200,7 @@ The sandbox's `pcall` rethrows the halt signal, so a script cannot accidentally 
 2. Legality runs the same code the UI uses for `legal_commands` and previews.
 3. Resolution runs on the working copy with the current tape.
 4. Each emitted event passes the replacement hooks, applies to the working copy, then queues its triggers.
-5. Queued triggers resolve active player first. A player with several simultaneous triggers is asked to order them.
+5. Queued triggers resolve in batches. In each batch the rules' own triggers (native logic registered by a Rust module) fire first, in the order they were queued: by event, then by registration. Players' triggers follow, active player first, and a player with several simultaneous triggers is asked to order them (section 6.7).
 6. On completion, the working copy replaces the state, the record joins the log, and the state hash is computed.
 7. Events go to the client through each player's visibility filter (section 15.3).
 
@@ -339,7 +339,7 @@ ruleset {
 
 Game flow is a tree of phases: setup, then rounds, each containing initiative, token placement, turns and round end. Entering and leaving a phase emits events, which is what "at the start of your turn" hooks. Modules insert phases at named anchors (`after = "turns.round_end"`).
 
-`core:deployment` registers `setup` with one step, `deploy`. The first `place_unit` opens them; the last placement closes `setup` and emits `setup_ended`, on which `core:rounds` starts round 1 without a `start_round`, and refuses one while units still wait. Players place in their slots' `deploy_order`, either one unit each in turn (`order = "alternate"`, the default) or a whole reserve per seat (`order = "army"`). While units wait, the deployment module names the deploying player through a `NextActor` service, so the session asks that player for the next command rather than the active player.
+`core:deployment` registers `setup` with one step, `deploy`. The first `place_unit` opens them. The last placement emits `deployment_done`; the module's own trigger on it closes `deploy` and `setup` and emits `setup_ended`, on which `core:rounds` starts round 1 without a `start_round`, and refuses one while units still wait. Each of those steps is a trigger batch later than the one before, so a pack's `deployment_done` listener resolves before round 1 begins. Players place in their slots' `deploy_order`, either one unit each in turn (`order = "alternate"`, the default) or a whole reserve per seat (`order = "army"`). While units wait, the deployment module names the deploying player through a `NextActor` service, so the session asks that player for the next command rather than the active player.
 
 ### 6.5 Actions
 
@@ -355,7 +355,7 @@ Results are memoized within a resolution step and invalidated whenever an event 
 
 ### 6.7 Triggers, replacements and windows
 
-- **Triggers** react after an event applies, with an optional filter and a limit of once per turn, round or game.
+- **Triggers** react after an event applies, with an optional filter and a limit of once per turn, round or game. A trigger whose effect is native logic is part of the rules, not a player's ability: it is never offered for ordering, and in each batch the rules' triggers fire before any player's, in a fixed order (by event, then by registration). Only triggers from scripts (Lua modules and abilities) are ordered by the player they affect.
 - **Replacements** run before an event applies and may modify, replace or cancel it. Each applies at most once per event, which prevents loops. When several apply, the affected figure's controller orders them.
 - **Windows** are named pauses inside a resolution where eligible reactions are offered as decisions, such as `combat.before_defense_roll` and `combat.after_wounds`.
 

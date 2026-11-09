@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use strata_kernel::DefId;
 use strata_kernel::Space;
+use strata_kernel::Value;
 use strata_model::Event;
 use strata_modules::native_modules;
 use strata_rules::event_kind;
@@ -191,4 +192,51 @@ fn a_round_cannot_start_before_deployment_and_round_one_starts_only_once() {
         "start_round",
         "already under way",
     );
+}
+
+#[test]
+fn a_round_cannot_start_while_setup_is_under_way() {
+    // After one of two placements `setup` is open; the refusal names setup, not a round.
+    refused_command(
+        "a round cannot start after only some units",
+        "start_round",
+        "setup is not over",
+    );
+}
+
+#[test]
+fn a_deployment_done_listener_runs_after_the_rules_and_before_round_one() {
+    // `passes` also pins that nobody was asked to order triggers: the test answers no decision.
+    passes("a deployment_done listener runs");
+    let reports = run();
+    let events = &named(&reports, "a deployment_done listener runs").events;
+    let kinds: Vec<&str> = events.iter().map(event_kind).collect();
+    let done = kinds.iter().position(|k| *k == "deployment_done").unwrap();
+    let want = [
+        "deployment_done",
+        "phase_exited",
+        "phase_exited",
+        "setup_ended",
+        "heard",
+        "round_started",
+    ];
+    assert_eq!(kinds[done..done + want.len()], want, "{kinds:?}");
+    // The listener saw setup closed and round 1 not yet begun.
+    let heard = events.iter().find_map(|e| match e {
+        Event::Custom { id, payload } if id.as_str() == "heard" => Some(payload.clone()),
+        _ => None,
+    });
+    let heard = heard.unwrap();
+    assert_eq!(heard.get("round").unwrap(), &Value::Int(0));
+    assert_eq!(heard.get("phases").unwrap(), &Value::Int(0));
+}
+
+#[test]
+fn an_unknown_placement_order_fails_ruleset_resolution() {
+    let reports = run();
+    let report = named(&reports, "an unknown placement order");
+    let failure = report.outcome.as_ref().unwrap_err();
+    assert_eq!(failure.step, None, "{failure:?}");
+    let want = "order must be `alternate` or `army`, not `whole`";
+    assert!(failure.message.contains(want), "{failure:?}");
 }

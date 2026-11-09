@@ -404,6 +404,65 @@ fn a_player_orders_their_simultaneous_triggers() {
     assert_eq!(fired(&events), vec![101, 1]);
 }
 
+/// Native logic `rule{n}`, which emits `Custom(ruled, n * 100 + figure)` like a toy trigger.
+struct Rule(i64);
+
+impl crate::native::NativeLogic for Rule {
+    fn run(
+        &self,
+        ctx: &mut dyn Ctx,
+        _: &dyn crate::native::NativeEnv,
+        e: &Event,
+    ) -> Result<(), Halt> {
+        ctx.emit(Event::Custom {
+            id: Sym::new("ruled"),
+            payload: Value::Int(self.0 * 100 + wounded(e)),
+        })
+    }
+}
+
+/// A trigger on `wounds_applied` whose effect is the native logic `rule{n}`.
+fn rule_trigger(n: i64) -> TriggerDef {
+    let call = [(
+        Sym::new("native"),
+        Value::Str(Sym::new(&format!("rule{n}"))),
+    )];
+    TriggerDef {
+        effect: Logic::Native(Descriptor(Value::Map(call.into()))),
+        ..trigger(0, None)
+    }
+}
+
+#[test]
+fn rule_triggers_fire_first_in_registration_order_without_being_ordered() {
+    // Player 0 has one ability trigger and two rule triggers on the same event: only the
+    // ability is theirs to order, so nobody is asked, and the rules go first.
+    let triggers = vec![trigger(0, None), rule_trigger(2), rule_trigger(1)];
+    let mut rt = runtime(vec![Toy("hurt", wound_one)], vec![], triggers);
+    rt.reg.native("rule1", Box::new(Rule(1)));
+    rt.reg.native("rule2", Box::new(Rule(2)));
+    let mut engine = Engine::new(&rt, &ToyHooks, state());
+    let events = committed(engine.submit(PlayerId(0), cmd("hurt")));
+    assert_eq!(fired(&events), vec![201, 101, 1]);
+}
+
+#[test]
+fn a_player_still_orders_their_abilities_beside_rule_triggers() {
+    let triggers = vec![trigger(0, None), rule_trigger(1), trigger(2, None)];
+    let mut rt = runtime(vec![Toy("hurt", wound_one)], vec![], triggers);
+    rt.reg.native("rule1", Box::new(Rule(1)));
+    let mut engine = Engine::new(&rt, &ToyHooks, state());
+    let Outcome::NeedsDecision { decision, .. } = engine.submit(PlayerId(0), cmd("hurt")) else {
+        panic!("expected a decision");
+    };
+    let DecisionKind::Order(labels) = &decision.kind else {
+        panic!("expected an order decision, got {decision:?}");
+    };
+    assert_eq!(labels.len(), 2, "only the two abilities are ordered");
+    let events = committed(engine.answer(Answer::Order(vec![1, 0])));
+    assert_eq!(fired(&events), vec![101, 201, 1]);
+}
+
 #[test]
 fn a_trigger_limit_stops_a_second_firing() {
     let limited = trigger(0, Some(TriggerLimit::OncePerRound));
