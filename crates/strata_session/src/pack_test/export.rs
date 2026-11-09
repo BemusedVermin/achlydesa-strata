@@ -216,7 +216,9 @@ impl PackTests {
             };
             let mut names = Vec::new();
             for result in results {
-                let Some(face) = faces.get(*result as usize) else {
+                // Results are one-based: face `n` of the die is `faces[n - 1]`.
+                let index = (*result as usize).checked_sub(1);
+                let Some(face) = index.and_then(|i| faces.get(i)) else {
                     return unsupported("a roll is outside its die");
                 };
                 names.push(lua_str(face.as_str()));
