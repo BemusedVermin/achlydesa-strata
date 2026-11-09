@@ -72,8 +72,10 @@ impl<'a, E: Engagement + ?Sized> EngagementMemo<'a, E> {
         Ok(found)
     }
 
-    /// [`Engagement::reprisals`]: the enemies some space of `before` is engaged with, none of
-    /// `after` is, and leaving provokes, ordered by ID.
+    /// The enemies owed a reprisal when `figure`, covering the spaces `before`, steps to cover
+    /// `after`, ordered by ID. The body is judged as a whole: an enemy is left only if some space
+    /// of `before` is engaged with it, no space of `after` is, and leaving it provokes. A one-cell
+    /// figure passes one space on each side.
     pub fn reprisals(
         &self,
         figure: FigureId,

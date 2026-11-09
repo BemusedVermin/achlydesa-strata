@@ -594,8 +594,7 @@ impl MoveWorld for StateMove<'_> {
     }
 
     fn location(&self, figure: FigureId) -> Option<Space> {
-        let fig = self.state.figures.get(figure.index())?;
-        fig.location.filter(|_| fig.status == FigureStatus::OnBoard)
+        self.state.standing(figure)
     }
 
     fn rotation(&self, figure: FigureId) -> Rotation {

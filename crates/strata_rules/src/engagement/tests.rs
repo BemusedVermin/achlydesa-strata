@@ -10,8 +10,9 @@ use crate::engine::{Ctx, Halt};
 use crate::native::{NativeEnv, NoEnv};
 use crate::query::LogicError;
 
-/// Enemies 1 and 2 stand on fixed hexes; a space is engaged with each enemy one step from it.
-/// Leaving enemy 2 never provokes. Counts how often it is asked.
+/// Enemies 1 and 2 stand on fixed hexes. A space is engaged with each enemy one step from it, or
+/// up to [`LONG_REACH`] steps for figure [`LONG`]. Leaving provokes enemy 1 but not enemy 2, and
+/// the other way round for figure [`LONG`]. Counts how often it is asked.
 #[derive(Default)]
 struct Counting {
     engaged: Mutex<usize>,
@@ -20,16 +21,35 @@ struct Counting {
 
 const ENEMIES: [(FigureId, (i32, i32)); 2] = [(FigureId(1), (2, 0)), (FigureId(2), (0, 2))];
 
+/// The figure whose engagement and reprisals differ from everyone else's.
+const LONG: FigureId = FigureId(3);
+
+/// How many steps away [`LONG`] is engaged.
+const LONG_REACH: u32 = 2;
+
+/// How many steps away `figure` is engaged.
+fn reach(figure: FigureId) -> u32 {
+    if figure == LONG { LONG_REACH } else { 1 }
+}
+
+/// Whether leaving `enemy` provokes a reprisal against `figure`.
+fn provokes(figure: FigureId, enemy: FigureId) -> bool {
+    (enemy == FigureId(2)) == (figure == LONG)
+}
+
 impl Engagement for Counting {
     fn engaged(
         &self,
         _: &GameState,
         _: &dyn NativeEnv,
-        _: FigureId,
+        figure: FigureId,
         at: Space,
     ) -> Result<Vec<FigureId>, LogicError> {
         *self.engaged.lock().unwrap() += 1;
-        let near = |(q, r): (i32, i32)| Space::new(q, r, at.z).hex().distance(at.hex()) == 1;
+        let near = |(q, r): (i32, i32)| {
+            let steps = Space::new(q, r, at.z).hex().distance(at.hex());
+            (1..=reach(figure)).contains(&steps)
+        };
         let found = ENEMIES.iter().filter(|(_, at)| near(*at));
         Ok(found.map(|(id, _)| *id).collect())
     }
@@ -38,11 +58,11 @@ impl Engagement for Counting {
         &self,
         _: &GameState,
         _: &dyn NativeEnv,
-        _: FigureId,
+        figure: FigureId,
         enemy: FigureId,
     ) -> Result<bool, LogicError> {
         *self.provokes.lock().unwrap() += 1;
-        Ok(enemy != FigureId(2))
+        Ok(provokes(figure, enemy))
     }
 
     fn leave(
@@ -89,19 +109,61 @@ fn a_walk_owes_each_enemy_once_in_the_order_it_is_left() {
     assert!(memo.owed_along(FigureId(0), &walk).unwrap().is_empty());
 }
 
+/// The rule written out by hand: the enemies within `figure`'s reach of some cell of `before`
+/// and of no cell of `after`, whose leaving provokes, ordered by ID.
+fn expected(figure: FigureId, before: &[Space], after: &[Space]) -> Vec<FigureId> {
+    let near = |cells: &[Space], (q, r): (i32, i32)| {
+        cells.iter().any(|cell| {
+            let steps = cell.hex().distance(space((q, r)).hex());
+            steps >= 1 && steps <= reach(figure)
+        })
+    };
+    ENEMIES
+        .iter()
+        .filter(|&&(id, at)| near(before, at) && !near(after, at) && provokes(figure, id))
+        .map(|&(id, _)| id)
+        .collect()
+}
+
 #[test]
-fn the_memo_answers_like_the_service() {
+fn the_memo_answers_like_the_rule() {
     let service = Counting::default();
     let state = GameState::default();
     let memo = EngagementMemo::new(&service, &state, &NoEnv);
-    let grid: Vec<Space> = (-2..3)
-        .flat_map(|q| (-2..3).map(move |r| space((q, r))))
+    let grid: Vec<Space> = (-2..4)
+        .flat_map(|q| (-2..4).map(move |r| space((q, r))))
         .collect();
-    for &from in &grid {
-        for &to in &grid {
-            let plain = service.reprisals(&state, &NoEnv, FigureId(0), &[from], &[to]);
-            let kept = memo.reprisals(FigureId(0), &[from], &[to]);
-            assert_eq!(plain.unwrap(), kept.unwrap(), "{from:?} to {to:?}");
+    // One-cell bodies, two-cell bodies in two directions, and a three-cell line.
+    let mut bodies: Vec<Vec<Space>> = grid.iter().map(|&at| vec![at]).collect();
+    for &at in &grid {
+        let step = |dq: i32, dr: i32, n: i32| Space::new(at.q + dq * n, at.r + dr * n, at.z);
+        bodies.push(vec![at, step(1, 0, 1)]);
+        bodies.push(vec![at, step(0, 1, 1)]);
+        bodies.push(vec![at, step(1, -1, 1), step(1, -1, 2)]);
+    }
+    let mut seen = [0usize; 2];
+    for before in &bodies {
+        for after in &bodies {
+            // Both figures go through the same memo, so its keys must tell them apart.
+            for (i, figure) in [FigureId(0), LONG].into_iter().enumerate() {
+                let kept = memo.reprisals(figure, before, after).unwrap();
+                let want = expected(figure, before, after);
+                assert_eq!(kept, want, "{figure:?}: {before:?} to {after:?}");
+                seen[i] += want.len();
+            }
         }
     }
+    // The figures answer differently, and both owe reprisals somewhere.
+    assert!(seen.iter().all(|&n| n > 0), "{seen:?}");
+    assert_eq!(
+        memo.reprisals(FigureId(0), &[space((1, 0))], &[space((-2, 0))])
+            .unwrap(),
+        [FigureId(1)]
+    );
+    // Figure 3 also reaches enemy 2 from (1, 0), and only leaving enemy 2 provokes it.
+    assert_eq!(
+        memo.reprisals(LONG, &[space((1, 0))], &[space((-2, 0))])
+            .unwrap(),
+        [FigureId(2)]
+    );
 }

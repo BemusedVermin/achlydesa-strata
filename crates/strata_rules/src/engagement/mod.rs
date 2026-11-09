@@ -39,25 +39,6 @@ pub trait Engagement: Send + Sync {
         enemy: FigureId,
     ) -> Result<bool, LogicError>;
 
-    /// The enemies owed a reprisal when `figure`, covering the spaces `before`, steps to cover
-    /// `after`, ordered by ID. The body is judged as a whole: an enemy is left only if some space
-    /// of `before` is engaged with it and no space of `after` is. A one-cell figure passes one
-    /// space on each side.
-    ///
-    /// This is [`EngagementMemo::reprisals`] without the memo. Movement relies on the two
-    /// agreeing, so implementors change [`Engagement::engaged`] and
-    /// [`Engagement::leaving_provokes`] rather than this.
-    fn reprisals(
-        &self,
-        state: &GameState,
-        env: &dyn NativeEnv,
-        figure: FigureId,
-        before: &[Space],
-        after: &[Space],
-    ) -> Result<Vec<FigureId>, LogicError> {
-        EngagementMemo::new(self, state, env).reprisals(figure, before, after)
-    }
-
     /// Resolves the reprisals `figure` provokes on a move, before the move applies. `walk` holds
     /// the spaces the body covers where it stands and then after each step, so a one-cell figure
     /// walking a path of `n` spaces passes `n + 1` one-space entries. The figure may be out of

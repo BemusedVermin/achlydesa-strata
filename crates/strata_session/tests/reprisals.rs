@@ -49,6 +49,30 @@ fn flags(report: &TestReport) -> BTreeMap<(i64, i64, i64), bool> {
     found
 }
 
+/// A stop or space as `(q, r, o)` or `(q, r, z)`.
+type Triple = (i64, i64, i64);
+
+/// The `path` of every stop `survey` previewed, by `(q, r, o)` as in [`flags`], as `(q, r, z)`.
+fn paths(report: &TestReport) -> BTreeMap<Triple, Vec<Triple>> {
+    let int = |p: &Value, k: &str| p.get(k).and_then(Value::as_int);
+    let step = |s: &Value| {
+        (
+            int(s, "q").unwrap(),
+            int(s, "r").unwrap(),
+            int(s, "z").unwrap(),
+        )
+    };
+    let stop = |p: &Value| {
+        let o = int(p, "o").unwrap_or(-1);
+        let Ok(Value::List(path)) = p.get("path") else {
+            panic!("a stop without a path: {p:?}");
+        };
+        let path = path.iter().map(step).collect();
+        ((int(p, "q").unwrap(), int(p, "r").unwrap(), o), path)
+    };
+    custom(report, "previewed").map(stop).collect()
+}
+
 /// The figures that rolled a reprisal, in order.
 fn reprisals(report: &TestReport) -> Vec<i64> {
     let figure = |p: &Value| p.get("figure").and_then(Value::as_int).unwrap();
@@ -114,11 +138,45 @@ fn a_snake_is_flagged_only_once_no_cell_stays_engaged() {
 }
 
 #[test]
-fn a_move_that_passes_and_then_leaves_an_enemy_rolls_one_reprisal() {
+fn a_preview_carries_each_stops_route() {
     let reports = run();
     let report = passed(
         &reports,
-        "a move that passes an enemy and then leaves it gives it one reprisal",
+        "a preview carries the route past an enemy and flags it",
+    );
+    let routes = paths(report);
+    assert_eq!(
+        routes.get(&(1, 0, -1)),
+        Some(&vec![(1, 0, 1)]),
+        "{routes:?}"
+    );
+    // The only route to (1, 1) passes the enemy on (2, -1) at (1, 0), then leaves it.
+    let detour = vec![(1, 0, 1), (1, 1, 1)];
+    assert_eq!(routes.get(&(1, 1, -1)), Some(&detour), "{routes:?}");
+    assert_eq!(flags(report).get(&(1, 1, -1)), Some(&true));
+    // On open ground every route is a chain of single steps from the start to its stop.
+    let open = passed(
+        &reports,
+        "stops whose route leaves an engaged enemy are flagged",
+    );
+    for ((q, r, _), path) in paths(open) {
+        assert_eq!(path.last(), Some(&(q, r, 1)), "{path:?}");
+        let mut from = Space::new(0, 0, 1);
+        for &(q, r, z) in &path {
+            let int = |n: i64| i32::try_from(n).unwrap();
+            let to = Space::new(int(q), int(r), u32::try_from(z).unwrap());
+            assert_eq!(from.hex().distance(to.hex()), 1, "{path:?}");
+            from = to;
+        }
+    }
+}
+
+#[test]
+fn a_move_that_starts_engaged_and_then_leaves_an_enemy_rolls_one_reprisal() {
+    let reports = run();
+    let report = passed(
+        &reports,
+        "a move that starts engaged and then leaves an enemy gives it one reprisal",
     );
     assert_eq!(reprisals(report), [i64::from(FigureId(1).0)]);
     assert_eq!(rolls(report), 1);
@@ -132,6 +190,35 @@ fn a_move_that_passes_and_then_leaves_an_enemy_rolls_one_reprisal() {
     });
     let order: Vec<_> = order.filter(|&n| n > 0).collect();
     assert_eq!(order, [1, 2]);
+}
+
+#[test]
+fn a_move_that_passes_an_enemy_midway_and_then_leaves_it_rolls_one_reprisal() {
+    let reports = run();
+    let report = passed(
+        &reports,
+        "a move that passes an enemy midway and then leaves it gives it one reprisal",
+    );
+    // Neither the start (0, 0) nor the stop (1, 1) is next to the enemy on (2, -1), so only a
+    // walk of the route finds the reprisal.
+    assert_eq!(reprisals(report), [i64::from(FigureId(1).0)]);
+    assert_eq!(rolls(report), 1);
+    let path = [(1, 0), (1, 1)].map(|(q, r)| Space::new(q, r, 1));
+    assert_eq!(moves(report), [path.to_vec()]);
+}
+
+#[test]
+fn a_move_that_leaves_the_same_enemy_twice_rolls_one_reprisal() {
+    let reports = run();
+    let report = passed(
+        &reports,
+        "a move that leaves the same enemy twice gives it one reprisal",
+    );
+    assert_eq!(reprisals(report), [i64::from(FigureId(1).0)]);
+    assert_eq!(rolls(report), 1);
+    // Engaged at (1, 0), clear at (1, 1), engaged again at (3, -1), clear at (4, -2).
+    let path = [(1, 0), (1, 1), (2, 1), (3, 0), (3, -1), (4, -2)].map(|(q, r)| Space::new(q, r, 1));
+    assert_eq!(moves(report), [path.to_vec()]);
 }
 
 #[test]

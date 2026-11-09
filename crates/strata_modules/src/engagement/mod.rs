@@ -16,7 +16,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
 use strata_kernel::{ModuleId, SlotId, Space, Sym, Value};
-use strata_model::{ConfigField, FigureId, FigureState, FigureStatus, GameState};
+use strata_model::{ConfigField, FigureId, FigureState, GameState};
 use strata_rules::{
     ConfigSchema, Ctx, Engagement, EngagementMemo, Halt, LogicError, ModuleError, NativeEnv,
     Registrar, RuleModule, VoteQuery,
@@ -62,12 +62,6 @@ fn height(env: &dyn NativeEnv, figure: &FigureState) -> u32 {
     def.map_or(1, |d| u32::from(d.height).max(1))
 }
 
-/// Where `figure` stands, if it is on the board.
-pub(crate) fn standing(state: &GameState, figure: FigureId) -> Option<Space> {
-    let fig = state.figures.get(figure.index())?;
-    fig.location.filter(|_| fig.status == FigureStatus::OnBoard)
-}
-
 /// Whether the level ranges `[a, a + a_height)` and `[b, b + b_height)` share a level.
 pub(crate) fn overlaps(a: u32, a_height: u32, b: u32, b_height: u32) -> bool {
     a < b.saturating_add(b_height) && b < a.saturating_add(a_height)
@@ -87,7 +81,7 @@ impl Engagement for Service {
         let mut found = Vec::new();
         for (index, other) in (0u32..).zip(&state.figures) {
             let id = FigureId(index);
-            let Some(there) = standing(state, id).filter(|_| id != figure) else {
+            let Some(there) = state.standing(id).filter(|_| id != figure) else {
                 continue;
             };
             if team(state, other) == mine || there.hex().distance(at.hex()) != 1 {
@@ -130,7 +124,7 @@ impl Engagement for Service {
         figure: FigureId,
         walk: &[Vec<Space>],
     ) -> Result<(), Halt> {
-        if standing(ctx.state(), figure).is_none() {
+        if ctx.state().standing(figure).is_none() {
             return Ok(());
         }
         // Every reprisal is owed before any resolves, so the walk is judged on one state.
@@ -138,10 +132,10 @@ impl Engagement for Service {
         let owed = owed.map_err(|e| Halt::reject(e.0))?;
         for enemy in owed {
             let state = ctx.state();
-            if standing(state, figure).is_none() {
+            if state.standing(figure).is_none() {
                 break;
             }
-            if standing(state, enemy).is_some() {
+            if state.standing(enemy).is_some() {
                 self.reprisal.resolve(ctx, env, enemy, figure)?;
             }
         }

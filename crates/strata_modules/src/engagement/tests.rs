@@ -9,7 +9,7 @@ use strata_model::{
     DieKind, FigureId, FigureState, FigureStatus, GameState, PlayerId, PlayerState,
 };
 use strata_rules::{
-    Engagement, LogicError, ModuleError, NativeEnv, Registrar, RuleModule, VoteQuery,
+    EngagementMemo, LogicError, ModuleError, NativeEnv, Registrar, RuleModule, VoteQuery,
 };
 
 use super::reprisal::Reprisal;
@@ -109,8 +109,10 @@ fn owed(state: &GameState, before: &[(i32, i32)], after: &[(i32, i32)]) -> Vec<F
     let on = |cells: &[(i32, i32)]| -> Vec<Space> {
         cells.iter().map(|&(q, r)| Space::new(q, r, 1)).collect()
     };
-    let found = service().reprisals(state, &Plain, FigureId(0), &on(before), &on(after));
-    found.unwrap()
+    let service = service();
+    let memo = EngagementMemo::new(&service, state, &Plain);
+    memo.reprisals(FigureId(0), &on(before), &on(after))
+        .unwrap()
 }
 
 #[test]
