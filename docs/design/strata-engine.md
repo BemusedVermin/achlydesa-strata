@@ -349,7 +349,9 @@ Stats are never stored as current values. They are computed by queries, which is
 
 This is where the hot-path design lives. A modifier's condition, selector and value are usually *descriptors*: tagged tables such as `cond.adjacent { to = "self" }` or `sel.allies { trait = "soldier" }`, which the Rust evaluator handles natively and the AI can read. Any of those fields also accepts a plain Lua function, which is the slow path for cases no descriptor covers. Because archetypes (section 8) are built from descriptors, most queries never enter Lua.
 
-Results are memoized within a resolution step and invalidated whenever an event applies.
+Every query has a *subject*, the figure or thing asked about, and a *context*, the other inputs that conditions, selectors and values may read. The combat module asks each side's stats with the opposing figure as context: the attacker's `attack` and `range` with the target, the target's `defense` with the attacker, and `ctx.combat.preview` asks the same queries as the attack it previews. That is how a condition such as `cond.higher_than("target")` finds the target. Queries asked outside an attack, such as `ctx.query.stat(fig, "defense")` without a third argument, have no context.
+
+Results are memoized within a resolution step and invalidated whenever an event applies. The memo key includes the context, so the same stat asked against two opponents is two answers.
 
 ### 6.7 Triggers, replacements and windows
 
@@ -532,7 +534,7 @@ The **loader state** runs the data stages once (section 4.3) and is dropped afte
 | --- | --- |
 | `ctx.state` | Read-only views of figures, units, board, round and phase; writes raise an error |
 | `ctx.select(sel)` | Evaluates a selector; always returns an array sorted by ID |
-| `ctx.query.*` | Runs a query with every modifier applied (`ctx.query.stat(fig, "defense")`) |
+| `ctx.query.*` | Runs a query with every modifier applied (`ctx.query.stat(fig, "defense")`, or `ctx.query.stat(fig, "defense", attacker)` with a context) |
 | `ctx.choose { }` | Asks a decision; answered from the tape or halts (section 5.2) |
 | `ctx.dice.roll(die, n)` | Returns a roll with `:count(symbol)`, `:sum()` and `:faces()` |
 | `ctx.units`, `ctx.movement`, ... | Effects exported by modules; each call emits events |

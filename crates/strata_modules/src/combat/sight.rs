@@ -89,7 +89,9 @@ impl Sight {
         };
         let range = match range {
             Some(range) => range,
-            None => env.stat(state, attacker, RANGE).map_err(fail)?,
+            None => env
+                .stat_in(state, attacker, RANGE, &id_value(target))
+                .map_err(fail)?,
         };
         if i64::from(apart) > range {
             return Ok(None);

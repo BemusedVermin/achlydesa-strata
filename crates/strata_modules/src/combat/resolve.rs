@@ -8,6 +8,7 @@ use strata_rules::{Ctx, DicePool, Halt, MAX_POOL, NativeEnv};
 
 use super::sight::{Sight, height_bonus};
 use super::{AFTER_DEFENSE_ROLL, AFTER_WOUNDS, BEFORE_ATTACK_ROLL, BEFORE_DEFENSE_ROLL, Rules};
+use crate::shared::id_value;
 
 /// The custom event that closes an attack, carrying its final [`Record`] as a map.
 pub const ATTACK_EVENT: &str = "attack";
@@ -133,13 +134,17 @@ pub(crate) fn start(
     dice: Option<i64>,
 ) -> Result<Record, Halt> {
     let state = ctx.state();
-    let pool = |figure, stat| DicePool::for_stat(env, state, &rules.die, figure, stat);
+    // Each side's stat is asked with the other side as the query's context (design §6.6).
+    let pool = |figure, stat, opponent| {
+        let found = env.stat_in(state, figure, stat, &id_value(opponent));
+        found.map_err(|e| Halt::reject(e.to_string()))
+    };
     let attack = match dice {
         Some(dice) => dice,
-        None => pool(attacker, "attack")?.count,
+        None => pool(attacker, "attack", target)?,
     };
     let (high_attack, high_defense) = height_bonus(rules, state, attacker, target);
-    let defense = pool(target, "defense")?.count + high_defense + i64::from(sight.cover);
+    let defense = pool(target, "defense", attacker)? + high_defense + i64::from(sight.cover);
     Ok(Record {
         attacker,
         target,

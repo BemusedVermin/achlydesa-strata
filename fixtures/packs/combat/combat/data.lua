@@ -24,12 +24,14 @@ feature {
   cells = {{ at = { q = 0, r = 0 }, segments = {{ from = 0, to = 1, top = true }} }},
 }
 
--- Two rows, q = 0..6 on r = 0 and r = 1. `hill` raises (1, 0) to level 2.
-local function row(raised)
+-- Two rows, q = 0..6 on r = 0 and r = 1. `hill` raises (1, 0) to level 2, and `ridge` raises
+-- (1, 0) and (1, 1).
+local function row(raised, ridge)
   local pieces = {}
   for q = 0, 6 do
     for r = 0, 1 do
-      local piece = (raised and q == 1 and r == 0) and 'hill' or 'meadow'
+      local high = raised and q == 1 and (r == 0 or ridge)
+      local piece = high and 'hill' or 'meadow'
       pieces[#pieces + 1] = { piece = piece, at = { q = q, r = r }, rot = 0, level = 0 }
     end
   end
@@ -37,6 +39,7 @@ local function row(raised)
 end
 map { id = 'field', name = 'Field', orientation = 'pointy', pieces = row() }
 map { id = 'hill', name = 'Hill', orientation = 'pointy', pieces = row(true) }
+map { id = 'ridge', name = 'Ridge', orientation = 'pointy', pieces = row(true, true) }
 map {
   id = 'high_wall', name = 'High wall', orientation = 'pointy', pieces = row(),
   features = {{ feature = 'wall2', at = { q = 2, r = 0 }, rot = 0 }},
@@ -74,6 +77,14 @@ rule_module {
       id = 'peek', slots = {},
       resolve = function(ctx, figure, target)
         ctx.emit('peeked', ctx.combat.preview(figure, target) or { none = true })
+      end,
+    }
+    -- `measured` carries the figure's attack asked with and without `target` as context.
+    r.action {
+      id = 'measure', slots = {},
+      resolve = function(ctx, figure, target)
+        local against = ctx.query.stat(figure, 'attack', target)
+        ctx.emit('measured', { against = against, alone = ctx.query.stat(figure, 'attack') })
       end,
     }
     -- A special attack: three dice at range 5, whatever the attacker's stats.
@@ -156,6 +167,34 @@ rule_module {
   end,
 }
 
+-- Modifiers that read the opponent from the query's context: the attacker's `attack` and
+-- `range` are asked with the target as context, the target's `defense` with the attacker. A
+-- query script sees no state, so the tests that use these name the opponent by figure ID: in
+-- `high_ground`, figure 1 is the only enemy standing lower than figure 0.
+rule_module {
+  id = 'high_ground',
+  register = function(r)
+    r.modifier {
+      query = 'attack', layer = 'add', value = function() return 1 end,
+      when = function(_, subject, context) return subject == 0 and context == 1 end,
+    }
+    r.modifier {
+      query = 'defense', layer = 'add', value = function() return 1 end,
+      when = function(_, subject, context) return subject == 2 and context == 0 end,
+    }
+  end,
+}
+-- Figure 0 reaches one hex further against figure 2 alone.
+rule_module {
+  id = 'long_reach',
+  register = function(r)
+    r.modifier {
+      query = 'range', layer = 'add', value = function() return 1 end,
+      when = function(_, subject, context) return subject == 0 and context == 2 end,
+    }
+  end,
+}
+
 local function rules(id, config, addon)
   local addons = {{ id = 'combat:tools' }}
   if addon then addons[2] = { id = 'combat:' .. addon } end
@@ -173,6 +212,8 @@ rules('plain', {})
 rules('high', { height_bonus = { Int = 1 } })
 rules('covered', { cover = { Bool = true } })
 rules('pacifist', {}, 'pacifist')
+rules('high_ground', {}, 'high_ground')
+rules('long_reach', {}, 'long_reach')
 for window in pairs(reactions) do rules('react_' .. window, {}, window) end
 for id in pairs(refusals) do rules(id, {}, id) end
 
@@ -329,3 +370,44 @@ fight('ambush_defense', 'an attacker destroyed after its roll wounds nothing', '
   act.activate(0, me), act.attack(me, foe, { rig = { { 'hit', 'hit' } } }), act.answer.option(1),
   expect.figure(me, 'destroyed'), expect.event('attack'), expect.figure(foe, 'on_board'),
 })
+
+-- On `ridge`, figure 0 stands on (1, 0) at level 2. Figure 1 on (2, 0) stands lower; figure 2
+-- on (1, 1) stands as high. `high_ground` adds an attack die against figure 1 alone, and a
+-- defense die to figure 2 against figure 0.
+local ridge = {
+  at('test_soldier', 0, 1, 0, 2), at('test_soldier', 1, 2, 0), at('test_soldier', 1, 1, 1, 2),
+}
+local low, level = 'p1.test_soldier#1', 'p1.test_soldier#2'
+fight('high_ground', 'an attack modifier reads the target from the context', 'high_ground',
+  'ridge', ridge, {
+  act.activate(0, me),
+  act.attack(me, low, { rig = { { 'hit', 'hit', 'hit' }, { 'blank', 'blank' } } }),
+  expect.figure(low, 'destroyed'),
+})
+fight('high_ground_level', 'the attack modifier skips a target that is not lower', 'high_ground',
+  'ridge', ridge, {
+  act.activate(0, me),
+  act.attack(me, level, { rig = { { 'hit', 'hit' }, { 'block', 'blank', 'blank' } } }),
+  expect.event('wounds_applied', { figure = level }), expect.figure(level, 'on_board'),
+})
+fight('peek_low', 'a preview reads the lower target from the context', 'high_ground',
+  'ridge', ridge, {
+  act.activate(0, me), act.action(me, 'peek', 1),
+})
+fight('peek_level', 'a preview reads the level target from the context', 'high_ground',
+  'ridge', ridge, {
+  act.activate(0, me), act.action(me, 'peek', 2),
+})
+fight('measure', 'ctx.query.stat takes a context as its third argument', 'high_ground', 'ridge',
+  ridge, { act.activate(0, me), act.action(me, 'measure', 1) })
+fight('high_ground_unrigged', 'a context modifier rolls from the command stream', 'high_ground',
+  'ridge', ridge, {
+  act.activate(0, me), act.attack(me, low), expect.event('attack'),
+})
+
+-- The soldier on (0, 0) has range 1. Figure 1 on (0, 1) is adjacent; figures 2 and 3 on (2, 0)
+-- and (1, 1) stand two hexes away, and `long_reach` brings only figure 2 into range.
+local reach = { at('test_soldier', 0, 0, 0), at('test_soldier', 1, 0, 1),
+  at('test_soldier', 1, 2, 0), at('test_soldier', 1, 1, 1) }
+fight('long_reach', 'a range modifier reads the target from the context', 'long_reach', 'field',
+  reach, { act.activate(0, me), act.action(me, 'survey') })

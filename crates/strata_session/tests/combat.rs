@@ -1,6 +1,7 @@
 //! `core:combat` through the `combat` fixture pack: the attack action, range, line of sight, the
 //! height bonus, cover, a reaction in each window, `ctx.combat.attack`, the reactions the engine
-//! refuses and an attacker destroyed mid-attack.
+//! refuses, an attacker destroyed mid-attack and modifiers that read the opponent from the
+//! query's context.
 
 use std::path::PathBuf;
 
@@ -63,7 +64,7 @@ fn refused(report: &TestReport) -> bool {
 #[test]
 fn every_combat_test_passes() {
     let reports = run();
-    assert_eq!(reports.len(), 28, "{}", summary(&reports));
+    assert_eq!(reports.len(), 35, "{}", summary(&reports));
     let wrong = |r: &TestReport| r.outcome.is_ok() == refused(r);
     assert!(!reports.iter().any(wrong), "{}", summary(&reports));
 }
@@ -233,4 +234,65 @@ fn running_the_combat_tests_twice_gives_identical_hashes() {
     assert_eq!(first, second);
     let unrigged = passed(&first, "an attack rolls from the command stream");
     assert!(!unrigged.outcome.as_ref().unwrap().is_empty());
+}
+
+/// The `attack_dice` and `defense_dice` of the only `peeked` event of `report`.
+fn peeked_pools(report: &TestReport) -> (Value, Value) {
+    let peeked = custom(report, "peeked");
+    let field = |k: &str| peeked.get(k).cloned().unwrap();
+    (field("attack_dice"), field("defense_dice"))
+}
+
+#[test]
+fn combat_stat_queries_have_the_opponent_as_their_context() {
+    let reports = run();
+    let attacks = [
+        (
+            "an attack modifier reads the target from the context",
+            (3, 2),
+        ),
+        (
+            "the attack modifier skips a target that is not lower",
+            (2, 3),
+        ),
+    ];
+    for (name, pools) in attacks {
+        let report = passed(&reports, name);
+        let pool = |k| attack_field(report, k).as_int().unwrap();
+        assert_eq!((pool("attack_dice"), pool("defense_dice")), pools, "{name}");
+    }
+    let low = passed(
+        &reports,
+        "a preview reads the lower target from the context",
+    );
+    assert_eq!(peeked_pools(low), (Value::Int(3), Value::Int(2)));
+    let level = passed(
+        &reports,
+        "a preview reads the level target from the context",
+    );
+    assert_eq!(peeked_pools(level), (Value::Int(2), Value::Int(3)));
+    let measure = passed(
+        &reports,
+        "ctx.query.stat takes a context as its third argument",
+    );
+    let measured = custom(measure, "measured");
+    assert_eq!(measured.get("against"), Ok(&Value::Int(3)), "{measured:?}");
+    assert_eq!(measured.get("alone"), Ok(&Value::Int(2)), "{measured:?}");
+    let reach = passed(
+        &reports,
+        "a range modifier reads the target from the context",
+    );
+    assert_eq!(surveyed(reach), vec![1, 2]);
+}
+
+#[test]
+fn context_modifiers_give_identical_hashes_twice() {
+    let name = "a context modifier rolls from the command stream";
+    let (first, second) = (run(), run());
+    let (first, second) = (passed(&first, name), passed(&second, name));
+    assert_eq!(first, second);
+    let hashes = first.outcome.as_ref().unwrap();
+    assert!(!hashes.is_empty());
+    let attack = custom(first, "attack");
+    assert_eq!(attack.get("attack_dice"), Ok(&Value::Int(3)), "{attack:?}");
 }
