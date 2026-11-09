@@ -18,6 +18,9 @@ pub enum EditError {
     /// The named zone does not exist.
     #[error("no zone named `{0}`")]
     NoSuchZone(Sym),
+    /// The batch has no edits in it, so it would be an undo step that does nothing.
+    #[error("the batch has no edits")]
+    EmptyBatch,
 }
 
 /// A change to the map's descriptive fields.
@@ -160,6 +163,14 @@ impl Edit {
             Self::SetMetadata(change) => matches!(change, Metadata::Constraints(_)),
             Self::Batch(edits) => edits.iter().any(Edit::affects_board),
             _ => true,
+        }
+    }
+
+    /// Returns whether this is a batch with no edits in it, nested batches included.
+    pub fn is_empty_batch(&self) -> bool {
+        match self {
+            Self::Batch(edits) => edits.iter().all(Edit::is_empty_batch),
+            _ => false,
         }
     }
 

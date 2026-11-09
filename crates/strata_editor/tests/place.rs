@@ -1,13 +1,14 @@
 //! The placement tool: ghost level selection, placement feedback, brushes and undo.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use strata_content::{ContentRegistry, load};
 use strata_editor::{
     Brush, Edit, EditError, LevelMode, MapDocument, Mark, Metadata, OpenedMap, PaletteItem,
-    Problem, RegistryDefs, Tool,
+    Problem, RegistryDefs, Tool, ValidationOptions,
 };
-use strata_kernel::{DefId, Hex, Rotation, Space};
+use strata_kernel::{DefId, Hex, Rotation, Space, Sym};
 use strata_model::{MapConstraints, MapDef, PlacedPiece, SourceLoc, Text};
 
 fn root() -> PathBuf {
@@ -79,21 +80,72 @@ fn placed(edit: &Edit) -> Vec<(Hex, u8)> {
 }
 
 #[test]
-fn the_ghost_snaps_onto_the_highest_top_under_any_of_its_hexes() {
+fn the_ghost_snaps_onto_the_top_surface_under_the_cursor() {
     let mut doc = open("fair");
-    // Resting on the hill leaves the grass half floating, so let it.
+    // Let the pair overhang lower ground.
     let loose = MapConstraints::default();
     doc.apply(Edit::SetMetadata(Metadata::Constraints(loose)))
         .unwrap();
-    // The pair covers (1, 1), grass with its top at 1, and (2, 1), a hill with its top at 2.
+    // Anchored on the hill at (2, 1), top 2, the pair rests there and overhangs the grass at
+    // (3, 1), top 1.
     let preview =
-        tool(tile("grass_2"), Brush::Single, LevelMode::Snap).preview(&doc, Hex::new(1, 1));
+        tool(tile("grass_2"), Brush::Single, LevelMode::Snap).preview(&doc, Hex::new(2, 1));
     let Some(Edit::PlacePiece(piece)) = preview.edit() else {
         panic!("{preview:?}");
     };
     assert_eq!(piece.level, 2);
     let tops: Vec<Space> = preview.marks.iter().map(|m| m.space).collect();
-    assert_eq!(tops, vec![Space::new(1, 1, 3), Space::new(2, 1, 3)]);
+    assert_eq!(tops, vec![Space::new(2, 1, 3), Space::new(3, 1, 3)]);
+    // Anchored on the grass at (1, 1), top 1, it rests at 1 and runs into the hill: only the
+    // cursor's column decides the level.
+    let preview =
+        tool(tile("grass_2"), Brush::Single, LevelMode::Snap).preview(&doc, Hex::new(1, 1));
+    assert_eq!(preview.problems, vec![Problem::Overlap(hexes(&[(2, 1)]))]);
+    assert_eq!(
+        preview.marks,
+        vec![mark(1, 1, 2, false), mark(2, 1, 2, false)]
+    );
+    assert_eq!(preview.edit(), None);
+}
+
+#[test]
+fn under_a_bridge_the_ghost_snaps_onto_the_deck_and_a_locked_level_builds_beneath() {
+    let mut doc = empty();
+    let grass = |level| {
+        Edit::PlacePiece(PlacedPiece {
+            piece: "grass_1".into(),
+            at: Hex::ORIGIN,
+            rot: Rotation::default(),
+            level,
+        })
+    };
+    // Ground at level 0 and a deck at level 3, with open air between.
+    doc.apply(Edit::Batch(vec![grass(0), grass(3)])).unwrap();
+    let snapped = tool(tile("grass_1"), Brush::Single, LevelMode::Snap).preview(&doc, Hex::ORIGIN);
+    assert_eq!(placed(&snapped.edit().unwrap()), vec![(Hex::ORIGIN, 4)]);
+    let locked =
+        tool(tile("grass_1"), Brush::Single, LevelMode::Locked(1)).preview(&doc, Hex::ORIGIN);
+    assert_eq!(locked.problems, vec![]);
+    assert_eq!(placed(&locked.edit().unwrap()), vec![(Hex::ORIGIN, 1)]);
+}
+
+#[test]
+fn with_support_required_a_multi_hex_tile_over_uneven_ground_is_refused_where_it_floats() {
+    let doc = open("fair");
+    assert!(doc.map().constraints.require_support);
+    // On the hill at (2, 1) the pair's second hex, (3, 1), is a level above its grass.
+    let preview =
+        tool(tile("grass_2"), Brush::Single, LevelMode::Snap).preview(&doc, Hex::new(2, 1));
+    assert_eq!(
+        preview.problems,
+        vec![Problem::Unsupported(hexes(&[(3, 1)]))]
+    );
+    assert_eq!(preview.edit(), None);
+    // On level ground it fits.
+    let preview =
+        tool(tile("grass_2"), Brush::Single, LevelMode::Snap).preview(&doc, Hex::new(3, 1));
+    assert_eq!(preview.problems, vec![]);
+    assert_eq!(placed(&preview.edit().unwrap()), vec![(Hex::new(3, 1), 1)]);
 }
 
 #[test]
@@ -294,6 +346,36 @@ fn a_fill_covers_the_connected_hexes_with_the_same_top() {
 }
 
 #[test]
+fn a_fill_on_open_ground_fills_holes_only() {
+    let mut doc = open("fair");
+    // Off the map, the fill would have no bounds.
+    let fill = tool(tile("grass_1"), Brush::Fill, LevelMode::Snap);
+    let preview = fill.preview(&doc, Hex::new(9, 9));
+    assert_eq!(preview.problems, vec![Problem::NotEnclosed]);
+    assert_eq!(preview.marks, vec![mark(9, 9, 0, false)]);
+    assert_eq!(preview.edit(), None);
+    // Wall in (2, 2) with grass on every side, and the fill finds it.
+    // Its neighbors at r = 1 are already terrain; add the four below.
+    let around: Vec<Edit> = Hex::new(2, 2)
+        .neighbors()
+        .into_iter()
+        .filter(|h| h.r > 1)
+        .map(|at| {
+            Edit::PlacePiece(PlacedPiece {
+                piece: "grass_1".into(),
+                at,
+                rot: Rotation::default(),
+                level: 0,
+            })
+        })
+        .collect();
+    doc.apply(Edit::Batch(around)).unwrap();
+    let preview = fill.preview(&doc, Hex::new(2, 2));
+    assert_eq!(preview.problems, vec![]);
+    assert_eq!(placed(&preview.edit().unwrap()), vec![(Hex::new(2, 2), 0)]);
+}
+
+#[test]
 fn line_and_fill_paint_one_hex_tiles_only() {
     let doc = empty();
     for item in [tile("grass_2"), feature("tree")] {
@@ -314,14 +396,83 @@ fn with_nothing_selected_the_tool_places_nothing() {
 }
 
 #[test]
-fn a_batch_that_fails_part_way_leaves_the_map_unchanged() {
+fn a_batch_that_fails_part_way_leaves_the_document_unchanged() {
     let mut doc = open("fair");
     let before = doc.map().clone();
+    let board = doc.board().unwrap().clone();
+    let validation = doc.validate(&ValidationOptions::default());
+    // Zone, relic, metadata and piece edits, some in a nested batch, all applied before the
+    // last edit fails.
     let batch = Edit::Batch(vec![
         Edit::RemovePiece { index: 0 },
+        Edit::PaintZone {
+            zone: "start_c".into(),
+            cells: hexes(&[(1, 0)]),
+        },
+        Edit::Batch(vec![
+            Edit::SetMetadata(Metadata::Name(Text("Renamed".into()))),
+            Edit::SetMetadata(Metadata::Constraints(MapConstraints::default())),
+            Edit::SetRelicSpot {
+                name: "hill".into(),
+                at: None,
+            },
+            Edit::Batch(vec![Edit::RemovePiece { index: 0 }]),
+        ]),
         Edit::RemovePiece { index: 99 },
     ]);
     assert_eq!(doc.apply(batch), Err(EditError::NoSuchPiece(99)));
+    assert_eq!(doc.map(), &before);
+    assert_eq!(doc.board(), Ok(&board));
+    // Nothing changed, so the cached validation still stands.
+    let again = doc.validate(&ValidationOptions::default());
+    assert!(Arc::ptr_eq(&validation, &again));
+    assert!(!doc.can_undo());
+    // A failure inside a nested batch rolls back the outer batch too.
+    let nested = Edit::Batch(vec![
+        Edit::SetMetadata(Metadata::Name(Text("Renamed".into()))),
+        Edit::Batch(vec![
+            Edit::RemovePiece { index: 0 },
+            Edit::RemoveFeature { index: 0 },
+        ]),
+    ]);
+    assert_eq!(doc.apply(nested), Err(EditError::NoSuchFeature(0)));
+    assert_eq!(doc.map(), &before);
+    assert_eq!(doc.board(), Ok(&board));
+}
+
+#[test]
+fn a_batch_with_zone_and_metadata_edits_undoes_and_redoes_as_one_step() {
+    let mut doc = open("fair");
+    let before = doc.map().clone();
+    let batch = Edit::Batch(vec![
+        Edit::PaintZone {
+            zone: "start_c".into(),
+            cells: hexes(&[(1, 0)]),
+        },
+        Edit::Batch(vec![
+            Edit::SetMetadata(Metadata::Name(Text("Renamed".into()))),
+            Edit::RemovePiece { index: 9 },
+        ]),
+    ]);
+    doc.apply(batch).unwrap();
+    let after = doc.map().clone();
+    assert_eq!(after.name, Text("Renamed".into()));
+    assert_eq!(after.pieces.len(), before.pieces.len() - 1);
+    assert!(after.zones.contains_key(&Sym::from("start_c")));
+    doc.undo().unwrap();
+    assert_eq!(doc.map(), &before);
+    assert!(!doc.can_undo());
+    doc.redo().unwrap();
+    assert_eq!(doc.map(), &after);
+}
+
+#[test]
+fn an_empty_batch_is_refused_and_leaves_no_undo_step() {
+    let mut doc = open("fair");
+    let before = doc.map().clone();
+    assert_eq!(doc.apply(Edit::Batch(vec![])), Err(EditError::EmptyBatch));
+    let nested = Edit::Batch(vec![Edit::Batch(vec![]), Edit::Batch(vec![])]);
+    assert_eq!(doc.apply(nested), Err(EditError::EmptyBatch));
     assert_eq!(doc.map(), &before);
     assert!(!doc.can_undo());
 }

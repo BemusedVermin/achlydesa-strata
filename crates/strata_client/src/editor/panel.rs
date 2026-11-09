@@ -4,9 +4,9 @@
 
 use bevy::prelude::*;
 use bevy_egui::{EguiContexts, egui};
-use strata_editor::{Brush, LevelMode, PaletteEntry, PaletteItem, Preview, Problem, Stock};
+use strata_editor::{Brush, FILL_LIMIT, LevelMode, PaletteEntry, PaletteItem, Preview, Problem};
 
-use super::{Editing, EditorAction, EditorFeedback, EditorTool};
+use super::{Editing, EditorAction, EditorCursor, EditorFeedback, EditorTool};
 
 /// A palette button's text: the name, its size, and how many are left when the map has an
 /// inventory.
@@ -44,9 +44,29 @@ pub fn problem_text(problem: &Problem) -> String {
         }
         Problem::OffBoard(hexes) => format!("No terrain to stand on at {}.", at(hexes)),
         Problem::TooHigh(hexes) => format!("Too high to place at {}.", at(hexes)),
-        Problem::OutOfStock { remaining } => {
-            format!("Over the inventory: {remaining} left after this.")
+        Problem::OutOfStock { remaining } => format!(
+            "Over the inventory: {remaining} left after this. \
+             The map will fail validation (`strata map check`) until the inventory is fixed."
+        ),
+        Problem::NotEnclosed => {
+            "Not an enclosed area: fill on open ground fills holes inside the terrain only.".into()
         }
+        Problem::TooLarge => format!("The region is larger than {FILL_LIMIT} hexes."),
+    }
+}
+
+/// What to say when a placement went ahead despite warnings, such as running out of stock.
+pub fn warning(preview: &Preview) -> Option<String> {
+    let lines: Vec<String> = preview.problems.iter().map(problem_text).collect();
+    (!lines.is_empty()).then(|| format!("Placed. {}", lines.join(" ")))
+}
+
+/// The level the "Lock level" control shows: the locked level, or while snapping the level the
+/// ghost snaps to under the cursor, so locking keeps the ghost where it is.
+pub fn shown_level(mode: LevelMode, snapped: Option<u8>) -> u8 {
+    match mode {
+        LevelMode::Locked(level) => level,
+        LevelMode::Snap => snapped.unwrap_or(0),
     }
 }
 
@@ -62,10 +82,15 @@ pub(super) fn show(
     editing: Res<Editing>,
     tool: Res<EditorTool>,
     feedback: Res<EditorFeedback>,
+    cursor: Res<EditorCursor>,
     mut actions: MessageWriter<EditorAction>,
 ) -> Result {
     let ctx = contexts.ctx_mut()?;
     let tool = &tool.0;
+    let occupancy = editing.document.occupancy();
+    let snapped = cursor
+        .0
+        .and_then(|hex| LevelMode::Snap.level(occupancy, hex));
     let mut send = Vec::new();
     egui::Window::new("Map editor").show(ctx, |ui| {
         ui.heading(&editing.id);
@@ -84,7 +109,7 @@ pub(super) fn show(
                 send.push(EditorAction::Redo);
             }
         });
-        controls(ui, tool, &mut send);
+        controls(ui, tool, snapped, &mut send);
         ui.separator();
         palette(ui, &editing, tool, &mut send);
         ui.separator();
@@ -111,7 +136,12 @@ pub(super) fn show(
 }
 
 /// The brush, rotation and level controls.
-fn controls(ui: &mut egui::Ui, tool: &strata_editor::Tool, send: &mut Vec<EditorAction>) {
+fn controls(
+    ui: &mut egui::Ui,
+    tool: &strata_editor::Tool,
+    snapped: Option<u8>,
+    send: &mut Vec<EditorAction>,
+) {
     ui.horizontal(|ui| {
         for (brush, name) in [
             (Brush::Single, "Single"),
@@ -134,10 +164,7 @@ fn controls(ui: &mut egui::Ui, tool: &strata_editor::Tool, send: &mut Vec<Editor
     });
     ui.horizontal(|ui| {
         let mut locked = matches!(tool.level, LevelMode::Locked(_));
-        let mut level = match tool.level {
-            LevelMode::Locked(level) => level,
-            LevelMode::Snap => 0,
-        };
+        let mut level = shown_level(tool.level, snapped);
         let toggled = ui.checkbox(&mut locked, "Lock level").changed();
         let moved = ui
             .add_enabled(locked, egui::DragValue::new(&mut level).range(0..=u8::MAX))
@@ -161,7 +188,7 @@ fn palette(
     send: &mut Vec<EditorAction>,
 ) {
     let defs = editing.document.defs();
-    let stock = Stock::of(editing.document.map(), defs);
+    let stock = editing.document.stock();
     egui::ScrollArea::vertical()
         .max_height(400.0)
         .show(ui, |ui| {
@@ -175,7 +202,7 @@ fn palette(
                     ui.strong(kind);
                     heading = Some(kind);
                 }
-                let remaining = stock.as_ref().map(|s| s.remaining(&entry.item, defs));
+                let remaining = stock.map(|s| s.remaining(&entry.item, defs));
                 let selected = tool.item.as_ref() == Some(&entry.item);
                 let text = entry_text(entry, remaining);
                 if ui

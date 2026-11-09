@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use proptest::prelude::*;
 use strata_content::{ContentRegistry, load};
 use strata_editor::{
-    FILL_LIMIT, Occupancy, OpenedMap, Palette, PaletteEntry, PaletteItem, RegistryDefs, Stock,
-    fill, line,
+    FILL_LIMIT, Occupancy, OpenedMap, Palette, PaletteEntry, PaletteItem, Problem, RegistryDefs,
+    Stock, fill, line,
 };
 use strata_kernel::{Hex, Rotation};
 use strata_model::{MapDef, PlacedPiece, Text};
@@ -60,37 +60,79 @@ fn a_line_along_a_row_takes_the_row() {
     );
 }
 
-#[test]
-fn a_fill_on_open_ground_fills_the_hole_inside_the_terrain() {
+/// The fixture map with its pieces replaced by one grass tile on each of `cells`.
+fn grass_on(cells: impl IntoIterator<Item = Hex>) -> (MapDef, RegistryDefs) {
     let opened = opened("fair");
     let defs = RegistryDefs::new(opened.registry.clone(), opened.pack.clone());
     let mut map = opened.map.clone();
-    // Dig a hole in the west grass: the hex comes out, and the fill finds exactly it.
-    map.pieces.retain(|p| p.at != Hex::new(1, 0));
+    map.pieces = cells
+        .into_iter()
+        .map(|at| PlacedPiece {
+            piece: "grass_1".into(),
+            at,
+            rot: Rotation::default(),
+            level: 0,
+        })
+        .collect();
+    (map, defs)
+}
+
+/// Every hex of the axial box from `(0, 0)` to `(n - 1, n - 1)`.
+fn block(n: i32) -> impl Iterator<Item = Hex> {
+    (0..n).flat_map(move |q| (0..n).map(move |r| Hex::new(q, r)))
+}
+
+#[test]
+fn a_fill_on_open_ground_fills_an_enclosed_hole() {
+    // A 5 by 5 block with its middle hex and the one beside it dug out.
+    let hole = [Hex::new(2, 2), Hex::new(3, 2)];
+    let (map, defs) = grass_on(block(5).filter(|h| !hole.contains(h)));
     let occupancy = Occupancy::of(&map, &defs);
-    assert_eq!(fill(&occupancy, Hex::new(1, 0)), hexes(&[(1, 0)]));
-    // Outside the terrain's bounding box, a fill covers the hex under the cursor only.
-    assert_eq!(fill(&occupancy, Hex::new(9, 9)), hexes(&[(9, 9)]));
-    // On an empty map too.
+    assert_eq!(fill(&occupancy, Hex::new(2, 2)), Ok(hole.to_vec()));
+    // Grass fills the grass around the hole and nothing else.
+    assert_eq!(fill(&occupancy, Hex::ORIGIN).map(|r| r.len()), Ok(23));
+}
+
+#[test]
+fn a_fill_on_open_ground_that_can_reach_outside_is_refused() {
+    // A hexagon of radius 3: its axial bounding box has empty corners outside the map, which an
+    // unbounded fill used to leak into.
+    let hexagon = (-3..=3)
+        .flat_map(|q| (-3..=3).map(move |r| Hex::new(q, r)))
+        .filter(|h| h.distance(Hex::ORIGIN) <= 3);
+    let (map, defs) = grass_on(hexagon);
+    let occupancy = Occupancy::of(&map, &defs);
+    assert_eq!(fill(&occupancy, Hex::new(2, 2)), Err(Problem::NotEnclosed));
+    assert_eq!(
+        fill(&occupancy, Hex::new(-3, -3)),
+        Err(Problem::NotEnclosed)
+    );
+    // A bay open to the outside is not enclosed either.
+    let (map, defs) = grass_on(block(5).filter(|h| h.q != 2 || h.r < 2));
+    let occupancy = Occupancy::of(&map, &defs);
+    assert_eq!(fill(&occupancy, Hex::new(2, 2)), Err(Problem::NotEnclosed));
+    // Far outside the terrain, and on an empty map.
+    assert_eq!(fill(&occupancy, Hex::new(9, 9)), Err(Problem::NotEnclosed));
     assert_eq!(
         fill(&Occupancy::default(), Hex::new(9, 9)),
-        hexes(&[(9, 9)])
+        Err(Problem::NotEnclosed)
     );
 }
 
 #[test]
-fn a_fill_stops_at_the_limit() {
-    let opened = opened("fair");
-    let defs = RegistryDefs::new(opened.registry.clone(), opened.pack.clone());
-    let mut map = opened.map.clone();
-    map.pieces.push(PlacedPiece {
-        piece: "grass_1".into(),
-        at: Hex::new(200, 200),
-        rot: Rotation::default(),
-        level: 0,
-    });
+fn a_fill_larger_than_the_limit_is_refused_not_cut_short() {
+    let (map, defs) = grass_on(block(70));
     let occupancy = Occupancy::of(&map, &defs);
-    assert_eq!(fill(&occupancy, Hex::new(100, 100)).len(), FILL_LIMIT);
+    const { assert!(70 * 70 > FILL_LIMIT) };
+    assert_eq!(fill(&occupancy, Hex::new(35, 35)), Err(Problem::TooLarge));
+    // At the limit exactly, the fill goes through.
+    let (map, defs) = grass_on(block(64));
+    let occupancy = Occupancy::of(&map, &defs);
+    assert_eq!(64 * 64, FILL_LIMIT);
+    assert_eq!(
+        fill(&occupancy, Hex::ORIGIN).map(|r| r.len()),
+        Ok(FILL_LIMIT)
+    );
 }
 
 #[test]
@@ -119,6 +161,46 @@ fn the_palette_lists_every_tile_then_every_feature_of_the_loaded_packs() {
     );
     assert_eq!(palette.entry(&tile("hill_2")).map(|e| e.thickness), Some(2));
     assert_eq!(palette.entry(&tile("nothing")), None);
+}
+
+#[test]
+fn a_short_name_is_used_only_for_the_map_s_own_pack() {
+    // Packs `a` and `b` both define `rock`; `boulder` is only in `a` and `pebble` only in `b`.
+    let root = PathBuf::from(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../fixtures/palette"
+    ));
+    let registry = load(&[root]).unwrap();
+    let names = |pack: &str| -> Vec<(String, String)> {
+        let palette = Palette::new(&RegistryDefs::new(&registry, pack));
+        let entries = palette.entries.iter();
+        entries
+            .map(|e| (e.full_id.clone(), e.item.name().to_string()))
+            .collect()
+    };
+    let pairs = |list: &[(&str, &str)]| -> Vec<(String, String)> {
+        list.iter()
+            .map(|&(full, name)| (full.to_owned(), name.to_owned()))
+            .collect()
+    };
+    assert_eq!(
+        names("a"),
+        pairs(&[
+            ("a:boulder", "boulder"),
+            ("a:rock", "rock"),
+            ("b:pebble", "b:pebble"),
+            ("b:rock", "b:rock"),
+        ])
+    );
+    assert_eq!(
+        names("b"),
+        pairs(&[
+            ("a:boulder", "a:boulder"),
+            ("a:rock", "a:rock"),
+            ("b:pebble", "pebble"),
+            ("b:rock", "rock"),
+        ])
+    );
 }
 
 #[test]

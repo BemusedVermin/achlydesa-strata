@@ -4,13 +4,11 @@
 //! decision. This plugin only reports which space was clicked and outlines the spaces it is told
 //! to.
 
-use std::f32::consts::{FRAC_PI_2, FRAC_PI_6};
-
 use bevy::prelude::*;
 use strata_kernel::Space;
-use strata_scene::{Orientation, surface_point};
 
 use crate::camera::{ClientBoard, HoveredSpace};
+use crate::marker::{marker_material, marker_mesh, marker_transform};
 
 /// How far a highlight floats above the surface, so it does not flicker against it.
 const LIFT: f32 = 0.01;
@@ -53,15 +51,9 @@ fn make_look(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let material = StandardMaterial {
-        base_color: Color::srgba(1.0, 0.85, 0.2, 0.55),
-        alpha_mode: AlphaMode::Blend,
-        unlit: true,
-        ..default()
-    };
     commands.insert_resource(HighlightLook {
-        mesh: meshes.add(RegularPolygon::new(RADIUS, 6)),
-        material: materials.add(material),
+        mesh: meshes.add(marker_mesh(RADIUS)),
+        material: materials.add(marker_material(Color::srgba(1.0, 0.85, 0.2, 0.55))),
     });
 }
 
@@ -97,20 +89,12 @@ fn draw_highlights(
     }
     let Some(board) = board else { return };
     let orientation = board.0.orientation;
-    // The polygon mesh lies in the XY plane with a corner toward +Y; laid flat, that corner
-    // points along the depth axis, which is the pointy layout.
-    let yaw = match orientation {
-        Orientation::Pointy => 0.0,
-        Orientation::Flat => FRAC_PI_6,
-    };
-    let rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(-FRAC_PI_2);
-    for space in &highlights.0 {
-        let at = surface_point(orientation, space.hex(), space.z) + Vec3::Y * LIFT;
+    for &space in &highlights.0 {
         commands.spawn((
             HighlightMark,
             Mesh3d(look.mesh.clone()),
             MeshMaterial3d(look.material.clone()),
-            Transform::from_translation(at).with_rotation(rotation),
+            marker_transform(orientation, space, LIFT),
         ));
     }
 }

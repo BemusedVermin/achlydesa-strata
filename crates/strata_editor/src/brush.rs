@@ -5,8 +5,9 @@ use std::collections::{BTreeSet, VecDeque};
 use strata_kernel::Hex;
 
 use crate::occupancy::Occupancy;
+use crate::place::Problem;
 
-/// The most hexes one region fill covers, so a fill over open ground stays bounded.
+/// The most hexes one region fill covers; a larger region is refused.
 pub const FILL_LIMIT: usize = 4096;
 
 /// A freeform brush.
@@ -17,7 +18,8 @@ pub enum Brush {
     Single,
     /// Every hex on the line from where the drag started to the cursor.
     Line,
-    /// The connected region under the cursor whose top is the same as the cursor's hex.
+    /// The connected region under the cursor whose top is the same as the cursor's hex; on open
+    /// ground, only an enclosed hole.
     Fill,
 }
 
@@ -64,34 +66,39 @@ fn cube_round(num: [i64; 3], den: i64) -> Hex {
 /// The region a fill at `start` covers, in hex order.
 ///
 /// The region is every hex connected to `start` through hexes with the same top: the same
-/// terrain at the same level, or no terrain at all. Open ground is filled only inside the
-/// bounding box of the map's terrain, so filling a hole fills the hole; on an empty map, or
-/// outside the box, the fill covers `start` alone. A region never exceeds [`FILL_LIMIT`] hexes.
-pub fn fill(occupancy: &Occupancy, start: Hex) -> Vec<Hex> {
+/// terrain at the same level, or no terrain at all.
+///
+/// Open ground is filled only where it is a hole: a region that never reaches the edge of the
+/// axial bounding box of the map's terrain, so terrain closes it in on every side. Anything else
+/// (open ground outside the terrain, a bay open to the outside, an empty map) is refused with
+/// [`Problem::NotEnclosed`]. A region of more than [`FILL_LIMIT`] hexes is refused with
+/// [`Problem::TooLarge`] rather than cut short.
+pub fn fill(occupancy: &Occupancy, start: Hex) -> Result<Vec<Hex>, Problem> {
     let key = |hex: Hex| occupancy.top_span(hex).map(|s| (s.z1, s.terrain));
     let target = key(start);
     let bounds = occupancy.bounds();
-    let inside = |hex: Hex| {
-        target.is_some()
-            || bounds.is_some_and(|(min, max)| {
-                (min.q..=max.q).contains(&hex.q) && (min.r..=max.r).contains(&hex.r)
-            })
+    let on_edge = |hex: Hex| {
+        bounds.is_none_or(|(min, max)| {
+            hex.q <= min.q || hex.q >= max.q || hex.r <= min.r || hex.r >= max.r
+        })
     };
-    if !inside(start) {
-        return vec![start];
-    }
     let mut region = BTreeSet::from([start]);
     let mut queue = VecDeque::from([start]);
     while let Some(hex) = queue.pop_front() {
+        // Open ground on or past the box's edge can lead outside, so it is not a hole. Checking
+        // before expanding also keeps an open-ground fill inside the box.
+        if target.is_none() && on_edge(hex) {
+            return Err(Problem::NotEnclosed);
+        }
         for next in hex.neighbors() {
-            if region.len() >= FILL_LIMIT {
-                return region.into_iter().collect();
-            }
-            if !region.contains(&next) && inside(next) && key(next) == target {
+            if !region.contains(&next) && key(next) == target {
+                if region.len() >= FILL_LIMIT {
+                    return Err(Problem::TooLarge);
+                }
                 region.insert(next);
                 queue.push_back(next);
             }
         }
     }
-    region.into_iter().collect()
+    Ok(region.into_iter().collect())
 }

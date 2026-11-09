@@ -1,12 +1,14 @@
 //! The document being edited: a map, its compiled board and the undo history.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use strata_model::MapDef;
 use strata_model::board::{BoardDefs, BoardError, CompiledBoard, compile_all};
 
 use crate::defs::EditorDefs;
 use crate::edit::{Edit, EditError};
+use crate::occupancy::Occupancy;
+use crate::palette::Stock;
 use crate::validate::{Validation, ValidationOptions, validate};
 
 /// An applied edit and the edit that undoes it.
@@ -22,6 +24,10 @@ pub struct MapDocument<D: BoardDefs> {
     defs: D,
     /// The board, or every reason the map does not compile (never an empty list).
     board: Result<CompiledBoard, Vec<BoardError>>,
+    /// The terrain each hex holds, refreshed with the board.
+    occupancy: Occupancy,
+    /// The inventory's stock, worked out when first asked for after a change.
+    stock: OnceLock<Option<Stock>>,
     /// The latest validation and the options it ran with, until the next change.
     validation: Option<(ValidationOptions, Arc<Validation>)>,
     undo: Vec<Applied>,
@@ -32,10 +38,13 @@ impl<D: BoardDefs> MapDocument<D> {
     /// Opens `map` for editing against `defs`.
     pub fn new(map: MapDef, defs: D) -> Self {
         let board = compile_all(&map, &defs);
+        let occupancy = Occupancy::of(&map, &defs);
         Self {
             map,
             defs,
             board,
+            occupancy,
+            stock: OnceLock::new(),
             validation: None,
             undo: Vec::new(),
             redo: Vec::new(),
@@ -60,6 +69,12 @@ impl<D: BoardDefs> MapDocument<D> {
         self.board.as_ref().map_err(|errors| &errors[0])
     }
 
+    /// Returns the terrain each hex holds, read from the pieces even while the map does not
+    /// compile.
+    pub fn occupancy(&self) -> &Occupancy {
+        &self.occupancy
+    }
+
     /// Returns whether there is an edit to undo.
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
@@ -70,8 +85,12 @@ impl<D: BoardDefs> MapDocument<D> {
         !self.redo.is_empty()
     }
 
-    /// Applies `edit`, discarding any redo history.
+    /// Applies `edit`, discarding any redo history. A batch with no edits is refused, so every
+    /// undo step changes something.
     pub fn apply(&mut self, edit: Edit) -> Result<(), EditError> {
+        if edit.is_empty_batch() {
+            return Err(EditError::EmptyBatch);
+        }
         let inverse = edit.clone().apply(&mut self.map)?;
         self.refresh(&edit);
         self.undo.push(Applied { edit, inverse });
@@ -101,16 +120,27 @@ impl<D: BoardDefs> MapDocument<D> {
         Ok(true)
     }
 
-    /// Recompiles the board if `edit` could have changed it, and drops the cached validation.
+    /// Recompiles the board and the occupancy if `edit` could have changed them, and drops the
+    /// cached stock and validation.
     fn refresh(&mut self, edit: &Edit) {
         if edit.affects_board() {
             self.board = compile_all(&self.map, &self.defs);
+            self.occupancy = Occupancy::of(&self.map, &self.defs);
         }
+        self.stock = OnceLock::new();
         self.validation = None;
     }
 }
 
 impl<D: EditorDefs> MapDocument<D> {
+    /// Returns how many of each tile and feature the map's inventory has left, or `None` when
+    /// the map sets no inventory or names one that does not exist. Worked out once per change.
+    pub fn stock(&self) -> Option<&Stock> {
+        self.stock
+            .get_or_init(|| Stock::of(&self.map, &self.defs))
+            .as_ref()
+    }
+
     /// Validates the map as edited so far.
     ///
     /// The result is cached: until the next edit, undo or redo, asking again with the same

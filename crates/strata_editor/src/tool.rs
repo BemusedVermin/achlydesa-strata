@@ -4,7 +4,7 @@
 //! The UI forwards the cursor's hex and button presses here and applies the edit that comes
 //! back to the [`MapDocument`], so every change it makes can be undone.
 
-use strata_kernel::{Hex, Rotation};
+use strata_kernel::{Hex, Rotation, Space};
 
 use crate::brush::{Brush, fill, line};
 use crate::defs::EditorDefs;
@@ -53,14 +53,23 @@ impl Tool {
         let Some(item) = &self.item else {
             return Preview::default();
         };
-        let site = Site::new(document.map(), document.defs());
+        let site = Site::new(document);
         match self.brush {
             Brush::Single => site.place(item, cursor, self.rot, self.level),
             Brush::Line => {
                 let cells = line(self.drag.unwrap_or(cursor), cursor);
                 site.stroke(item, &cells, self.level)
             }
-            Brush::Fill => site.stroke(item, &fill(&site.occupancy, cursor), self.level),
+            Brush::Fill => match site
+                .one_hex_tile(item)
+                .and_then(|_| fill(site.occupancy, cursor))
+            {
+                Ok(cells) => site.stroke(item, &cells, self.level),
+                Err(problem) => {
+                    let at = Space::at(cursor, site.occupancy.top(cursor));
+                    Preview::refused(problem, at)
+                }
+            },
         }
     }
 

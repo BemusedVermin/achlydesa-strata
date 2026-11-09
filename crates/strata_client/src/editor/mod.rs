@@ -123,7 +123,7 @@ impl Plugin for EditorPlugin {
 }
 
 /// Keeps [`EditorCursor`] on the hex under the mouse.
-fn aim(
+pub(crate) fn aim(
     window: Single<&Window, With<PrimaryWindow>>,
     camera: Single<(&Camera, &GlobalTransform), With<IsoCameraMarker>>,
     editing: Res<Editing>,
@@ -148,8 +148,9 @@ fn aim(
 }
 
 /// Left button down starts a stroke and up ends it; the right button drops it. Clicks on a panel
-/// are the panel's.
-fn mouse(
+/// are the panel's. A click pressed and released within one frame both starts and ends its
+/// stroke.
+pub(crate) fn mouse(
     buttons: Res<ButtonInput<MouseButton>>,
     egui: Option<Res<EguiWantsInput>>,
     cursor: Res<EditorCursor>,
@@ -160,23 +161,27 @@ fn mouse(
     if buttons.just_pressed(MouseButton::Right) {
         actions.write(EditorAction::Cancel);
     }
-    match cursor.0.filter(|_| !over_panel) {
-        Some(hex) if buttons.just_pressed(MouseButton::Left) => {
-            actions.write(EditorAction::Press(hex));
+    let at = cursor.0.filter(|_| !over_panel);
+    let pressed = buttons.just_pressed(MouseButton::Left) && at.is_some();
+    if pressed && let Some(hex) = at {
+        actions.write(EditorAction::Press(hex));
+    }
+    if buttons.just_released(MouseButton::Left) {
+        match at {
+            Some(hex) if pressed || tool.0.drag_start().is_some() => {
+                actions.write(EditorAction::Release(hex));
+            }
+            Some(_) => {}
+            None => {
+                actions.write(EditorAction::Cancel);
+            }
         }
-        Some(hex) if buttons.just_released(MouseButton::Left) && tool.0.drag_start().is_some() => {
-            actions.write(EditorAction::Release(hex));
-        }
-        None if buttons.just_released(MouseButton::Left) => {
-            actions.write(EditorAction::Cancel);
-        }
-        _ => {}
     }
 }
 
 /// R and Shift+R turn the ghost, Ctrl+Z undoes, Ctrl+Y or Ctrl+Shift+Z redoes, and Escape
 /// drops the stroke. Keys typed into a panel are the panel's.
-fn keys(
+pub(crate) fn keys(
     keys: Res<ButtonInput<KeyCode>>,
     egui: Option<Res<EguiWantsInput>>,
     mut actions: MessageWriter<EditorAction>,
@@ -205,7 +210,8 @@ fn keys(
 }
 
 /// Applies each action: tool settings change the tool, and everything that changes the map goes
-/// through the document as an edit. [`Editing`] is only marked changed when the map changed.
+/// through the document as an edit. [`Editing`] is only marked changed when the map changed, so
+/// a refused placement or an undo with nothing to undo does not redraw the board.
 pub(crate) fn act(
     mut actions: MessageReader<EditorAction>,
     mut editing: ResMut<Editing>,
@@ -242,12 +248,21 @@ pub(crate) fn act(
             EditorAction::Release(hex) => {
                 let placed = tool.release(&editing.document, *hex);
                 match placed.edit() {
-                    Some(edit) => editing.document.apply(edit).err().map(|e| e.to_string()),
+                    Some(edit) => {
+                        let applied = editing.bypass_change_detection().document.apply(edit);
+                        match applied {
+                            Ok(()) => {
+                                editing.set_changed();
+                                panel::warning(&placed)
+                            }
+                            Err(error) => Some(error.to_string()),
+                        }
+                    }
                     None => panel::refusal(&placed),
                 }
             }
-            EditorAction::Undo => history(editing.document.undo(), "Nothing to undo."),
-            EditorAction::Redo => history(editing.document.redo(), "Nothing to redo."),
+            EditorAction::Undo => history(&mut editing, MapDocument::undo, "Nothing to undo."),
+            EditorAction::Redo => history(&mut editing, MapDocument::redo, "Nothing to redo."),
         };
         if message.is_some() || matches!(action, EditorAction::Release(_)) {
             feedback.message = message;
@@ -255,24 +270,37 @@ pub(crate) fn act(
     }
 }
 
-/// What an undo or redo has to say: nothing when it worked.
-fn history(result: Result<bool, strata_editor::EditError>, nothing: &str) -> Option<String> {
-    match result {
-        Ok(true) => None,
+/// Undoes or redoes with `step`, marking [`Editing`] changed only when the map changed, and
+/// returns what to say: nothing when it worked.
+fn history(
+    editing: &mut ResMut<Editing>,
+    step: fn(&mut MapDocument<RegistryDefs>) -> Result<bool, strata_editor::EditError>,
+    nothing: &str,
+) -> Option<String> {
+    match step(&mut editing.bypass_change_detection().document) {
+        Ok(true) => {
+            editing.set_changed();
+            None
+        }
         Ok(false) => Some(nothing.to_owned()),
         Err(error) => Some(error.to_string()),
     }
 }
 
 /// Shows the edited map's board whenever the map changes. While the map does not compile, the
-/// last board that did stays on screen and the panel says why.
-fn show_board(mut commands: Commands, editing: Res<Editing>, mut names: ResMut<FeatureNames>) {
+/// last board that did stays on screen with the feature names it was drawn with, and the panel
+/// says why.
+pub(crate) fn show_board(
+    mut commands: Commands,
+    editing: Res<Editing>,
+    mut names: ResMut<FeatureNames>,
+) {
     if !editing.is_changed() {
         return;
     }
-    let map = editing.document.map();
-    names.0 = map.features.iter().map(|f| f.feature.clone()).collect();
     if let Ok(board) = editing.document.board() {
+        let map = editing.document.map();
+        names.0 = map.features.iter().map(|f| f.feature.clone()).collect();
         commands.insert_resource(ClientBoard(SceneBoard {
             board: board.clone(),
             orientation: editing.orientation(),

@@ -8,6 +8,7 @@
 mod board;
 mod camera;
 mod input;
+mod marker;
 mod plugins;
 
 pub use board::{
@@ -15,4 +16,5 @@ pub use board::{
 };
 pub use camera::{CameraPlugin, ClientBoard, HoveredSpace, IsoCamera, IsoCameraMarker};
 pub use input::{BoardHighlights, InputPlugin, SpaceClicked};
+pub use marker::{marker_material, marker_mesh, marker_transform};
 pub use plugins::{FigurePlugin, OcclusionPlugin, PlaybackPlugin, PreviewPlugin, RenderPlugins};

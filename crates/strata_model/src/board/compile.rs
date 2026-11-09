@@ -2,10 +2,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use strata_kernel::{Hex, Sym};
+use strata_kernel::{Hex, Shape, Sym};
 
 use super::{BoardError, Column, ColumnSegment, CompiledBoard, FeatureSegment};
-use crate::map::MapDef;
+use crate::map::{MapDef, PlacedPiece};
 use crate::terrain::{FeatureDef, TileDef};
 
 /// Resolves the tile and feature names a map refers to.
@@ -47,16 +47,10 @@ pub fn compile_all(map: &MapDef, defs: &impl BoardDefs) -> Result<CompiledBoard,
             });
             continue;
         };
-        let z0 = u32::from(piece.level);
-        let segment = ColumnSegment {
-            z0,
-            z1: z0 + u32::from(tile.thickness),
-            terrain: tile.terrain,
-        };
-        if segment.z0 == segment.z1 {
+        let Some((segment, cells)) = piece_segment(piece, tile) else {
             continue;
-        }
-        for &hex in tile.shape.rotated(piece.rot).translated(piece.at).cells() {
+        };
+        for &hex in cells.cells() {
             let column = placed.entry(hex).or_default();
             let clash = column
                 .iter()
@@ -95,6 +89,21 @@ pub fn compile_all(map: &MapDef, defs: &impl BoardDefs) -> Result<CompiledBoard,
     } else {
         Err(errors)
     }
+}
+
+/// The terrain segment `piece` adds to each hex it covers, and those hexes, or `None` when its
+/// tile has no thickness and so adds nothing.
+pub fn piece_segment(piece: &PlacedPiece, tile: &TileDef) -> Option<(ColumnSegment, Shape)> {
+    let z0 = u32::from(piece.level);
+    let segment = ColumnSegment {
+        z0,
+        z1: z0 + u32::from(tile.thickness),
+        terrain: tile.terrain,
+    };
+    if segment.z0 == segment.z1 {
+        return None;
+    }
+    Some((segment, tile.shape.rotated(piece.rot).translated(piece.at)))
 }
 
 /// Requires every raised piece cell to rest on the top of another segment, except in the

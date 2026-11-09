@@ -1,10 +1,8 @@
 //! Draws the placement ghost: an outline on the top face each placed hex would have, tinted by
 //! whether it fits.
 
-use std::f32::consts::{FRAC_PI_2, FRAC_PI_6};
-
 use bevy::prelude::*;
-use strata_scene::{Orientation, surface_point};
+use strata_render::{marker_material, marker_mesh, marker_transform};
 
 use super::{Editing, EditorFeedback};
 
@@ -30,16 +28,9 @@ pub(super) fn make_look(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    let mut tint = |color: Color| {
-        materials.add(StandardMaterial {
-            base_color: color,
-            alpha_mode: AlphaMode::Blend,
-            unlit: true,
-            ..default()
-        })
-    };
+    let mut tint = |color: Color| materials.add(marker_material(color));
     commands.insert_resource(GhostLook {
-        mesh: meshes.add(RegularPolygon::new(RADIUS, 6)),
+        mesh: meshes.add(marker_mesh(RADIUS)),
         fits: tint(Color::srgba(0.3, 0.9, 1.0, 0.5)),
         refused: tint(Color::srgba(1.0, 0.25, 0.2, 0.55)),
     });
@@ -61,22 +52,13 @@ pub(super) fn draw(
         commands.entity(entity).despawn();
     }
     let orientation = editing.orientation();
-    // As for the board's highlights: the polygon lies in the XY plane with a corner toward +Y,
-    // and laid flat that corner points along the depth axis, which is the pointy layout.
-    let yaw = match orientation {
-        Orientation::Pointy => 0.0,
-        Orientation::Flat => FRAC_PI_6,
-    };
-    let rotation = Quat::from_rotation_y(yaw) * Quat::from_rotation_x(-FRAC_PI_2);
     for mark in &feedback.preview.marks {
-        let space = mark.space;
-        let at = surface_point(orientation, space.hex(), space.z) + Vec3::Y * LIFT;
         let material = if mark.ok { &look.fits } else { &look.refused };
         commands.spawn((
             GhostMark,
             Mesh3d(look.mesh.clone()),
             MeshMaterial3d(material.clone()),
-            Transform::from_translation(at).with_rotation(rotation),
+            marker_transform(orientation, mark.space, LIFT),
         ));
     }
 }

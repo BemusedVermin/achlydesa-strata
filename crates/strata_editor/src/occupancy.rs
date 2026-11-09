@@ -5,60 +5,44 @@
 
 use std::collections::BTreeMap;
 
-use strata_kernel::{DefId, Hex};
+use strata_kernel::Hex;
 use strata_model::MapDef;
-use strata_model::board::BoardDefs;
+use strata_model::board::{BoardDefs, ColumnSegment, piece_segment};
 
-/// A piece's terrain in one column, covering the half-open level interval `[z0, z1)`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Span {
-    /// Bottom level, inclusive.
-    pub z0: u32,
-    /// Top level, exclusive.
-    pub z1: u32,
-    /// The terrain of the span.
-    pub terrain: DefId,
-}
-
-/// The terrain spans of every hex the map's pieces cover.
+/// The terrain segments of every hex the map's pieces cover.
 ///
 /// Pieces whose tile is unknown or has no thickness cover nothing, as when the board compiles.
+/// Unlike the compiled board, overlapping segments are all kept.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Occupancy {
-    columns: BTreeMap<Hex, Vec<Span>>,
+    columns: BTreeMap<Hex, Vec<ColumnSegment>>,
 }
 
 impl Occupancy {
-    /// Collects the spans of every piece of `map`.
+    /// Collects the segments of every piece of `map`.
     pub fn of(map: &MapDef, defs: &impl BoardDefs) -> Self {
-        let mut columns: BTreeMap<Hex, Vec<Span>> = BTreeMap::new();
+        let mut columns: BTreeMap<Hex, Vec<ColumnSegment>> = BTreeMap::new();
         for piece in &map.pieces {
             let Some(tile) = defs.tile(&piece.piece) else {
                 continue;
             };
-            let z0 = u32::from(piece.level);
-            let span = Span {
-                z0,
-                z1: z0 + u32::from(tile.thickness),
-                terrain: tile.terrain,
-            };
-            if span.z0 == span.z1 {
+            let Some((segment, cells)) = piece_segment(piece, tile) else {
                 continue;
-            }
-            for &hex in tile.shape.rotated(piece.rot).translated(piece.at).cells() {
-                columns.entry(hex).or_default().push(span);
+            };
+            for &hex in cells.cells() {
+                columns.entry(hex).or_default().push(segment);
             }
         }
         Self { columns }
     }
 
-    /// The spans at `hex`, in the order their pieces were placed.
-    pub fn spans(&self, hex: Hex) -> &[Span] {
+    /// The segments at `hex`, in the order their pieces were placed.
+    pub fn spans(&self, hex: Hex) -> &[ColumnSegment] {
         self.columns.get(&hex).map_or(&[], Vec::as_slice)
     }
 
-    /// The highest span at `hex`, whose top is where a piece snapped onto it rests.
-    pub fn top_span(&self, hex: Hex) -> Option<Span> {
+    /// The highest segment at `hex`, whose top is where a piece snapped onto it rests.
+    pub fn top_span(&self, hex: Hex) -> Option<ColumnSegment> {
         self.spans(hex).iter().copied().max_by_key(|s| s.z1)
     }
 

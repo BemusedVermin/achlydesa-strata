@@ -9,6 +9,7 @@ use strata_kernel::{DefId, Sym};
 use strata_model::{FeatureDef, MapDef, Text, TileDef};
 
 use crate::defs::EditorDefs;
+use crate::tally::{Count, Key, tally};
 
 /// Something the editor can place: a tile or a feature, by the name a map writes for it.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -61,13 +62,15 @@ pub struct Palette {
 impl Palette {
     /// Builds the palette from the registry `defs` resolves against.
     ///
-    /// An item is named the short way (`grass_1`) when that name resolves to it from the map's
-    /// pack, and by its full ID (`base:grass_1`) otherwise, so the map always means what was
-    /// picked.
+    /// An item of the map's own pack is named the short way (`grass_1`) when that name resolves
+    /// back to it. Every other item is named by its full ID (`base:grass_1`): a short name that
+    /// only resolves by searching every pack could bind to another pack's item of the same name
+    /// once more packs are loaded, so the map would no longer mean what was picked.
     pub fn new<R: Borrow<ContentRegistry>, P: AsRef<str>>(defs: &RegistryDefs<R, P>) -> Self {
         let registry = defs.registry();
+        let pack = defs.pack();
         let tiles = registry.iter::<TileDef>().map(|(id, full, tile)| {
-            let name = map_name(full, |n| {
+            let name = map_name(full, pack, |n| {
                 defs.lookup::<TileDef>(n).map(|(i, _)| i) == Some(id)
             });
             PaletteEntry {
@@ -79,7 +82,7 @@ impl Palette {
             }
         });
         let features = registry.iter::<FeatureDef>().map(|(id, full, feature)| {
-            let name = map_name(full, |n| {
+            let name = map_name(full, pack, |n| {
                 defs.lookup::<FeatureDef>(n).map(|(i, _)| i) == Some(id)
             });
             PaletteEntry {
@@ -101,13 +104,15 @@ impl Palette {
     }
 }
 
-/// The short name after the pack prefix if `resolves` accepts it, and the full ID otherwise.
-fn map_name(full: &str, resolves: impl Fn(&Sym) -> bool) -> Sym {
-    let short = Sym::new(full.rsplit(':').next().unwrap_or(full));
-    if resolves(&short) {
-        short
-    } else {
-        Sym::new(full)
+/// The name after the `pack:` prefix if `full` is in `pack` and `resolves` accepts it, and the
+/// full ID otherwise.
+fn map_name(full: &str, pack: &str, resolves: impl Fn(&Sym) -> bool) -> Sym {
+    let short = full
+        .strip_prefix(pack)
+        .and_then(|rest| rest.strip_prefix(':'));
+    match short.map(Sym::new) {
+        Some(short) if resolves(&short) => short,
+        _ => Sym::new(full),
     }
 }
 
@@ -126,17 +131,12 @@ impl Stock {
     /// not resolve count against nothing.
     pub fn of(map: &MapDef, defs: &impl EditorDefs) -> Option<Self> {
         let inventory = defs.inventory(map.constraints.inventory.as_ref()?)?;
-        let tile = |name: &Sym| defs.tile_id(name);
-        let feature = |name: &Sym| defs.feature_id(name);
-        let mut tiles = caps(&inventory.tiles, tile);
-        let mut features = caps(&inventory.features, feature);
-        for id in map.pieces.iter().filter_map(|p| tile(&p.piece)) {
-            *tiles.entry(id).or_default() -= 1;
-        }
-        for id in map.features.iter().filter_map(|f| feature(&f.feature)) {
-            *features.entry(id).or_default() -= 1;
-        }
-        Some(Self { tiles, features })
+        let pieces = map.pieces.iter().map(|p| (&p.piece, p.at));
+        let features = map.features.iter().map(|f| (&f.feature, f.at));
+        Some(Self {
+            tiles: left(tally(pieces, &inventory.tiles, |n| defs.tile_id(n))),
+            features: left(tally(features, &inventory.features, |n| defs.feature_id(n))),
+        })
     }
 
     /// How many of `item` are left; negative when the map already uses more than the inventory
@@ -152,16 +152,12 @@ impl Stock {
     }
 }
 
-/// The inventory's counts by definition, merging names that resolve to the same one.
-fn caps(
-    counts: &BTreeMap<Sym, u32>,
-    resolve: impl Fn(&Sym) -> Option<DefId>,
-) -> BTreeMap<DefId, i64> {
-    let mut caps = BTreeMap::new();
-    for (name, &count) in counts {
-        if let Some(id) = resolve(name) {
-            *caps.entry(id).or_default() += i64::from(count);
-        }
-    }
-    caps
+/// What is left of each resolved definition once its uses are taken from what the inventory
+/// holds.
+fn left(counts: BTreeMap<Key<'_>, Count<'_>>) -> BTreeMap<DefId, i64> {
+    let resolved = counts.into_iter().filter_map(|(key, count)| {
+        let id = key.ok()?;
+        Some((id, i64::from(count.available) - count.uses.len() as i64))
+    });
+    resolved.collect()
 }

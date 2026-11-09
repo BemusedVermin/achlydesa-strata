@@ -1,10 +1,11 @@
 //! Planning a placement: which level a piece goes at, whether it fits, and the edit that makes
 //! it (design §14.2). Nothing here changes the map; the caller applies the planned edit.
 
-use strata_kernel::{Hex, Rotation, Space};
+use strata_kernel::{Hex, Rotation, Space, Sym};
 use strata_model::{MapDef, PlacedFeature, PlacedPiece};
 
 use crate::defs::EditorDefs;
+use crate::document::MapDocument;
 use crate::edit::Edit;
 use crate::occupancy::Occupancy;
 use crate::palette::{PaletteItem, Stock};
@@ -12,7 +13,13 @@ use crate::palette::{PaletteItem, Stock};
 /// How the placement ghost picks its level.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum LevelMode {
-    /// Rest on the highest terrain under any of the piece's hexes, or on level 0.
+    /// Rest on the top surface under the cursor: the top of the highest terrain in the column of
+    /// the piece's anchor hex, or level 0 on open ground (design §14.2).
+    ///
+    /// Only the anchor's column counts. A multi-hex piece whose other hexes are higher overlaps
+    /// there, and one whose other hexes are lower floats there; both are reported. Under a
+    /// bridge or an arch the highest terrain is the deck, so building beneath one takes a locked
+    /// level.
     #[default]
     Snap,
     /// Put the piece's bottom at this level, whatever is under it.
@@ -20,15 +27,12 @@ pub enum LevelMode {
 }
 
 impl LevelMode {
-    /// The bottom level for a piece covering `cells`, or `None` when snapping would put it above
+    /// The bottom level for a piece anchored at `at`, or `None` when snapping would put it above
     /// the highest level a map can hold.
-    pub fn level(self, occupancy: &Occupancy, cells: &[Hex]) -> Option<u8> {
+    pub fn level(self, occupancy: &Occupancy, at: Hex) -> Option<u8> {
         match self {
             Self::Locked(level) => Some(level),
-            Self::Snap => {
-                let top = cells.iter().map(|&h| occupancy.top(h)).max().unwrap_or(0);
-                u8::try_from(top).ok()
-            }
+            Self::Snap => u8::try_from(occupancy.top(at)).ok(),
         }
     }
 }
@@ -53,11 +57,19 @@ pub enum Problem {
         /// The count left once the placement is made; negative means over the inventory.
         remaining: i64,
     },
+    /// A fill on open ground reaches the edge of the map's terrain, so it has no bounds.
+    NotEnclosed,
+    /// The fill's region has more than [`FILL_LIMIT`](crate::FILL_LIMIT) hexes.
+    TooLarge,
 }
 
 impl Problem {
-    /// Whether the problem refuses the placement. Only running out of stock is a warning:
-    /// validation reports it, and the map still loads.
+    /// Whether the problem refuses the placement. Only running out of stock is a warning: the
+    /// map still loads, but validation reports the overrun as an error, so `strata map check`
+    /// fails until the inventory or the map is changed.
+    ///
+    /// Whether freeform painting counts against the inventory at all is an open question:
+    /// design §11 says it has no inventory limit, while validation counts every piece.
     pub fn blocks(&self) -> bool {
         !matches!(self, Self::OutOfStock { .. })
     }
@@ -106,6 +118,18 @@ impl Preview {
         }
     }
 
+    /// A preview that places nothing, outlines `at` as refused and says why.
+    pub(crate) fn refused(problem: Problem, at: Space) -> Self {
+        Self {
+            marks: vec![Mark {
+                space: at,
+                ok: false,
+            }],
+            problems: vec![problem],
+            edits: Vec::new(),
+        }
+    }
+
     /// Records `problem` at `hex`, merging it into an earlier problem of the same kind.
     fn report(&mut self, mut problem: Problem, hex: Option<Hex>) {
         let same =
@@ -128,22 +152,22 @@ impl Preview {
     }
 }
 
-/// What a plan reads: the map, its definitions and the facts derived from them.
+/// What a plan reads: the map, its definitions and the facts the document keeps about them.
 pub(crate) struct Site<'a, D> {
     pub(crate) map: &'a MapDef,
     pub(crate) defs: &'a D,
-    pub(crate) occupancy: Occupancy,
-    pub(crate) stock: Option<Stock>,
+    pub(crate) occupancy: &'a Occupancy,
+    pub(crate) stock: Option<&'a Stock>,
 }
 
 impl<'a, D: EditorDefs> Site<'a, D> {
-    /// Reads `map` against `defs`.
-    pub(crate) fn new(map: &'a MapDef, defs: &'a D) -> Self {
+    /// Reads `document` as it is now.
+    pub(crate) fn new(document: &'a MapDocument<D>) -> Self {
         Self {
-            map,
-            defs,
-            occupancy: Occupancy::of(map, defs),
-            stock: Stock::of(map, defs),
+            map: document.map(),
+            defs: document.defs(),
+            occupancy: document.occupancy(),
+            stock: document.stock(),
         }
     }
 
@@ -178,22 +202,13 @@ impl<'a, D: EditorDefs> Site<'a, D> {
     /// where it does not fit. Each hex snaps on its own.
     pub(crate) fn stroke(&self, item: &PaletteItem, cells: &[Hex], mode: LevelMode) -> Preview {
         let mut preview = Preview::default();
-        let tile = match item {
-            PaletteItem::Tile(name) => self.defs.tile(name).map(|t| (name, t)),
-            PaletteItem::Feature(_) => None,
+        let name = match self.one_hex_tile(item) {
+            Ok(name) => name,
+            Err(problem) => {
+                preview.report(problem, None);
+                return preview;
+            }
         };
-        let Some((name, tile)) = tile else {
-            let problem = match item.id(self.defs) {
-                Some(_) => Problem::NotOneHex,
-                None => Problem::UnknownItem,
-            };
-            preview.report(problem, None);
-            return preview;
-        };
-        if tile.shape.cells() != [Hex::ORIGIN] {
-            preview.report(Problem::NotOneHex, None);
-            return preview;
-        }
         for &hex in cells {
             let mut one = Preview::default();
             let edit = self.place_tile(name, hex, Rotation::default(), mode, &mut one);
@@ -212,10 +227,24 @@ impl<'a, D: EditorDefs> Site<'a, D> {
         preview
     }
 
+    /// The name of `item` if it is a one-hex tile, the only thing line and fill paint.
+    pub(crate) fn one_hex_tile<'i>(&self, item: &'i PaletteItem) -> Result<&'i Sym, Problem> {
+        let tile = match item {
+            PaletteItem::Tile(name) => self.defs.tile(name).map(|t| (name, t)),
+            PaletteItem::Feature(_) => None,
+        };
+        match tile {
+            Some((name, tile)) if tile.shape.cells() == [Hex::ORIGIN] => Ok(name),
+            Some(_) => Err(Problem::NotOneHex),
+            None if item.id(self.defs).is_some() => Err(Problem::NotOneHex),
+            None => Err(Problem::UnknownItem),
+        }
+    }
+
     /// Checks a tile at `at`, adding its marks and problems, and returns its edit.
     fn place_tile(
         &self,
-        name: &strata_kernel::Sym,
+        name: &Sym,
         at: Hex,
         rot: Rotation,
         mode: LevelMode,
@@ -226,9 +255,9 @@ impl<'a, D: EditorDefs> Site<'a, D> {
             return None;
         };
         let cells = tile.shape.rotated(rot).translated(at).cells().to_vec();
-        let Some(level) = mode.level(&self.occupancy, &cells) else {
+        let Some(level) = mode.level(self.occupancy, at) else {
+            preview.report(Problem::TooHigh(Vec::new()), Some(at));
             for &hex in &cells {
-                preview.report(Problem::TooHigh(Vec::new()), Some(hex));
                 let top = self.occupancy.top(hex);
                 preview.marks.push(Mark {
                     space: Space::at(hex, top),
@@ -264,7 +293,7 @@ impl<'a, D: EditorDefs> Site<'a, D> {
     /// Checks a feature at `at`, adding its marks and problems, and returns its edit.
     fn place_feature(
         &self,
-        name: &strata_kernel::Sym,
+        name: &Sym,
         at: Hex,
         rot: Rotation,
         preview: &mut Preview,
@@ -299,7 +328,7 @@ impl<'a, D: EditorDefs> Site<'a, D> {
 
     /// Warns when placing `count` of `item` leaves the inventory short.
     fn count_stock(&self, item: &PaletteItem, count: i64, preview: &mut Preview) {
-        let Some(stock) = &self.stock else { return };
+        let Some(stock) = self.stock else { return };
         let remaining = stock.remaining(item, self.defs) - count;
         if count > 0 && remaining < 0 {
             preview.report(Problem::OutOfStock { remaining }, None);
