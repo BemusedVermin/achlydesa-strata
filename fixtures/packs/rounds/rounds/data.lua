@@ -1,7 +1,10 @@
 -- Pack tests for `core:rounds`. The Rust test supplies the add-on `test:pass`, whose `pass`
--- command ends the active player's activation, which is what ends a turn.
+-- command ends the active player's activation, which is what ends a turn. It also supplies
+-- `test:mark`, whose `mark` command puts a `stunned` marker on a figure for `rounds` rounds, as
+-- `eff.add_marker { rounds = n }` does, or for good without `rounds`.
 -- The initiative die has three faces, so a roll's result is its face number: a=1, b=2, c=3.
 die { id = 'init', name = 'Initiative', faces = { 'a', 'b', 'c' } }
+marker { id = 'stunned', name = 'Stunned', stacking = 'count', visibility = 'public' }
 
 footprint { id = 'one', name = 'One', cells = {{ q = 0, r = 0 }}, move = 'rigid', max_spread = 1 }
 unit {
@@ -16,7 +19,7 @@ local function rules(id, tie, turns)
   ruleset {
     id = id, name = id,
     slots = { turns = { id = 'core:rounds', config = { initiative = { Str = 'init' }, tie = { Str = tie }, turns_per_round = { Int = turns } } } },
-    addons = {{ id = 'test:pass' }},
+    addons = {{ id = 'test:pass' }, { id = 'test:mark' }},
   }
 end
 rules('rs_reroll', 'reroll', 1)
@@ -31,6 +34,7 @@ local function board()
 end
 local function start(rig) return act.command(0, 'start_round', nil, { rig = rig }) end
 local function pass(player) return act.command(player, 'pass', nil) end
+local function mark(rounds) return act.command(0, 'mark', { figure = 0, rounds = rounds }) end
 
 test {
   id = 'high_roll_first', name = 'the higher initiative roll goes first',
@@ -72,4 +76,15 @@ test {
   id = 'wrong_player', name = 'a player cannot pass out of turn',
   ruleset = 'rs_reroll', place = board(),
   steps = { start({{ 'c' }, { 'a' }}), pass(1) },
+}
+test {
+  id = 'markers_expire', name = 'markers with a duration lapse when their last round ends',
+  ruleset = 'rs_reroll', place = board(),
+  steps = {
+    start({{ 'c' }, { 'a' }}), mark(1), mark(2), mark(nil), pass(0), pass(1),
+    expect.event('round_ended'), expect.event('marker_changed', { figure = 'p0.test_soldier#1' }),
+    start({{ 'c' }, { 'a' }}), pass(0), pass(1),
+    expect.event('round_ended'), expect.event('marker_changed', { figure = 'p0.test_soldier#1' }),
+    start({{ 'c' }, { 'a' }}), pass(0), pass(1), expect.event('round_ended'),
+  },
 }
