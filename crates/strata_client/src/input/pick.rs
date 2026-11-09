@@ -45,6 +45,20 @@ pub enum Refusal {
     NotAChoice,
     /// The decision is answered in its dialog, not on the board.
     UseDialog,
+    /// The viewer has no command to build now.
+    NothingToDo,
+    /// The figure belongs to another player.
+    NotYours,
+    /// The figure's unit may not be activated now.
+    CannotActivate,
+    /// The figure has no action it may take now.
+    CannotAct,
+    /// The selected action cannot target what was clicked.
+    NotATarget,
+    /// The figure's unit may not take a token.
+    NoTokenHere,
+    /// Every token is on a unit and none is selected to move.
+    PickToken,
 }
 
 impl fmt::Display for Refusal {
@@ -53,6 +67,13 @@ impl fmt::Display for Refusal {
             Self::NoFigure => "There is no figure there.",
             Self::NotAChoice => "That is not one of the choices.",
             Self::UseDialog => "Answer this in the dialog.",
+            Self::NothingToDo => "There is nothing for you to do right now.",
+            Self::NotYours => "That figure is not yours.",
+            Self::CannotActivate => "That unit cannot be activated now.",
+            Self::CannotAct => "That figure cannot act now.",
+            Self::NotATarget => "That is not a legal target for this action.",
+            Self::NoTokenHere => "That unit cannot take a token.",
+            Self::PickToken => "Pick a token to move first.",
         })
     }
 }

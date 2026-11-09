@@ -22,6 +22,7 @@ pub mod ruleset;
 pub mod scenario;
 pub mod state;
 pub mod terrain;
+pub mod token_choice;
 pub mod unit;
 pub mod vocab;
 
@@ -50,6 +51,7 @@ pub use state::{
     PlayerState, RelicState, SeedSource, Token, UnitState,
 };
 pub use terrain::{AbilityRef, FeatureCell, FeatureDef, Segment, TerrainDef, TileDef};
+pub use token_choice::{BadPlacement, TokenChoice};
 pub use unit::{CardInfo, FigureDef, LosProfile, UnitDef};
 pub use vocab::{
     DieDef, DieKind, FactionDef, MarkerDef, SourceLoc, StatDef, Text, TraitKeyDef, TraitsDef,

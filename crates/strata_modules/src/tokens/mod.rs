@@ -9,17 +9,16 @@
 //!
 //! Token kinds are plain numbers: [`DECOY`] is 0 and [`numbered`]`(n)` is `n`.
 
-use std::collections::BTreeSet;
 use std::sync::OnceLock;
 
 use strata_kernel::{DefId, ModuleId, SlotId, Sym, Value};
 use strata_model::{
     Command, ConfigField, Descriptor, Event, FigureStatus, GameState, Logic, PlayerId, Token,
-    TriggerDef, UnitId, VarKey, Visibility,
+    TokenChoice, TriggerDef, UnitId, VarKey, Visibility,
 };
 use strata_rules::{
     ActivationGate, Anchor, CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, NativeEnv,
-    NativeLogic, PhaseDef, Registrar, RuleModule,
+    NativeLogic, PhaseDef, Registrar, RuleModule, TokenRules,
 };
 
 use crate::rounds::{self, PHASE_OPENED, ROUND_ENDED, TURN_SKIPPED};
@@ -90,6 +89,7 @@ impl RuleModule for CommandTokens {
         r.command(Place);
         r.native(DRIVE, Box::new(drive));
         r.service::<dyn ActivationGate>(Box::new(Gate));
+        r.service::<dyn TokenRules>(Box::new(Choice));
         let call = [(Sym::new("native"), Value::Str(Sym::new(DRIVE)))];
         let events = [
             PHASE_OPENED,
@@ -146,6 +146,31 @@ impl ActivationGate for Gate {
     }
 }
 
+/// What a player may place: their hand, on their live units, while tokens are being placed.
+/// `None` outside the placement phase.
+fn placement(state: &GameState, player: PlayerId) -> Option<TokenChoice> {
+    if state.vars.get(&key("placing")) != Some(&Value::Bool(true)) {
+        return None;
+    }
+    let hand = state.players.get(player.index())?.hand.clone();
+    let units = (0..state.units.len())
+        .filter(|u| state.units[*u].owner == player && is_live(state, *u))
+        .map(|u| UnitId(u as u32));
+    Some(TokenChoice {
+        hand,
+        units: units.collect(),
+    })
+}
+
+/// Tells the client and controllers what [`placement`] allows, while there is a hand to place.
+struct Choice;
+
+impl TokenRules for Choice {
+    fn choice(&self, state: &GameState, player: PlayerId) -> Option<TokenChoice> {
+        placement(state, player).filter(|c| !c.hand.is_empty())
+    }
+}
+
 /// Handles `place_tokens`: a player secretly puts their whole hand on distinct units.
 struct Place;
 
@@ -158,25 +183,9 @@ impl CommandHandler for Place {
         let Command::PlaceTokens(put) = command else {
             return Err(Halt::reject("`place_tokens` takes token placements"));
         };
-        let state = ctx.state();
-        if state.vars.get(&key("placing")) != Some(&Value::Bool(true)) {
-            return Err(Halt::reject("tokens are not being placed now"));
-        }
-        let mut hand = state.players[player.index()].hand.clone();
-        if hand.is_empty() || put.len() != hand.len() {
-            return Err(Halt::reject("place every token in your hand, once"));
-        }
-        let mut used = BTreeSet::new();
-        for p in put {
-            let mine = state.units.get(p.unit.index()).map(|u| u.owner) == Some(player);
-            if !mine || !is_live(state, p.unit.index()) || !used.insert(p.unit) {
-                return Err(Halt::reject(
-                    "each token goes on a different live unit of yours",
-                ));
-            }
-            let at = hand.iter().position(|k| *k == p.token);
-            hand.remove(at.ok_or_else(|| Halt::reject("that token is not in your hand"))?);
-        }
+        let choice = placement(ctx.state(), player);
+        let choice = choice.ok_or_else(|| Halt::reject("tokens are not being placed now"))?;
+        choice.check(put).map_err(|e| Halt::reject(e.to_string()))?;
         for p in put {
             let token = Token {
                 kind: p.token,

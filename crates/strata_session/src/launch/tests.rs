@@ -194,3 +194,77 @@ fn a_card_stat_carries_the_trace_that_explains_it() {
         ]
     );
 }
+
+/// The `command` fixture: player 0 has one soldier and player 1 none. The match allows the
+/// commands from deployment up to one action.
+fn command_spec() -> LaunchSpec {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let mut army = army("test_soldier");
+    if let Some(list) = &mut army {
+        list.units[0].copies = 1;
+    }
+    LaunchSpec {
+        roots: vec![PathBuf::from(root).join("../../fixtures/packs/command")],
+        scenario: "duel".into(),
+        ruleset: Some("rs".into()),
+        seed: 5,
+        armies: vec![army, None],
+        commands: 6,
+    }
+}
+
+fn custom(id: &str, payload: strata_kernel::Value) -> strata_model::Command {
+    strata_model::Command::Custom {
+        id: Sym::new(id),
+        payload,
+    }
+}
+
+/// The next view, skipping the events and board info that come before it.
+fn view_after(handle: &SimHandle) -> PlayerView {
+    loop {
+        match handle.recv_timeout(WAIT) {
+            Ok(SimMessage::View(view)) => return *view,
+            Ok(SimMessage::Events(_) | SimMessage::Board(_)) => {}
+            other => panic!("expected a view, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_real_match_offers_its_legal_commands_and_token_choice_to_the_viewer() {
+    use strata_kernel::{DefId, Value};
+    use strata_model::{Command, TokenPlacement, UnitId};
+
+    let handle = launch(command_spec());
+    let setup = view_after(&handle);
+    assert_eq!(setup.legal, [], "nothing is listed before the round starts");
+    assert_eq!(setup.tokens, None);
+    let at = Value::List(vec![Value::List([0, 0, 1].map(Value::Int).to_vec())]);
+    let place = [(Sym::new("unit"), Value::Int(0)), (Sym::new("at"), at)];
+    handle.send_command(custom("place_unit", Value::Map(place.into())));
+    let _ = view_after(&handle);
+    handle.send_command(custom("start_round", Value::Nil));
+    let placing = view_after(&handle);
+    let choice = placing.tokens.expect("player 0 has a token to place");
+    assert_eq!(choice.units, [UnitId(0)]);
+    let put = choice.hand.iter().map(|token| TokenPlacement {
+        unit: UnitId(0),
+        token: *token,
+    });
+    handle.send_command(Command::PlaceTokens(put.collect()));
+    let turn = view_after(&handle);
+    assert_eq!(turn.tokens, None);
+    assert_eq!(turn.legal, [Command::ActivateUnit(UnitId(0))]);
+    handle.send_command(Command::ActivateUnit(UnitId(0)));
+    let active = view_after(&handle);
+    let walk = active.legal.iter().find_map(|c| match c {
+        Command::Action { action, .. } => Some(*action),
+        _ => None,
+    });
+    let walk = walk.expect("the soldier may walk");
+    assert_eq!(active.names.action(walk), Some("walk"));
+    assert!(active.legal.contains(&Command::EndActivation));
+    assert_eq!(active.names.action(DefId(99)), None);
+    assert_eq!(handle.shutdown(), Ok(()));
+}

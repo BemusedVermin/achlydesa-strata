@@ -12,7 +12,7 @@ use crate::input::decision::{Widget, reorder};
 use crate::input::pick::Pick;
 
 /// A figure as the prompt names it: its unit's name and its ID.
-fn figure_label(view: &PlayerView, figure: FigureId) -> String {
+pub(crate) fn figure_label(view: &PlayerView, figure: FigureId) -> String {
     let unit = view.state.figures.get(figure.index()).map(|f| f.unit);
     let card = view.cards.iter().find(|c| Some(c.unit) == unit);
     match card {
@@ -101,9 +101,9 @@ pub fn decision(ui: &mut egui::Ui, view: &PlayerView, input: &mut DecisionInput)
     input.settle(answer)
 }
 
-/// Draws why the last click did nothing, if it did.
+/// Draws why the last click did nothing, if it did and no answer has gone out since.
 pub fn why(ui: &mut egui::Ui, input: &DecisionInput) {
-    if let Some(why) = input.why {
+    if let Some(why) = input.refusal() {
         ui.colored_label(egui::Color32::LIGHT_RED, why.to_string());
     }
 }
