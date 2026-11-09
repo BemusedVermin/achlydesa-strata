@@ -9,6 +9,7 @@ PASS rigged dice survive answering a decision
 PASS a destroyed figure is reported
 FAIL missing figure (step 1): no figure matches `p1.dummy#1`
 PASS a script selects enemies with a native descriptor
+FAIL a decision with no valid answer is refused (step 1): `hit` was rejected: ctx.choose: the decision offers no figures
 FAIL answer without a decision (step 1): `answer` was rejected: no decision is pending
 FAIL no ruleset (setup): the test names no ruleset
 PASS a modifier raises a stat and a script reacts to an event
@@ -26,4 +27,4 @@ FAIL wrong event figure (step 2): event `wounds_applied` for p0.soldier.f#2: exp
 FAIL wrong roll (step 3): event `lucky`: expected it, got ["wounds_applied", "dice_rolled"]
 FAIL wrong stat (step 2): p0.soldier.f#1 defense: expected 9, got 5
 FAIL wrong status (step 1): p0.dummy#1: expected destroyed, got on_board
-5 passed, 19 failed
+5 passed, 20 failed

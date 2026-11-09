@@ -20,7 +20,7 @@ pub trait Ctx {
     /// window opened while it is already open.
     fn window(&mut self, id: &WindowId) -> Result<(), Halt>;
     /// Asks `chooser`. Returns the recorded answer, or halts with `NeedsDecision` once the
-    /// tape is exhausted.
+    /// tape is exhausted. A decision that fails [`Decision::check`] is rejected instead.
     fn choose(&mut self, chooser: PlayerId, d: Decision) -> Result<Answer, Halt>;
     /// Whether `player` may activate `unit` now, according to the ruleset's activation gate.
     ///

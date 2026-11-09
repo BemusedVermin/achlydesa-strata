@@ -633,3 +633,47 @@ fn only_the_active_player_is_offered_a_token_choice() {
     );
     assert!(engine.token_choice(PlayerId(1)).is_some());
 }
+
+/// Asks a native decision with an empty figure list, which nothing could answer.
+fn empty_figures(ctx: &mut dyn Ctx, _: PlayerId) -> Result<(), Halt> {
+    let none = Decision {
+        prompt: Sym::new("pick"),
+        kind: DecisionKind::ChooseFigure(Vec::new()),
+    };
+    ctx.choose(PlayerId(0), none)?;
+    ctx.emit(set_var(1))
+}
+
+/// Asks a native number decision whose range is empty.
+fn inverted_number(ctx: &mut dyn Ctx, _: PlayerId) -> Result<(), Halt> {
+    let none = Decision {
+        prompt: Sym::new("how many"),
+        kind: DecisionKind::Number { min: 3, max: 1 },
+    };
+    ctx.choose(PlayerId(0), none)?;
+    ctx.emit(set_var(1))
+}
+
+#[test]
+fn a_native_decision_with_no_valid_answer_is_rejected_not_left_pending() {
+    let rt = runtime(
+        vec![
+            Toy("empty", empty_figures),
+            Toy("inverted", inverted_number),
+        ],
+        vec![],
+        vec![],
+    );
+    let mut engine = Engine::new(&rt, &ToyHooks, state());
+    let before = engine.state().clone();
+    assert_eq!(
+        engine.submit(PlayerId(0), cmd("empty")),
+        Outcome::Rejected(RuleViolation("the decision offers no figures".into()))
+    );
+    assert_eq!(
+        engine.submit(PlayerId(0), cmd("inverted")),
+        Outcome::Rejected(RuleViolation("number min 3 is greater than max 1".into()))
+    );
+    assert_eq!(engine.state(), &before);
+    assert_eq!(engine.state().pending, None);
+}

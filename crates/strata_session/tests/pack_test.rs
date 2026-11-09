@@ -120,6 +120,17 @@ fn failures_name_the_test_the_step_and_expected_versus_actual() {
 }
 
 #[test]
+fn a_script_decision_with_no_valid_answer_rejects_the_command_instead_of_waiting() {
+    let reports = run(Some("no valid answer"));
+    assert_eq!(reports.len(), 1, "{}", summary(&reports));
+    assert_eq!(
+        reports[0].to_string(),
+        "FAIL a decision with no valid answer is refused (step 1): `hit` was rejected: \
+         ctx.choose: the decision offers no figures"
+    );
+}
+
+#[test]
 fn the_filter_selects_tests_by_name() {
     let reports = run(Some("wrong"));
     assert_eq!(reports.len(), 7);

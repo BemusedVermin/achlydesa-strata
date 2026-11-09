@@ -33,7 +33,7 @@ pub use ability::{
 pub use ability_key::AbilityKey;
 pub use apply::ApplyError;
 pub use command::{Command, TokenPlacement};
-pub use decision::{Answer, Decision, DecisionKind, PendingDecision};
+pub use decision::{Answer, Decision, DecisionKind, PendingDecision, Unanswerable};
 pub use event::{Event, Visibility};
 pub use footprint::{FootprintDef, FootprintError, MoveMode};
 pub use ids::{FigureId, PlayerId, RelicId, UnitId, VarKey};

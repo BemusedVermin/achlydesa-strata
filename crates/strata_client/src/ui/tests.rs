@@ -194,6 +194,8 @@ fn drawing_the_prompt_with_no_input_leaves_the_decision_input_unchanged() {
         DecisionKind::Number { min: 1, max: 4 },
         DecisionKind::Order(syms(&["a", "b", "c"])),
         DecisionKind::ChooseOption(syms(&["left", "right"])),
+        DecisionKind::ChooseOption(Vec::new()),
+        DecisionKind::Number { min: 3, max: 1 },
     ];
     for kind in kinds {
         let pending = PendingDecision {
@@ -224,6 +226,45 @@ fn drawing_the_prompt_with_no_input_leaves_the_decision_input_unchanged() {
         assert_eq!(answer, None);
         assert_eq!(input, before);
     }
+}
+
+#[test]
+fn a_decision_with_no_valid_answer_draws_no_valid_choices() {
+    use bevy_egui::egui;
+    use strata_model::{Command, Decision, DecisionKind, PendingDecision};
+
+    use crate::input::DecisionInput;
+
+    let pending = PendingDecision {
+        decision: Decision {
+            prompt: Sym::new("pick"),
+            kind: DecisionKind::ChooseFigure(Vec::new()),
+        },
+        chooser: PlayerId(0),
+        player: PlayerId(0),
+        command: Command::EndActivation,
+        answers: Vec::new(),
+    };
+    let state = GameState {
+        pending: Some(pending),
+        ..GameState::default()
+    };
+    let view = PlayerView::of(&state, PlayerId(0));
+    let mut input = DecisionInput::of(&view);
+    let ctx = egui::Context::default();
+    let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+        super::prompt::decision(ui, &view, &mut input);
+    });
+    output.textures_delta.clear();
+    let texts: Vec<String> = output
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::epaint::Shape::Text(text) => Some(text.galley.text().to_owned()),
+            _ => None,
+        })
+        .collect();
+    assert!(texts.iter().any(|t| t == "No valid choices."), "{texts:?}");
 }
 
 #[test]

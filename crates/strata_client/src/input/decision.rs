@@ -28,6 +28,9 @@ pub enum Widget {
     },
     /// A list the chooser drags into order.
     Order(Vec<String>),
+    /// A decision no answer can satisfy, such as one from a replay recorded before the engine
+    /// refused them: it says so instead of showing an empty widget.
+    NoChoices,
 }
 
 /// What the board marks: figures, and spaces that are not tied to a figure.
@@ -52,8 +55,11 @@ impl Highlights {
 }
 
 impl Widget {
-    /// The widget for `decision`.
+    /// The widget for `decision`, or [`Widget::NoChoices`] when no answer could satisfy it.
     pub fn of(decision: &Decision) -> Self {
+        if decision.check().is_err() {
+            return Self::NoChoices;
+        }
         let labels =
             |items: &[strata_kernel::Sym]| items.iter().map(|s| s.as_str().to_owned()).collect();
         match &decision.kind {
@@ -99,6 +105,7 @@ impl Widget {
                 Some(space) if spaces.contains(&space) => Ok(Answer::Space(space)),
                 _ => Err(Refusal::NotAChoice),
             },
+            Self::NoChoices => Err(Refusal::NotAChoice),
             _ => Err(Refusal::UseDialog),
         }
     }
