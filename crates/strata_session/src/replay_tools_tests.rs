@@ -5,11 +5,12 @@ use std::path::PathBuf;
 
 use std::sync::OnceLock;
 
-use strata_kernel::{ModuleId, SlotId, Space, Sym, Value};
-use strata_model::{Command, Event, FigureId, PlayerId, RulesetDef, UnitId};
+use strata_kernel::{DefId, ModuleId, SlotId, Space, Sym, Value};
+use strata_model::{Command, DieDef, DieKind, Event, FigureId, PlayerId, RulesetDef, UnitId};
 use strata_modules::native_modules;
 use strata_rules::{
     CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, Outcome, Registrar, RuleModule,
+    event_kind,
 };
 
 use crate::pack_test::host::find;
@@ -104,6 +105,53 @@ fn to_test_writes_a_test_that_passes() {
     let reports = with_test.run(Some("replay command 0"));
     assert_eq!(reports.len(), 1);
     assert_eq!(reports[0].outcome.as_ref().err(), None);
+}
+
+/// The faces each roll in `events` showed, by name.
+fn faces(tests: &PackTests, events: &[Event]) -> Vec<Vec<String>> {
+    let rolled = events.iter().filter_map(|e| match e {
+        Event::DiceRolled { die, results } => Some((*die, results)),
+        _ => None,
+    });
+    let named = |(die, results): (DefId, &Vec<u32>)| {
+        let Some(DieKind::Faces(names)) = tests.registry.get::<DieDef>(die).map(|d| &d.kind) else {
+            panic!("the toy pack's dice have named faces");
+        };
+        let name = |r: &u32| names[*r as usize - 1].as_str().to_owned();
+        results.iter().map(name).collect()
+    };
+    rolled.map(named).collect()
+}
+
+/// The kind of each event in `events`. Values can differ, since an exported test starts without
+/// the match's earlier vars.
+fn kinds(events: &[Event]) -> Vec<&str> {
+    events.iter().map(event_kind).collect()
+}
+
+#[test]
+fn an_exported_rig_replays_the_faces_that_were_rolled() {
+    let tests = pack_tests();
+    let (replay, _) = play(&tests, 25);
+    let events = tests.replay_events(&replay).unwrap();
+    // `toy:combat` is hit, hit, hit, block, block, blank: a 6 is its top face, `blank`.
+    let tops = |batch: &Vec<Event>| {
+        let six =
+            |e: &Event| matches!(e, Event::DiceRolled { results, .. } if results.contains(&6));
+        batch.iter().any(six)
+    };
+    let index = events.iter().position(tops);
+    let index = index.expect("seed 7 rolls the top face within 25 commands");
+    let text = tests.to_test(&replay, index).unwrap();
+    assert!(text.contains("'blank'"), "{text}");
+
+    let (_dir, with_test) = pack_with(&text);
+    let reports = with_test.run(Some(&format!("replay command {index}")));
+    assert_eq!(reports.len(), 1);
+    assert_eq!(reports[0].outcome.as_ref().err(), None);
+    let replayed = &reports[0].events;
+    assert_eq!(faces(&tests, replayed), faces(&tests, &events[index]));
+    assert_eq!(kinds(replayed), kinds(&events[index]));
 }
 
 #[test]
