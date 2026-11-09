@@ -3,7 +3,8 @@
 //! A one-cell figure is just its anchor. A larger footprint is placed with
 //! [`FootprintDef::spaces`], and its move mode decides how it may turn: a `rigid` shape only
 //! translates, while a `snake` shape turns so its rear follows the path its anchor, the leader,
-//! has walked.
+//! has walked. Content loading allows `snake` only for two-cell footprints, since a fixed
+//! rotation of three or more offsets cannot follow a bend.
 
 use std::collections::BTreeSet;
 

@@ -22,14 +22,17 @@ pub trait Engagement: Send + Sync {
         at: Space,
     ) -> Result<Vec<FigureId>, LogicError>;
 
-    /// The enemies owed a reprisal when `figure` steps from `from` to `to`, ordered by ID.
+    /// The enemies owed a reprisal when `figure`, covering the spaces `before`, steps to cover
+    /// `after`, ordered by ID. The body is judged as a whole: an enemy is left only if some space
+    /// of `before` is engaged with it and no space of `after` is. A one-cell figure passes one
+    /// space on each side.
     fn reprisals(
         &self,
         state: &GameState,
         env: &dyn NativeEnv,
         figure: FigureId,
-        from: Space,
-        to: Space,
+        before: &[Space],
+        after: &[Space],
     ) -> Result<Vec<FigureId>, LogicError>;
 
     /// Resolves the reprisals `figure` provokes by walking `path` from where it stands, before the

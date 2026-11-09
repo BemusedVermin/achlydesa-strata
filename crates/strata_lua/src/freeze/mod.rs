@@ -21,6 +21,7 @@
 //! `DefId(0)`, meaning the record itself. [`freeze_resolved`] then resolves and kind-checks every
 //! reference and freezes the record again with the real `DefId`s in place of the placeholders.
 
+mod check;
 mod schema;
 mod walk;
 
@@ -265,12 +266,17 @@ fn freeze_record(
     let decoded = decode(kind, Value::Table(plain));
     let decoded = decoded.unwrap_or_else(|| unreachable!("every kind has a schema"));
     match decoded {
-        Ok(def) => Ok(FrozenRecord {
-            record,
-            def,
-            references,
-            scripts,
-        }),
+        Ok(def) => {
+            if let Err(bad) = check::check(&record.id, &def) {
+                return Err(error_at(&record, bad.field_path, bad.message));
+            }
+            Ok(FrozenRecord {
+                record,
+                def,
+                references,
+                scripts,
+            })
+        }
         Err(error) => {
             let (field_path, message) = describe(&error, &references);
             Err(error_at(&record, &field_path, message))

@@ -111,6 +111,16 @@ pub fn reachable(
     figure: FigureId,
     limits: Limits,
 ) -> Result<Vec<Reach>, LogicError> {
+    search(world, figure, limits, Body::new(world.footprint(figure)))
+}
+
+/// [`reachable`] for `figure` moving as `body`.
+pub(super) fn search(
+    world: &dyn MoveWorld,
+    figure: FigureId,
+    limits: Limits,
+    body: Body<'_>,
+) -> Result<Vec<Reach>, LogicError> {
     let Some(anchor) = world.location(figure) else {
         return Err(LogicError(format!(
             "figure {} is not on the board",
@@ -118,7 +128,6 @@ pub fn reachable(
         )));
     };
     let start = (anchor, world.rotation(figure));
-    let body = Body::new(world.footprint(figure));
     let allowance = world.allowance(figure)?;
     let height = world.height(figure);
     let mut cache = Cache {
@@ -169,7 +178,7 @@ pub fn reachable(
                         continue;
                     };
                     // Asked only for steps that improve a route, so each edge is asked at most
-                    // once per cell.
+                    // once.
                     let provokes = found[&at].provokes_reprisal
                         || leaves_engagement(world, figure, &found[&at].cells, &placed.cells)?;
                     let node = Node {
@@ -217,20 +226,21 @@ fn body_spaces(world: &dyn MoveWorld, def: &FootprintDef, at: Key) -> Option<Vec
     Some(spaces.into_iter().map(|(space, _)| space).collect())
 }
 
-/// Whether any cell leaves engagement as the body moves from `before` to `after`. Cells pair up
-/// by footprint offset, so each cell is asked about the step it takes itself.
+/// Whether the body leaves engagement with some enemy as it moves from `before` to `after`.
+///
+/// A one-cell figure asks [`MoveWorld::provokes_reprisal`] once about its step. A larger body
+/// asks [`MoveWorld::body_provokes_reprisal`] about all its cells together: a cell stepping away
+/// from an enemy does not leave it while another cell stays engaged with it.
 fn leaves_engagement(
     world: &dyn MoveWorld,
     figure: FigureId,
     before: &[Space],
     after: &[Space],
 ) -> Result<bool, LogicError> {
-    for (from, to) in before.iter().zip(after) {
-        if world.provokes_reprisal(figure, *from, *to)? {
-            return Ok(true);
-        }
+    match (before, after) {
+        ([from], [to]) => world.provokes_reprisal(figure, *from, *to),
+        _ => world.body_provokes_reprisal(figure, before, after),
     }
-    Ok(false)
 }
 
 /// The legal steps from `at` onto the surfaces of `hex`.

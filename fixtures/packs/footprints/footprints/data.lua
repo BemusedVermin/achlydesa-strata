@@ -69,19 +69,21 @@ rule_module {
   end,
 }
 
-local function setup(id, movement)
+local function setup(id, movement, engagement)
   ruleset {
     id = id, name = id,
     slots = {
       activation = { id = 'core:activation' },
       movement = { id = 'core:movement', config = movement },
       units = { id = 'core:units' },
+      engagement = engagement and { id = 'core:engagement' } or nil,
     },
     addons = {{ id = 'footprints:rules' }},
   }
 end
 setup('rs', {})
 setup('hard_falls', { fall_wounds = { Int = 1 } })
+setup('engaged', {}, true)
 
 -- Where each map keeps player 1's figure, out of the way.
 local enemy = { field = { q = 3, r = 1, z = 1 }, ledge = { q = 3, r = 0, z = 2 }, cliff = { q = 3, r = 0, z = 1 } }
@@ -126,3 +128,19 @@ walk('fall_wounds', 'a fall wounds per level beyond the limit when configured', 
   { expect.event('figure_fell'), expect.event('wounds_applied', { figure = 'p0.test_soldier#1' }), expect.figure('p0.test_soldier#1', 'on_board') }, nil, 1, 4)
 walk('fall_deadly', 'a fall can destroy a figure', 'hard_falls', 'cliff', 'test_scout', { 2, 0, 1 },
   { expect.event('figure_fell'), expect.figure('p0.test_scout#1', 'destroyed') }, nil, 1, 4)
+
+-- With `core:engagement` in the ruleset, every step of a two-space body asks it about reprisals
+-- for the body as a whole. The enemy on (-1, 1) is next to the anchor; the snake moves away.
+test {
+  id = 'engaged_snake', name = 'a snake next to an enemy moves with engagement in the ruleset',
+  ruleset = 'engaged', map = 'field',
+  place = {
+    { unit = 'test_wyrm', player = 0, at = {{ q = 0, r = 0, z = 1 }} },
+    { unit = 'test_soldier', player = 1, at = {{ q = -1, r = 1, z = 1 }} },
+  },
+  steps = {
+    act.activate(0, 'p0.test_wyrm#1'),
+    act.action('p0.test_wyrm#1', 'walk', { 1, 0, 1, 3 }),
+    expect.event('figure_moved', { figure = 'p0.test_wyrm#1' }),
+  },
+}
