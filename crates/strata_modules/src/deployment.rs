@@ -4,8 +4,9 @@
 //! command, in the order of their scenario slots' `deploy_order`, round and round. A player with
 //! nothing left to place is skipped. A placement puts every figure of one of the player's
 //! reserve units on a standable, empty surface inside the player's start zone; a figure with a
-//! larger footprint needs every cell of it there. When the last unit is down the module emits
-//! `deployment_done`.
+//! larger footprint needs every cell of it there. Each cell stands where the movement module
+//! would stand it, headroom included, so a figure is never placed where it could not move (see
+//! `NativeEnv::cells`). When the last unit is down the module emits `deployment_done`.
 //!
 //! The payload is `{ unit = <unit id>, at = { { q, r, z }, ... } }`: one space per figure, in
 //! the order the unit lists its figures. Figures face the default way.
@@ -176,7 +177,7 @@ impl NativeLogic for Drive {
                 to: *to,
                 rotation: Rotation::default(),
                 path: Vec::new(),
-                cells: Event::moved_cells(body, *to),
+                cells: body,
             })?;
         }
         let next = (turn.unwrap_or(0) + 1) % seats.len();

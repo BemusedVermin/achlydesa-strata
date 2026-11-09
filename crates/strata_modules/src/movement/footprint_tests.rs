@@ -10,7 +10,7 @@ use strata_model::{
     FeatureDef, FigureId, FootprintDef, MapConstraints, MapDef, MoveMode, PlacedPiece, SourceLoc,
     Text, TileDef,
 };
-use strata_rules::{LogicError, MoveWorld, Reach, TerrainRules};
+use strata_rules::{LogicError, MoveWorld, Movement, Reach, TerrainRules, passable_cells};
 
 use super::body::Body;
 use super::search::search;
@@ -137,7 +137,7 @@ impl Scene {
     fn cells(&self, figure: &Figure) -> Vec<Space> {
         match &figure.footprint {
             Some(def) => def
-                .spaces(&self.board, figure.at, figure.rotation)
+                .spaces_where(&self.board, figure.at, figure.rotation, |_, _| true)
                 .map_or_else(
                     || vec![figure.at],
                     |s| s.into_iter().map(|(space, _)| space).collect(),
@@ -631,4 +631,36 @@ fn a_rear_cell_falls_back_to_the_next_surface_with_room() {
     let reach = run(&scene);
     let east = at(&reach, 0, 0, 2).unwrap();
     assert_eq!(east.cells, [Space::new(0, 0, 2), Space::new(1, 0, 1)]);
+}
+
+#[test]
+fn placement_stands_cells_where_a_move_would() {
+    // The board of the fallback test above: the anchor's column stands at 2; column (1, 0) has
+    // ground at 1 under one free level, and the overhang's top at 3.
+    let pieces = [
+        (-1, 0, 1, false),
+        (0, 0, 1, false),
+        (1, 0, 0, false),
+        (1, 0, 2, false),
+    ];
+    let mut scene = Scene::new(board(&pieces), Some(footprint(&TWO, MoveMode::Rigid, 1)));
+    scene.height = 2;
+    let service = super::Service { limits: LIMITS };
+    let (anchor, turned) = (Space::new(0, 0, 2), Rotation::default());
+    let placed = service.cells(&scene, FigureId(0), anchor, turned);
+    assert_eq!(placed, Some(vec![anchor, Space::new(1, 0, 3)]));
+    // It is the cell set a step onto the same anchor ends with.
+    scene.figures[0].at = Space::new(-1, 0, 2);
+    let reach = run(&scene);
+    assert_eq!(placed.as_deref(), at(&reach, 0, 0, 2).map(|r| &r.cells[..]));
+    // Without a movement module only passability counts, so the rear takes the ground.
+    let passable = passable_cells(&scene, FigureId(0), anchor, turned);
+    assert_eq!(passable, Some(vec![anchor, Space::new(1, 0, 1)]));
+    // With headroom ignored, the move's fit is passability alone too.
+    let ignore = Limits {
+        headroom: Headroom::Ignore,
+        ..LIMITS
+    };
+    let service = super::Service { limits: ignore };
+    assert_eq!(service.cells(&scene, FigureId(0), anchor, turned), passable);
 }

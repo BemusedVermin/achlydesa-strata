@@ -9,7 +9,7 @@ use crate::names::Names;
 use strata_content::ContentRegistry;
 use strata_kernel::{Blocker, DefId, Hex, Rotation, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
-use strata_model::board::{CompiledBoard, Surface};
+use strata_model::board::CompiledBoard;
 use strata_model::{
     AbilityOwner, Descriptor, DieDef, DieKind, FigureDef, FigureDefRef, FigureId, FigureStatus,
     FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef, StatDef,
@@ -19,7 +19,7 @@ use strata_rules::{
     Ctx, DeploySlot, Engagement, EngagementMemo, EvalCtx, FigureVolume, Halt, LineOfSight,
     LogicError, LogicEvaluator, Logics, LosWorld, MoveWorld, Movement, NativeEvaluator, Query,
     QueryEngine, QueryTrace, Reach, SourcedModifier, StatBounds, StatQuery, TerrainRules,
-    VoteQuery, World,
+    VoteQuery, World, passable_cells,
 };
 
 impl CardSource for Host {
@@ -367,6 +367,8 @@ impl RuleHost for Host {
         terrain.is_some_and(|t| t.standable)
     }
 
+    /// Asks the movement service, so a figure is placed only where it could move; without one,
+    /// every cell needs passable terrain. Without a board a figure covers its anchor alone.
     fn cells(
         &self,
         state: &GameState,
@@ -374,8 +376,20 @@ impl RuleHost for Host {
         anchor: Space,
         rotation: Rotation,
     ) -> Option<Vec<Space>> {
-        let def = &state.figures.get(figure.index())?.def;
-        body_cells(&self.registry, self.board.as_ref(), def, anchor, rotation)
+        state.figures.get(figure.index())?;
+        let Some(board) = self.board.as_ref() else {
+            return Some(vec![anchor]);
+        };
+        let world = StateMove {
+            host: self,
+            state,
+            board,
+            engagement: None,
+        };
+        match self.movement.as_deref() {
+            Some(movement) => movement.cells(&world, figure, anchor, rotation),
+            None => passable_cells(&world, figure, anchor, rotation),
+        }
     }
 
     fn relic(&self, id: DefId) -> Option<RelicDef> {
@@ -549,15 +563,15 @@ impl Host {
     /// The footprint of a figure, from its unit definition.
     fn footprint(&self, state: &GameState, figure: FigureId) -> Option<&FootprintDef> {
         let fig = state.figures.get(figure.index())?;
-        footprint_of(&self.registry, &fig.def)
+        let unit = self.registry.get::<UnitDef>(fig.def.unit)?;
+        let entry = unit.figures.iter().find(|f| f.id == fig.def.figure)?;
+        self.registry.get::<FootprintDef>(entry.footprint)
     }
-}
 
-/// The footprint of a figure entry, from its unit definition.
-fn footprint_of<'a>(registry: &'a ContentRegistry, def: &FigureDefRef) -> Option<&'a FootprintDef> {
-    let unit = registry.get::<UnitDef>(def.unit)?;
-    let entry = unit.figures.iter().find(|f| f.id == def.figure)?;
-    registry.get::<FootprintDef>(entry.footprint)
+    /// The match's board, if the test has a map.
+    pub(crate) fn board(&self) -> Option<&CompiledBoard> {
+        self.board.as_ref()
+    }
 }
 
 /// Whether a figure can stand on `terrain` at all: it is standable and not tagged `impassable`.
@@ -565,24 +579,6 @@ fn passable(registry: &ContentRegistry, terrain: DefId) -> bool {
     let def = registry.get::<TerrainDef>(terrain);
     let impassable = |d: &TerrainDef| d.tags.iter().any(|t| t.as_str() == "impassable");
     def.is_some_and(|d| d.standable && !impassable(d))
-}
-
-/// The spaces a figure of entry `def` covers with its anchor on `anchor`, in offset order: every
-/// cell of its footprint on a passable surface (see [`FootprintDef::spaces_where`]), or `None`
-/// when some cell cannot stand. Without a board or a footprint it covers its anchor alone.
-pub(crate) fn body_cells(
-    registry: &ContentRegistry,
-    board: Option<&CompiledBoard>,
-    def: &FigureDefRef,
-    anchor: Space,
-    rotation: Rotation,
-) -> Option<Vec<Space>> {
-    let (Some(board), Some(footprint)) = (board, footprint_of(registry, def)) else {
-        return Some(vec![anchor]);
-    };
-    let fits = |_: Space, surface: &Surface| passable(registry, surface.terrain);
-    let spaces = footprint.spaces_where(board, anchor, rotation, fits)?;
-    Some(spaces.into_iter().map(|(space, _)| space).collect())
 }
 
 /// What movement reads: the state and board, with terrain and figure sizes from the registry.

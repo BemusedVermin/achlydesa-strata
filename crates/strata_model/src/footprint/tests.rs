@@ -70,7 +70,7 @@ fn two(max_spread: u8) -> FootprintDef {
 }
 
 fn spaces(def: &FootprintDef, board: &CompiledBoard, at: Space, o: u8) -> Option<Vec<Space>> {
-    let found = def.spaces(board, at, Rotation::new(o).unwrap())?;
+    let found = def.spaces_where(board, at, Rotation::new(o).unwrap(), |_, _| true)?;
     Some(found.into_iter().map(|(space, _)| space).collect())
 }
 
@@ -140,7 +140,8 @@ fn no_placement_ever_leaves_a_cell_without_a_surface() {
         for &(q, r, level) in &pieces {
             let at = Space::new(q, r, u32::from(level) + 1);
             for o in 0..6 {
-                let Some(found) = def.spaces(&board, at, Rotation::new(o).unwrap()) else {
+                let rotation = Rotation::new(o).unwrap();
+                let Some(found) = def.spaces_where(&board, at, rotation, |_, _| true) else {
                     continue;
                 };
                 for (space, surface) in &found {

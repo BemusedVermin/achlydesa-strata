@@ -4,7 +4,7 @@
 //! implements over the board, the loaded content and the rule queries.
 
 use strata_kernel::{DefId, Rotation, Space};
-use strata_model::board::CompiledBoard;
+use strata_model::board::{CompiledBoard, Surface};
 use strata_model::{FigureId, FootprintDef};
 
 use crate::query::LogicError;
@@ -123,4 +123,51 @@ pub struct Reach {
 pub trait Movement: Send + Sync {
     /// Every (space, rotation) `figure` can reach, ordered by space and then rotation.
     fn reachable(&self, world: &dyn MoveWorld, figure: FigureId) -> Result<Vec<Reach>, LogicError>;
+
+    /// The spaces `figure`'s footprint covers with its anchor on `anchor` turned by `rotation`,
+    /// in offset order, with every cell standing where a move could stand it; `None` when some
+    /// cell cannot. Placement uses this, so a figure is never put down where it could not move.
+    /// Occupancy and `can_enter` are left to the caller.
+    ///
+    /// The default asks only for passable terrain: see [`passable_cells`].
+    fn cells(
+        &self,
+        world: &dyn MoveWorld,
+        figure: FigureId,
+        anchor: Space,
+        rotation: Rotation,
+    ) -> Option<Vec<Space>> {
+        passable_cells(world, figure, anchor, rotation)
+    }
+}
+
+/// The spaces `figure`'s footprint covers with its anchor on `anchor` turned by `rotation`, in
+/// offset order, with every cell on a surface that `fits` accepts (see
+/// [`FootprintDef::spaces_where`]), or `None` when some cell has none. A figure without a
+/// footprint covers its anchor alone, unchecked.
+pub fn footprint_cells(
+    world: &dyn MoveWorld,
+    figure: FigureId,
+    anchor: Space,
+    rotation: Rotation,
+    mut fits: impl FnMut(&Surface) -> bool,
+) -> Option<Vec<Space>> {
+    let Some(def) = world.footprint(figure) else {
+        return Some(vec![anchor]);
+    };
+    let spaces = def.spaces_where(world.board(), anchor, rotation, |_, s| fits(s))?;
+    Some(spaces.into_iter().map(|(space, _)| space).collect())
+}
+
+/// [`footprint_cells`] on passable terrain, whatever the headroom: where a figure is placed when
+/// no movement module says more.
+pub fn passable_cells(
+    world: &dyn MoveWorld,
+    figure: FigureId,
+    anchor: Space,
+    rotation: Rotation,
+) -> Option<Vec<Space>> {
+    footprint_cells(world, figure, anchor, rotation, |s| {
+        world.terrain(s.terrain).passable
+    })
 }

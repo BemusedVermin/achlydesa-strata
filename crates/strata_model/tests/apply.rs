@@ -31,7 +31,7 @@ fn mv(figure: u32, q: i32) -> Event {
         to: Space::new(q, 0, 0),
         rotation: Rotation::from_steps(2),
         path: Vec::new(),
-        cells: Vec::new(),
+        cells: vec![Space::new(q, 0, 0)],
     }
 }
 
@@ -248,6 +248,43 @@ fn a_body_must_cover_its_anchor() {
     assert_eq!(
         rejected(&s, &wrong),
         ApplyError::AnchorNotCovered(FigureId(0))
+    );
+}
+
+#[test]
+fn a_move_must_list_its_cells() {
+    // An emitter that forgets `cells` is refused, rather than shrinking the body to its anchor.
+    let forgot = |figure: u32, q: i32| Event::FigureMoved {
+        figure: FigureId(figure),
+        to: Space::new(q, 0, 0),
+        rotation: Rotation::default(),
+        path: Vec::new(),
+        cells: Vec::new(),
+    };
+    let mut s = base();
+    assert_eq!(
+        rejected(&s, &forgot(0, 1)),
+        ApplyError::AnchorNotCovered(FigureId(0))
+    );
+    applied(&mut s, &mv_two(0, 1));
+    assert_eq!(
+        rejected(&s, &forgot(0, 4)),
+        ApplyError::AnchorNotCovered(FigureId(0))
+    );
+}
+
+#[test]
+fn a_move_keeps_the_size_of_the_body() {
+    let mut s = base();
+    applied(&mut s, &mv_two(0, 1));
+    assert_eq!(
+        rejected(&s, &mv(0, 4)),
+        ApplyError::BodyResized(FigureId(0), 2, 1)
+    );
+    applied(&mut s, &mv(1, 6));
+    assert_eq!(
+        rejected(&s, &mv_two(1, 3)),
+        ApplyError::BodyResized(FigureId(1), 1, 2)
     );
 }
 

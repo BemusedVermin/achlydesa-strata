@@ -58,28 +58,15 @@ impl FootprintDef {
         turned.map(|c| c.add(anchor)).collect()
     }
 
-    /// The spaces the footprint covers with its anchor on `anchor`, in offset order, or `None`
-    /// when the anchor is not a surface, a cell has no surface, or the cells' levels spread
+    /// The spaces the footprint covers with its anchor on `anchor`, in offset order, each cell
+    /// standing only where `fits` allows, such as on passable terrain with headroom. `None` when
+    /// the anchor is not a surface, a cell has no surface that fits, or the cells' levels spread
     /// wider than `max_spread`.
     ///
-    /// Each cell stands on the surface of its column nearest the anchor's level, the lower one
-    /// on a tie, so a figure on a bridge deck stays on the deck.
-    pub fn spaces(
-        &self,
-        board: &CompiledBoard,
-        anchor: Space,
-        rotation: Rotation,
-    ) -> Option<Vec<(Space, Surface)>> {
-        self.spaces_where(board, anchor, rotation, |_, _| true)
-    }
-
-    /// [`FootprintDef::spaces`], with every cell standing only where `fits` allows, such as on
-    /// passable terrain with headroom.
-    ///
     /// Each cell tries the surfaces of its column within `max_spread` of the anchor's level,
-    /// nearest first and the lower one on a tie, and stands on the first that fits. The anchor
-    /// cell only ever stands on `anchor`. Each cell chooses on its own, so a cell that could only
-    /// fit by moving another cell is not found.
+    /// nearest first and the lower one on a tie, and stands on the first that fits, so a figure
+    /// on a bridge deck stays on the deck. The anchor cell only ever stands on `anchor`. Each cell
+    /// chooses on its own, so a cell that could only fit by moving another cell is not found.
     pub fn spaces_where(
         &self,
         board: &CompiledBoard,

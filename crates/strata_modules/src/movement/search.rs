@@ -7,7 +7,7 @@ use strata_kernel::{DefId, Hex, Rotation, Space};
 use strata_model::FigureId;
 use strata_rules::{LogicError, MoveWorld, Reach, TerrainRules};
 
-use super::body::{Body, roomy};
+use super::body::{Body, fits};
 
 /// How headroom under an overhang is checked.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,9 +105,10 @@ struct Step {
 /// column, priced and checked as a one-space step; the footprint's move mode then gives the
 /// rotations it may end with, and every cell must stand there (see [`Body`]). Each cell of a
 /// `rigid` shape may rise at most `max_climb` levels in a step, while the anchor's step alone
-/// prices it and answers `can_climb`. Ties between
-/// equal-cost routes go to whichever node settles first, which orders by cost, then space, then
-/// rotation, so the answer never depends on the cache or on query order.
+/// prices it and answers `can_climb`.
+///
+/// Ties between equal-cost routes go to whichever node settles first, which orders by cost, then
+/// space, then rotation, so the answer never depends on the cache or on query order.
 pub fn reachable(
     world: &dyn MoveWorld,
     figure: FigureId,
@@ -252,11 +253,10 @@ fn steps_into(
     let surfaces = cache.world.board().surfaces(hex).to_vec();
     for surface in surfaces {
         let rules = cache.terrain(surface.terrain);
-        let roomy = roomy(limits, height, &surface);
         let dz = i32::try_from(i64::from(surface.z) - i64::from(at.z)).unwrap_or(i32::MAX);
         let drop = dz.unsigned_abs();
         let in_reach = dz < 0 || drop <= limits.max_climb;
-        if !rules.passable || !roomy || !in_reach {
+        if !fits(rules, limits, height, &surface) || !in_reach {
             continue;
         }
         let to = Space::at(hex, surface.z);

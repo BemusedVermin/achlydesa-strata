@@ -187,14 +187,15 @@ fn an_enemys_rear_cell_engages() {
 
 #[test]
 fn heights_are_compared_cell_by_cell() {
-    // The enemy's anchor is far away; its rear cell on (1, 0) stands two levels up.
+    // The enemy's anchor is far away; its rear cell on (1, 0) stands one level up, so the two
+    // one-level-tall bodies only touch.
     let mut state = state(&[(3, 0)]);
-    cover(&mut state, 1, &[(1, 0, 3)]);
+    cover(&mut state, 1, &[(1, 0, 2)]);
     assert!(
         engaged(&state, Space::new(0, 0, 1)).is_empty(),
         "a level apart"
     );
-    assert_eq!(engaged(&state, Space::new(0, 0, 3)), [FigureId(1)]);
+    assert_eq!(engaged(&state, Space::new(0, 0, 2)), [FigureId(1)]);
     // A figure's own cells never engage it.
     let mut state = self::state(&[]);
     cover(&mut state, 0, &[(1, 0, 1)]);
@@ -210,10 +211,6 @@ fn leaving_a_long_enemy_is_judged_on_every_cell() {
     assert!(
         owed(&state, &[(0, 0)], &[(0, 1)]).is_empty(),
         "(0, 1) touches (1, 0)"
-    );
-    assert_eq!(
-        owed(&state, &[(0, 0)], &[(-1, 0)]),
-        owed(&state, &[(0, 0)], &[(-1, 0)])
     );
 }
 

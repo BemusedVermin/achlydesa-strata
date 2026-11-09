@@ -50,8 +50,13 @@ pub trait RuleHost: Send + Sync {
         false
     }
     /// The spaces `figure`'s footprint covers with its anchor on `anchor` turned by `rotation`,
-    /// in offset order, or `None` when some cell has no standable surface. Without footprints a
-    /// figure covers its anchor alone.
+    /// in offset order, each cell standing where the ruleset's movement module would stand it
+    /// (see `strata_rules::Movement::cells`).
+    ///
+    /// `None` when the figure is unknown, `anchor` is not a surface, or some cell has no surface
+    /// it fits on within the footprint's level spread: passable, and with headroom when movement
+    /// checks it. Occupancy, start zones and `can_enter` are left to the caller. The default, for
+    /// hosts without footprints, covers the anchor alone.
     fn cells(
         &self,
         _state: &GameState,

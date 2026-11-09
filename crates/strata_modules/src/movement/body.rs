@@ -1,7 +1,8 @@
 //! How a figure's footprint covers the board and moves over it (design §7.3).
 //!
 //! A one-cell figure is just its anchor. A larger footprint is placed with
-//! [`FootprintDef::spaces`], and its move mode decides how it may turn: a `rigid` shape only
+//! [`FootprintDef::spaces_where`], each cell on the nearest surface it [`fits`] on, and its move
+//! mode decides how it may turn: a `rigid` shape only
 //! translates, while a `snake` shape turns so its rear follows the path its anchor, the leader,
 //! has walked. Content loading allows `snake` only for two-cell footprints, since a fixed
 //! rotation of three or more offsets cannot follow a bend.
@@ -11,7 +12,7 @@ use std::collections::BTreeSet;
 use strata_kernel::{Hex, Rotation, Space};
 use strata_model::board::Surface;
 use strata_model::{FootprintDef, MoveMode};
-use strata_rules::LogicError;
+use strata_rules::{LogicError, TerrainRules};
 
 use super::search::{Cache, Headroom, Limits};
 
@@ -32,12 +33,18 @@ pub(super) struct Placed {
     pub stops_here: bool,
 }
 
-/// Whether a figure `height` levels tall fits on `surface`.
-pub(super) fn roomy(limits: Limits, height: u32, surface: &Surface) -> bool {
+/// Whether a figure `height` levels tall has room on `surface`.
+fn roomy(limits: Limits, height: u32, surface: &Surface) -> bool {
     match (limits.headroom, surface.headroom) {
         (Headroom::FigureHeight, Some(free)) => free >= height,
         _ => true,
     }
+}
+
+/// Whether a figure `height` levels tall can stand on `surface`, whose terrain does `rules`: it
+/// is passable and has room for the figure. Steps, footprint cells and placements all ask this.
+pub(super) fn fits(rules: TerrainRules, limits: Limits, height: u32, surface: &Surface) -> bool {
+    rules.passable && roomy(limits, height, surface)
 }
 
 impl<'a> Body<'a> {
@@ -152,7 +159,7 @@ impl<'a> Body<'a> {
 }
 
 /// Where each cell of `def` stands with its anchor on `anchor`: on the nearest surface of its
-/// column that is passable and has room for the figure (see [`FootprintDef::spaces_where`]).
+/// column that the figure [`fits`] on (see [`FootprintDef::spaces_where`]).
 fn stand(
     def: &FootprintDef,
     cache: &mut Cache<'_>,
@@ -162,8 +169,7 @@ fn stand(
     rotation: Rotation,
 ) -> Option<Vec<(Space, Surface)>> {
     let world = cache.world;
-    let fits = |_: Space, surface: &Surface| {
-        cache.terrain(surface.terrain).passable && roomy(limits, height, surface)
-    };
-    def.spaces_where(world.board(), anchor, rotation, fits)
+    let fit =
+        |_: Space, surface: &Surface| fits(cache.terrain(surface.terrain), limits, height, surface);
+    def.spaces_where(world.board(), anchor, rotation, fit)
 }

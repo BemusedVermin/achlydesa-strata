@@ -32,9 +32,13 @@ pub enum ApplyError {
     /// Another figure already covers one of the target spaces.
     #[error("space is occupied by figure {0:?}")]
     Occupied(FigureId),
-    /// A move lists the spaces its body covers, but not its anchor among them.
+    /// A move's `cells` do not include its anchor; an empty list never does.
     #[error("figure {0:?}'s cells do not include its anchor")]
     AnchorNotCovered(FigureId),
+    /// A move would change how many spaces a figure on the board covers, as an emitter that
+    /// left out some of its cells would.
+    #[error("figure {0:?} covers {1} spaces, but its move lists {2}")]
+    BodyResized(FigureId, usize, usize),
     /// A marker change of zero, or a count that would leave `1..=u32::MAX` (or `0` on removal).
     #[error("marker count for figure {0:?} would be out of range")]
     MarkerCount(FigureId),
@@ -82,12 +86,7 @@ impl GameState {
                 ..
             } => {
                 self.live_figure(*figure)?;
-                let body = if cells.is_empty() {
-                    std::slice::from_ref(to)
-                } else {
-                    cells.as_slice()
-                };
-                self.cover(*figure, *to, body)?;
+                self.cover(*figure, *to, cells)?;
                 let fig = &mut self.figures[figure.index()];
                 fig.location = Some(*to);
                 fig.rotation = *rotation;
@@ -259,10 +258,15 @@ impl GameState {
     }
 
     /// Moves `figure`'s entries in the occupancy index to `body`, the spaces it covers with its
-    /// anchor on `to`. Refuses a body without its anchor, or one that overlaps another figure.
+    /// anchor on `to`. Refuses a body without its anchor, one of another size than the body the
+    /// figure already covers, or one that overlaps another figure.
     fn cover(&mut self, figure: FigureId, to: Space, body: &[Space]) -> Result<(), ApplyError> {
         if !body.contains(&to) {
             return Err(ApplyError::AnchorNotCovered(figure));
+        }
+        let held = self.covered(figure).len();
+        if held != 0 && held != body.len() {
+            return Err(ApplyError::BodyResized(figure, held, body.len()));
         }
         let mut others = body.iter().filter_map(|s| self.occupant(*s));
         if let Some(other) = others.find(|o| *o != figure) {

@@ -164,11 +164,22 @@ map {
   pieces = { at(0, 0, 0), at(1, 0, 0), at(0, 1, 0), at(1, 1, 0), at(1, 1, 1), at(1, 1, 2), at(-1, 0, 0) },
 }
 
+-- Like `steep`, but (1, 1) stands at level 2: one level above its neighbours.
+map {
+  id = 'gentle', name = 'Gentle', orientation = 'pointy',
+  pieces = { at(0, 0, 0), at(1, 0, 0), at(0, 1, 0), at(1, 1, 0), at(1, 1, 1), at(-1, 0, 0) },
+}
+
 -- (-1, 0) and (0, 0) stand at level 2. Column (1, 0) has ground at 1 under a shelf with one free
 -- level, and the shelf's top at 3: both a level from the anchor, the ground nearer on a tie.
+-- Player 0 deploys on (-1, 0) to (1, 0), player 1 on (-2, 0), which stands at level 1.
 map {
   id = 'shelf', name = 'Shelf', orientation = 'pointy',
   pieces = { at(-1, 0, 1), at(0, 0, 1), at(1, 0, 0), at(1, 0, 2), at(-2, 0, 0) },
+  zones = {
+    west = {{ q = -1, r = 0 }, { q = 0, r = 0 }, { q = 1, r = 0 }},
+    east = {{ q = -2, r = 0 }},
+  },
 }
 
 local function solo(id, name, map, unit, from, to, expected)
@@ -187,6 +198,9 @@ end
 -- Sliding south-east, the rear would rise two levels: within the spread, beyond `max_climb`.
 solo('rear_climb', 'a rigid rear cell cannot climb further than the anchor may', 'steep', 'test_wagon',
   { q = 0, r = 0, z = 1 }, { 0, 1, 1, 0 })
+-- The same slide with the rear rising one level is legal.
+solo('rear_climb_ok', 'a rigid rear cell may climb as far as the anchor may', 'gentle', 'test_wagon',
+  { q = 0, r = 0, z = 1 }, { 0, 1, 1, 0 }, moved)
 -- A figure two levels tall: the rear's nearest surface is under the shelf, so it stands on top.
 test {
   id = 'shelf_top', name = 'a rear cell without headroom stands on the next surface up', ruleset = 'rs', map = 'shelf',
@@ -217,4 +231,45 @@ test {
     { unit = 'test_soldier', player = 1, at = {{ q = 1, r = 0, z = 1 }} },
   },
   steps = {},
+}
+-- A test cannot place a figure above the ground, where there is no surface.
+test {
+  id = 'placed_in_air', name = 'a test cannot place a figure where there is no surface', ruleset = 'rs', map = 'field',
+  place = {
+    { unit = 'test_soldier', player = 0, at = {{ q = 0, r = 0, z = 5 }} },
+    { unit = 'test_soldier', player = 1, at = {{ q = 3, r = 1, z = 1 }} },
+  },
+  steps = {},
+}
+
+-- Deployment stands cells where movement would: the tall cart's rear cannot fit under the shelf,
+-- so it is placed on the shelf's top, and the cart can then walk west off it.
+scenario {
+  id = 'shelf_duel', name = 'Shelf duel', map = 'shelf', players = { min = 2, max = 2 },
+  slots = { { id = 'a', start = 'west', deploy_order = 1 }, { id = 'b', start = 'east', deploy_order = 2 } },
+}
+ruleset {
+  id = 'deploys', name = 'deploys',
+  slots = {
+    deployment = { id = 'core:deployment' },
+    activation = { id = 'core:activation' },
+    movement = { id = 'core:movement' },
+    units = { id = 'core:units' },
+  },
+  addons = {{ id = 'footprints:rules' }},
+}
+test {
+  id = 'deploy_shelf', name = 'a deployed rear cell without headroom stands on the next surface up',
+  ruleset = 'deploys', scenario = 'shelf_duel',
+  place = {
+    { unit = 'test_tall_cart', player = 0, at = {} },
+    { unit = 'test_soldier', player = 1, at = {{ q = -2, r = 0, z = 1 }} },
+  },
+  steps = {
+    act.command(0, 'place_unit', { unit = 0, at = {{ 0, 0, 2 }} }),
+    expect.event('deployment_done'),
+    act.activate(0, 'p0.test_tall_cart#1'),
+    act.action('p0.test_tall_cart#1', 'walk', { -1, 0, 2, 0 }),
+    expect.event('figure_moved'),
+  },
 }
