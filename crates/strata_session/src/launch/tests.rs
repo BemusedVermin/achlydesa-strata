@@ -220,12 +220,12 @@ fn custom(id: &str, payload: strata_kernel::Value) -> strata_model::Command {
     }
 }
 
-/// The next view, skipping the events that come before it.
+/// The next view, skipping the events and board info that come before it.
 fn view_after(handle: &SimHandle) -> PlayerView {
     loop {
         match handle.recv_timeout(WAIT) {
             Ok(SimMessage::View(view)) => return *view,
-            Ok(SimMessage::Events(_)) => {}
+            Ok(SimMessage::Events(_) | SimMessage::Board(_)) => {}
             other => panic!("expected a view, got {other:?}"),
         }
     }
