@@ -10,6 +10,16 @@ use crate::setup::pack_identities;
 /// Commands between snapshots.
 pub const SNAPSHOT_EVERY: u32 = 20;
 
+/// The saved form of a replay. Bump it whenever that form changes without an engine release,
+/// such as a new field in `GameState`, so older files fail with [`ReplayError::Version`].
+/// 1: abilities name their definition with an `AbilityKey`.
+pub const REPLAY_FORMAT: u32 = 1;
+
+/// The version a replay records: the engine's, with [`REPLAY_FORMAT`] as semver build metadata.
+pub fn engine_version() -> String {
+    format!("{}+replay.{REPLAY_FORMAT}", env!("CARGO_PKG_VERSION"))
+}
+
 /// One committed command with the hash the state had afterwards.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReplayRecord {
@@ -99,7 +109,7 @@ impl Replay {
             state_hash: r.state_hash,
         };
         Self {
-            engine_version: env!("CARGO_PKG_VERSION").into(),
+            engine_version: engine_version(),
             setup,
             commands: log.iter().map(record).collect(),
             snapshots,
@@ -111,20 +121,18 @@ impl Replay {
         postcard::to_allocvec(self).map_err(|e| ReplayError::Format(e.to_string()))
     }
 
-    /// Reads a replay saved by [`Replay::save`].
+    /// Reads a replay saved by [`Replay::save`]. The version, saved first, is checked before
+    /// the rest, whose form may differ between versions.
     pub fn load(bytes: &[u8]) -> Result<Self, ReplayError> {
-        postcard::from_bytes(bytes).map_err(|e| ReplayError::Format(e.to_string()))
+        let format = |e: postcard::Error| ReplayError::Format(e.to_string());
+        let (recorded, _) = postcard::take_from_bytes::<String>(bytes).map_err(format)?;
+        check_version(&recorded)?;
+        postcard::from_bytes(bytes).map_err(format)
     }
 
     /// Checks the engine version and that `registry` holds exactly the recorded packs.
     pub fn verify(&self, registry: &ContentRegistry) -> Result<(), ReplayError> {
-        let current = env!("CARGO_PKG_VERSION");
-        if self.engine_version != current {
-            return Err(ReplayError::Version {
-                recorded: self.engine_version.clone(),
-                current: current.into(),
-            });
-        }
+        check_version(&self.engine_version)?;
         if pack_identities(registry) != self.setup.packs {
             return Err(ReplayError::Packs);
         }
@@ -161,6 +169,18 @@ impl Replay {
         }
         Ok(())
     }
+}
+
+/// Checks that a replay recorded as `recorded` was saved by this engine and replay format.
+fn check_version(recorded: &str) -> Result<(), ReplayError> {
+    let current = engine_version();
+    if recorded != current {
+        return Err(ReplayError::Version {
+            recorded: recorded.into(),
+            current,
+        });
+    }
+    Ok(())
 }
 
 impl ReplayRecord {

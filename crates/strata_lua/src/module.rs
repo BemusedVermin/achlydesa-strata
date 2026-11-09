@@ -2,12 +2,12 @@
 
 use std::fmt::Display;
 
-use mlua::{Function, Lua, LuaSerdeExt, Table, Value as LuaValue};
+use mlua::{Function, Lua, Table, Value as LuaValue};
 use strata_kernel::{DefId, ModuleId, PackId, SlotId, Value, WindowId};
 use strata_model::{ActionDef, ModifierDef, ReactionDef, ReplacementDef, TriggerDef};
 use strata_rules::{ConfigSchema, ModuleError, Registrar, RuleModule};
 
-use crate::convert::{contents, value_to_lua};
+use crate::convert::{contents, from_lua, value_to_lua};
 use crate::data::{DataStage, PackSource};
 use crate::error::HostError;
 use crate::freeze::{Def, FrozenRecord, freeze_registered};
@@ -99,12 +99,12 @@ impl RuleModule for LuaModule {
 /// Hands one registration to the registrar.
 fn add(r: &mut Registrar, lua: &Lua, kind: &str, def: LuaValue) -> mlua::Result<()> {
     match kind {
-        "action" => r.action(lua.from_value::<ActionDef>(def)?),
-        "modifier" => r.modifier(lua.from_value::<ModifierDef>(def)?),
-        "trigger" => r.trigger(lua.from_value::<TriggerDef>(def)?),
-        "replacement" => r.replacement(lua.from_value::<ReplacementDef>(def)?),
-        "reaction" => r.reaction(lua.from_value::<ReactionDef>(def)?),
-        _ => r.window(WindowId::new(&lua.from_value::<String>(def)?)),
+        "action" => r.action(from_lua::<ActionDef>(lua, def)?),
+        "modifier" => r.modifier(from_lua::<ModifierDef>(lua, def)?),
+        "trigger" => r.trigger(from_lua::<TriggerDef>(lua, def)?),
+        "replacement" => r.replacement(from_lua::<ReplacementDef>(lua, def)?),
+        "reaction" => r.reaction(from_lua::<ReactionDef>(lua, def)?),
+        _ => r.window(WindowId::new(&from_lua::<String>(lua, def)?)),
     }
     Ok(())
 }

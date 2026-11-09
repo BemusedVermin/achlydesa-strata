@@ -486,7 +486,7 @@ fn abilities_attach_and_detach_one_instance_at_a_time() {
     let mut s = base();
     let owner = AbilityOwner::Player(PlayerId(1));
     let attach = Event::AbilityAttached {
-        def: DefId(7),
+        def: AbilityKey::Def(DefId(7)),
         owner,
         params: Default::default(),
     };
@@ -494,19 +494,46 @@ fn abilities_attach_and_detach_one_instance_at_a_time() {
     applied(&mut s, &attach);
     assert_eq!(s.abilities.len(), 2);
     let detach = Event::AbilityDetached {
-        def: DefId(7),
+        def: AbilityKey::Def(DefId(7)),
         owner,
     };
     applied(&mut s, &detach);
     assert_eq!(s.abilities.len(), 1);
     applied(&mut s, &detach);
-    assert_eq!(rejected(&s, &detach), ApplyError::NoAbility(DefId(7)));
+    assert_eq!(
+        rejected(&s, &detach),
+        ApplyError::NoAbility(AbilityKey::Def(DefId(7)))
+    );
+}
+
+#[test]
+fn detach_removes_only_the_instance_with_the_same_key() {
+    let mut s = base();
+    let owner = AbilityOwner::Player(PlayerId(1));
+    let grant = |index| AbilityKey::Relic {
+        relic: DefId(2),
+        index,
+    };
+    let keys = [grant(0), grant(1), AbilityKey::Def(DefId(2))];
+    for def in keys {
+        let params = Default::default();
+        applied(&mut s, &Event::AbilityAttached { def, owner, params });
+    }
+    applied(
+        &mut s,
+        &Event::AbilityDetached {
+            def: grant(1),
+            owner,
+        },
+    );
+    let left: Vec<_> = s.abilities.iter().map(|a| a.def).collect();
+    assert_eq!(left, [grant(0), AbilityKey::Def(DefId(2))]);
 }
 
 #[test]
 fn an_ability_cannot_attach_to_a_missing_owner() {
     let bad = |owner| Event::AbilityAttached {
-        def: DefId(0),
+        def: AbilityKey::Def(DefId(0)),
         owner,
         params: Default::default(),
     };

@@ -16,7 +16,7 @@ use strata_rules::{
     RulesRuntime, VoteQuery,
 };
 
-use crate::convert::{lua_to_value, value_to_lua};
+use crate::convert::{from_lua, lua_to_value, value_to_lua};
 use crate::ctx::{Args, Frame, Namespaces, RuleHost};
 use crate::data::PackSource;
 use crate::runtime::{ModuleBinding, RuntimeLua};
@@ -280,7 +280,7 @@ impl HookRunner for LuaRules {
             return Err(Halt::reject("native replacements need the native runner"));
         };
         let frame = Frame::new(ctx, self);
-        let finish = |lua: &Lua, v: LuaValue| lua.from_value::<Vec<Event>>(v);
+        let finish = |lua: &Lua, v: LuaValue| from_lua::<Vec<Event>>(lua, v);
         self.with_state(|rt| frame.invoke(rt, script, &with_event(event), finish))?
     }
 
