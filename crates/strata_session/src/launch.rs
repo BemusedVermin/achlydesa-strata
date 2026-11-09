@@ -4,6 +4,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use strata_content::read_pack_assets;
 use strata_lua::{LuaRules, ModuleBinding};
 use strata_model::{
     ArmyList, MatchSetup, PlayerId, PlayerSetup, RuleModuleDef, RulesetDef, ScenarioDef, SeedSource,
@@ -105,7 +106,7 @@ fn play(spec: &LaunchSpec, link: &SimLink) -> Result<(), String> {
         board: built.board.clone(),
         orientation: built.orientation,
         features: built.features,
-        packs: tests.packs.clone(),
+        assets: read_pack_assets(&tests.packs),
         looks: figure_looks(registry),
     });
     let los = rt.service::<Arc<dyn LineOfSight>>().cloned();

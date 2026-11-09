@@ -10,8 +10,9 @@
 pub use self::layout::{HEX_WIDTH, LEVEL_HEIGHT, Orientation, surface_point};
 pub use self::pick::{SceneBoard, pick};
 pub use self::sprite::{
-    ANIMATIONS, ASSETS_DIR, ASSETS_FILE, Animation, AssetError, FallbackSprite, IDLE, PixelScale,
-    Pose, Rgb, SUB_LEVELS, SpriteCatalog, SpriteDef, SpriteEntry, billboard_rotation, direction,
+    ANIMATIONS, ASSETS_DIR, Animation, AssetError, FallbackSprite, IDLE, INSET, MAX_FPS,
+    MAX_FRAME_PX, MAX_FRAMES, MAX_HEX_WIDTH_PX, MAX_PIXELS_PER_LEVEL, MAX_SHEET_PX, PixelScale,
+    Pose, Rgb, SpriteCatalog, SpriteDef, SpriteEntry, billboard_rotation, direction, facing,
     fallback_sprite, foot_point, parse_color, quad_corners, seat_color,
 };
 pub use self::terrain::{

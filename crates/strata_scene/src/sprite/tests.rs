@@ -171,14 +171,14 @@ fn the_sheet_stacks_six_direction_rows_per_animation_with_idle_first() {
         .insert(Sym::new("attack"), Animation { frames: 5, fps: 12 });
     let order: Vec<_> = def.sheet_order().iter().map(|s| s.as_str()).collect();
     assert_eq!(order, [IDLE, "move", "attack", "dance"]);
-    assert_eq!(def.sheet_size(), UVec2::new(6 * 48, 24 * 72));
+    assert_eq!(def.sheet_size(), Some(UVec2::new(6 * 48, 24 * 72)));
     assert_eq!(def.cell(IDLE, 0, 0), Some(UVec2::ZERO));
     assert_eq!(def.cell(IDLE, 5, 3), Some(UVec2::new(3 * 48, 5 * 72)));
     assert_eq!(def.cell("move", 2, 1), Some(UVec2::new(48, 8 * 72)));
     assert_eq!(def.cell("attack", 0, 0), Some(UVec2::new(0, 12 * 72)));
     assert_eq!(def.cell("hit", 0, 0), None);
     let pose = def.pose("move", 0.15);
-    let (min, max) = def.uv_rect(def.sheet_size(), &pose, 2);
+    let (min, max) = def.uv_rect(def.sheet_size().unwrap(), &pose, 2);
     assert!((min.x - 1.0 / 6.0).abs() < 1e-6 && (min.y - 8.0 / 24.0).abs() < 1e-6);
     assert!((max.x - 2.0 / 6.0).abs() < 1e-6 && (max.y - 9.0 / 24.0).abs() < 1e-6);
 }
@@ -208,17 +208,38 @@ fn idle_loops_and_other_animations_play_once() {
 }
 
 #[test]
-fn missing_animations_fall_back_to_idle() {
+fn missing_animations_play_idle_once_and_finish() {
     let def = soldier();
     for name in ["attack", "hit", "death", "anything"] {
         let pose = def.pose(name, 0.5);
         assert_eq!(pose.animation.as_str(), IDLE, "{name}");
         assert_eq!(pose.frame, 3);
-        assert!(!pose.finished);
+        assert!(!pose.finished, "{name} is still playing idle's one cycle");
+        // 4 frames at 6 fps take 0.67 s; then it holds idle's last frame and is done.
+        let done = def.pose(name, 0.7);
+        assert_eq!((done.frame, done.finished), (3, true), "{name}");
     }
+    assert!(!def.pose(IDLE, 0.7).finished, "idle itself loops");
     let empty = SpriteDef {
         animations: BTreeMap::new(),
         ..def
     };
     assert_eq!(empty.pose("move", 1.0).frame, 0);
+    assert!(empty.pose("move", 0.0).finished);
+    assert!(!empty.pose(IDLE, 0.0).finished);
+}
+
+#[test]
+fn a_sheet_too_big_to_count_has_no_size() {
+    let mut def = soldier();
+    def.frame = UVec2::new(u32::MAX, 72);
+    assert_eq!(def.sheet_size(), None);
+    def.frame = UVec2::new(48, u32::MAX / 6);
+    assert_eq!(def.sheet_size(), None, "two animations of six rows each");
+}
+
+#[test]
+fn constants_come_from_the_kernel() {
+    assert_eq!(i64::from(SUB_LEVELS), strata_kernel::SUB_LEVELS);
+    assert!((INSET - 0.8).abs() < 1e-6);
 }

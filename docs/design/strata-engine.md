@@ -66,13 +66,13 @@ Layers, top to bottom (diagram summarized):
 | `strata_rules` | Slots, registrar, phases, actions, query and descriptor evaluator, triggers, replacements, windows, answer-tape resolver | model |
 | `strata_modules` | The default Rust module for every slot | rules |
 | `strata_lua` | `mlua` host, sandbox, data-stage constructors, Lua module adapter, `ScriptRef` binding, LuaLS stub generator | rules |
-| `strata_content` | Pack resolution, stage orchestration, freeze, registry, content hash | lua, model |
+| `strata_content` | Pack resolution, stage orchestration, freeze, registry, content hash, running each pack's `assets.lua` into plain declarations | lua, model |
 | `strata_session` | Match setup, simulation thread, controllers, command loop, saves and replays | content, modules |
 | `strata_ai` | Evaluator terms, greedy controller, later MCTS | session |
 | `strata_editor` | Map documents, edit commands, validation, fairness analysis, Lua writer | content, modules |
 | `strata_cli` | `validate`, `test`, `lint`, `stubs`, `stats`, `sim`, `replay` | Everything except client |
-| `strata_scene` | Engine-independent presentation math: hex-to-world layout, isometric view, ray picking, terrain meshes, the sprite catalog from `assets.lua`, billboard frames and fallback sprites. Floats allowed; no Bevy | kernel, model, lua, content |
-| `strata_render` | Bevy plugins for the scene: board, figures, playback, input, camera, previews, occlusion | scene |
+| `strata_scene` | Engine-independent presentation math: hex-to-world layout, isometric view, ray picking, terrain meshes, the sprite catalog typed from `assets.lua` declarations, figure facing, billboard frames and fallback sprites. Floats allowed; no Bevy, no Lua | kernel, model, content |
+| `strata_render` | Bevy plugins for the scene: board, figures, playback, input, camera, previews, occlusion | kernel, model, scene |
 | `strata_client` | Bevy app shell, simulation link, UI panels and editor UI | Everything |
 
 `cargo-deny` enforces the two isolation rules with `wrappers`: `bevy` may only be a dependency of `strata_client` and `strata_render`, and `mlua` only of `strata_lua`. At runtime the client and the simulation are separate threads joined by channels (section 13.1).
@@ -948,8 +948,8 @@ The client is 2.5D: real 3D hex terrain seen through an orthographic camera, wit
 - **Camera.** An orthographic camera at a fixed elevation chosen to match the sprite art (30 degrees is a good start), with six yaw steps of 60 degrees. Zoom moves in integer steps so pixels stay crisp, and textures use nearest-neighbor filtering.
 - **Terrain.** Hex-prism meshes rendered orthographically, with flat shading and textures matched to the sprites' palette.
 - **Figures.** Upright billboards in the 3D scene: quads that turn with the camera's yaw but never tilt. They are alpha-cutout, so the depth buffer sorts them against terrain correctly. Each is anchored at its foot point on the figure's surface.
-- **Directions.** Every sprite set has six directions, one per hex facing. The frame shown is the figure's facing minus the camera's yaw, modulo 6.
-- **Animations.** `idle` is required; `move`, `attack`, `hit` and `death` fall back to `idle` when missing.
+- **Directions.** Every sprite set has six directions, one per hex facing. The frame shown is the figure's facing turned by the camera's yaw step, modulo 6 (see *Direction numbering* below).
+- **Animations.** `idle` is required; `move`, `attack`, `hit` and `death` fall back to `idle` when missing. A missing one-shot animation plays one cycle of `idle` and then reports finished, so playback waiting on it does not hang.
 - **Scale.** Each pack declares its pixels per level and the hex width in pixels, so sprites line up with terrain on every pack.
 
 ```lua
@@ -974,9 +974,11 @@ sprite {
 Sprite metadata is presentation data. It never enters the rules registry or the content hash, so changing art cannot break a replay.
 
 - **Sheet layout.** A sheet is a grid of `frame`-sized cells. Each animation takes six consecutive rows, one per direction `0..6`, with its frames left to right; animations are stacked in the order `idle`, `move`, `attack`, `hit`, `death`, then any others by name. `sheet` is relative to the pack's `assets/` folder.
-- **Direction numbering.** Direction `d` shows the figure at rotation `d` seen from camera yaw step 0. A camera step turns the picture with it, so with the client's step convention (one step turns the scene clockwise) the frame is `(rotation + step) mod 6`.
+- **Facing.** A one-cell figure faces its rotation. A multi-cell figure faces away from its rear, toward its anchor (its head): the facing is the direction from its non-anchor cells toward the anchor, or, when that is ambiguous, the direction away from its first non-anchor cell. Movement puts the rear of the standard two-cell base `{(0,0), (1,0)}` in direction `rotation`, so that base faces `rotation + 3 (mod 6)` and a snake walks head first.
+- **Direction numbering.** Direction `d` shows the figure facing hex direction `d` seen from camera yaw step 0. A camera step turns the picture with it, so with the client's step convention (one step turns the scene clockwise) the frame is `(facing + step) mod 6`.
 - **Foot anchor.** `anchor` is measured in pixel edges from the frame's top-left corner; rows above `anchor.y` stand above the surface. A multi-space figure's sprite stands over the middle of its cells, on its anchor's surface.
-- **Scale.** Vertically one pixel is `1 / pixels_per_level` of a level and horizontally `1 / hex_width_px` of a hex's width across the flats, so a pack whose art uses other proportions than the terrain still lines up with it. Packs without `assets.lua` use 12 and 64.
+- **Scale.** Vertically one pixel is `1 / pixels_per_level` of a level and horizontally `1 / hex_width_px` of a hex's width across the flats, so a pack whose art uses other proportions than the terrain still lines up with it. Packs without `assets.lua` use 12 and 64. `pixels_per_level` is at most 64 and `hex_width_px` at most 512; a frame is at most 1024 pixels each way, an animation at most 64 frames at 120 fps, and a sheet at most 16384 pixels each way.
+- **Loading.** The simulation thread runs each pack's `assets.lua` and sends the declarations with the board; the client types them and decodes the sheets, so Bevy systems never touch Lua (section 13.1). A pack whose `assets.lua` fails gets generated sprites for all its figures, even for keys another pack declares.
 
 ## 14. Map editor
 

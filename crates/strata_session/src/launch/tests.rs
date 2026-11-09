@@ -173,14 +173,12 @@ fn the_board_arrives_first_and_matches_the_map() {
 }
 
 #[test]
-fn the_board_carries_the_packs_and_how_each_figure_is_drawn() {
+fn the_board_carries_the_assets_and_how_each_figure_is_drawn() {
     let handle = launch(spec("duel", Some("toy_rust")));
     let Ok(SimMessage::Board(info)) = handle.recv_timeout(WAIT) else {
         panic!("expected the board first");
     };
-    let packs: Vec<_> = info.packs.iter().map(|p| p.id.as_str()).collect();
-    assert_eq!(packs, ["toy"]);
-    assert!(info.packs[0].root.join("pack.lua").is_file());
+    assert_eq!(info.assets, [], "the toy pack has no `assets.lua`");
     assert_eq!(
         info.looks.len(),
         2,

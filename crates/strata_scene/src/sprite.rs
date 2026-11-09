@@ -9,31 +9,41 @@
 //!
 //! # Directions
 //!
-//! Direction `d` shows the figure facing hex direction `d` (rotation `d`) while the camera is at
-//! yaw step 0. Turning the camera one step turns the whole picture one step, so a figure with
-//! rotation `r` seen from camera step `s` shows direction `(r + s) mod 6`; see [`direction`].
+//! Direction `d` shows the figure facing hex direction `d` while the camera is at yaw step 0.
+//! A figure's facing comes from its rotation and footprint ([`facing`]): a one-cell figure faces
+//! its rotation, a larger one faces away from its rear. Turning the camera one step turns the
+//! whole picture one step, so a figure facing `f` seen from camera step `s` shows direction
+//! `(f + s) mod 6`; see [`direction`].
 
 mod billboard;
 mod catalog;
+mod facing;
 mod fallback;
 
 use std::collections::BTreeMap;
 
 use glam::{UVec2, Vec2};
+use strata_kernel::lattice::{INSET_DEN, INSET_NUM};
 use strata_kernel::{Rotation, Sym};
 
 use super::layout::{HEX_WIDTH, LEVEL_HEIGHT};
 
 pub use self::billboard::{billboard_rotation, foot_point, quad_corners};
-pub use self::catalog::{ASSETS_DIR, ASSETS_FILE, AssetError, SpriteCatalog, SpriteEntry};
+pub use self::catalog::{
+    ASSETS_DIR, AssetError, MAX_FPS, MAX_FRAME_PX, MAX_FRAMES, MAX_HEX_WIDTH_PX,
+    MAX_PIXELS_PER_LEVEL, MAX_SHEET_PX, SpriteCatalog, SpriteEntry,
+};
+pub use self::facing::facing;
 pub use self::fallback::{FallbackSprite, Rgb, fallback_sprite, parse_color, seat_color};
 
 /// The animation every sprite must have, and the one the others fall back to.
 pub const IDLE: &str = "idle";
 /// The animations with a fixed place in the sheet, in sheet order.
 pub const ANIMATIONS: [&str; 5] = [IDLE, "move", "attack", "hit", "death"];
-/// Sub-levels per level: LOS heights are in these units.
-pub const SUB_LEVELS: u32 = 12;
+/// Sub-levels per level, the kernel's unit of LOS heights.
+pub(crate) const SUB_LEVELS: u32 = strata_kernel::SUB_LEVELS as u32;
+/// How much of each hex a figure's volume covers across: the kernel's 80% inset (design §7.6).
+pub const INSET: f32 = INSET_NUM as f32 / INSET_DEN as f32;
 
 /// How a pack's pixel art maps onto the board (design §13.8).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,7 +77,9 @@ impl PixelScale {
 
     /// A height in sub-levels as whole pixels, rounded to nearest.
     pub fn sub_levels_to_px(self, sub_levels: u16) -> u32 {
-        (u32::from(sub_levels) * self.pixels_per_level + SUB_LEVELS / 2) / SUB_LEVELS
+        let (sub, per) = (u64::from(SUB_LEVELS), u64::from(self.pixels_per_level));
+        let px = (u64::from(sub_levels) * per + sub / 2) / sub;
+        u32::try_from(px).unwrap_or(u32::MAX)
     }
 
     /// A height in pixels as sub-levels.
@@ -106,11 +118,13 @@ pub struct Pose {
     pub animation: Sym,
     /// The frame within it.
     pub frame: u32,
-    /// Whether a one-shot animation has played to its end; `idle` never finishes.
+    /// Whether a one-shot animation has played to its end; `idle` never finishes. A missing
+    /// animation plays `idle` once and then finishes.
     pub finished: bool,
 }
 
-/// The sheet direction to show for a figure with `facing`, seen from camera yaw step `step`.
+/// The sheet direction to show for a figure with `facing` (see [`facing`]), seen from camera yaw
+/// step `step`.
 pub fn direction(facing: Rotation, step: u32) -> u8 {
     ((u32::from(facing.steps()) + step) % 6) as u8
 }
@@ -128,16 +142,17 @@ impl SpriteDef {
         fixed.chain(others).map(|(k, _)| k).collect()
     }
 
-    /// The size in pixels a sheet must have to hold every frame.
-    pub fn sheet_size(&self) -> UVec2 {
+    /// The size in pixels a sheet must have to hold every frame; `None` when it overflows.
+    pub fn sheet_size(&self) -> Option<UVec2> {
         let columns = self
             .animations
             .values()
             .map(|a| a.frames)
             .max()
             .unwrap_or(1);
-        let rows = 6 * self.animations.len() as u32;
-        self.frame * UVec2::new(columns, rows)
+        let rows = u32::try_from(self.animations.len()).ok()?.checked_mul(6)?;
+        let width = self.frame.x.checked_mul(columns)?;
+        Some(UVec2::new(width, self.frame.y.checked_mul(rows)?))
     }
 
     /// The animation called `name`, or `idle` when the sprite lacks it. `None` only for a sprite
@@ -149,18 +164,19 @@ impl SpriteDef {
     }
 
     /// The pose `elapsed` seconds into animation `name`. `idle` loops; any other animation plays
-    /// once and holds its last frame.
+    /// once and holds its last frame. An animation the sprite lacks plays one cycle of `idle`
+    /// and then reports finished, so playback waiting on it (a `death`, say) moves on.
     pub fn pose(&self, name: &str, elapsed: f32) -> Pose {
+        let looping = name == IDLE;
         let Some((animation, timing)) = self.animation(name) else {
             let animation = Sym::new(IDLE);
             return Pose {
                 animation,
                 frame: 0,
-                finished: false,
+                finished: !looping,
             };
         };
         let ticks = (elapsed.max(0.0) * timing.fps as f32).floor() as u32;
-        let looping = animation.as_str() == IDLE;
         let frame = if looping {
             ticks % timing.frames
         } else {

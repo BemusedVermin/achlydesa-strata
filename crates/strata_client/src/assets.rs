@@ -1,6 +1,10 @@
 //! `AssetsPlugin`: resolves each figure's visual key through the packs' `assets.lua`, and
 //! generates a fallback sprite where there is none (design §13.3, §13.4).
 //!
+//! The simulation thread runs the `assets.lua` files and sends what they declared with the board,
+//! since Bevy systems never touch Lua (design §13.1). This plugin types those declarations and
+//! decodes the PNG sheets.
+//!
 //! It also copies where the figures stand from the latest view into [`FigurePoses`], which the
 //! render crate's `FigurePlugin` draws.
 
@@ -11,8 +15,8 @@ use bevy::asset::RenderAssetUsages;
 use bevy::image::{CompressedImageFormats, ImageSampler, ImageType};
 use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
+use strata_content::PackAssets;
 use strata_kernel::{Space, Sym};
-use strata_lua::PackSource;
 use strata_model::{FigureId, FigureStatus, GameState};
 use strata_render::{FigurePose, FigurePoses, FigureSprite, FigureSprites};
 use strata_scene::{Orientation, SpriteCatalog, fallback_sprite, parse_color};
@@ -28,8 +32,8 @@ const NEUTRAL: [u8; 3] = [200, 200, 200];
 pub struct BoardLooks {
     /// How the board's hexes are laid out.
     pub orientation: Orientation,
-    /// The packs in load order.
-    pub packs: Vec<PackSource>,
+    /// What each pack's `assets.lua` declared, in load order.
+    pub assets: Vec<PackAssets>,
     /// How each kind of figure is drawn.
     pub looks: Vec<FigureLook>,
 }
@@ -45,7 +49,7 @@ impl Plugin for AssetsPlugin {
     }
 }
 
-/// Builds every figure kind's sprite from the packs' `assets.lua` once the board arrives.
+/// Builds every figure kind's sprite from the packs' declared assets once the board arrives.
 fn load_sprites(
     looks: Option<Res<BoardLooks>>,
     mut images: ResMut<Assets<Image>>,
@@ -54,7 +58,7 @@ fn load_sprites(
     let Some(looks) = looks.filter(|l| l.is_changed()) else {
         return;
     };
-    let (catalog, errors) = SpriteCatalog::load(&looks.packs);
+    let (catalog, errors) = SpriteCatalog::from_packs(&looks.assets);
     for error in errors {
         warn!("{error}; its figures use generated sprites");
     }
@@ -73,18 +77,21 @@ fn load_sprites(
 }
 
 /// The sprite for `look`: its declared sheet when that loads and is big enough, a generated
-/// fallback otherwise. `add` stores an image and hands back its handle.
+/// fallback otherwise, and always a fallback when the look's own pack has a broken `assets.lua`.
+/// `add` stores an image and hands back its handle.
 pub fn figure_sprite(
     catalog: &SpriteCatalog,
     look: &FigureLook,
     orientation: Orientation,
     add: &mut impl FnMut(Image) -> Handle<Image>,
 ) -> FigureSprite {
-    if let Some(key) = &look.visual {
+    let visual = look.visual.as_ref().filter(|_| !catalog.failed(&look.pack));
+    if let Some(key) = visual {
         match declared(catalog, key.as_str()) {
             Ok((sprite, image)) => {
                 return FigureSprite {
                     sheet: add(image),
+                    footprint: look.footprint.clone(),
                     ..sprite
                 };
             }
@@ -116,6 +123,7 @@ pub fn figure_sprite(
         sheet_size: art.size,
         base: Some(rgb),
         tint_by_seat: color.is_none(),
+        footprint: look.footprint.clone(),
     }
 }
 
@@ -124,7 +132,10 @@ fn declared(catalog: &SpriteCatalog, key: &str) -> Result<(FigureSprite, Image),
     let entry = catalog.sprite(key).ok_or("no pack declares it")?;
     let image = load_png(&entry.sheet)?;
     let size = image.size();
-    let needed = entry.def.sheet_size();
+    let needed = entry
+        .def
+        .sheet_size()
+        .ok_or("its frames need too large a sheet")?;
     if size.x < needed.x || size.y < needed.y {
         return Err(format!(
             "{} is {}x{}, smaller than the {}x{} its frames need",
@@ -142,6 +153,7 @@ fn declared(catalog: &SpriteCatalog, key: &str) -> Result<(FigureSprite, Image),
         sheet_size: size,
         base: None,
         tint_by_seat: false,
+        footprint: Vec::new(),
     };
     Ok((sprite, image))
 }

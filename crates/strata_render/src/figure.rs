@@ -13,19 +13,20 @@ use bevy::math::{Affine2, UVec2};
 use bevy::mesh::{Indices, PrimitiveTopology};
 use bevy::prelude::*;
 use bevy::render::render_resource::Face;
-use strata_kernel::{DefId, Rotation, Space, Sym};
+use strata_kernel::{DefId, Hex, Rotation, Space, Sym};
 use strata_model::FigureId;
 use strata_scene::{
-    IDLE, Orientation, PixelScale, Rgb, SpriteDef, billboard_rotation, direction, foot_point,
-    quad_corners, surface_point,
+    IDLE, INSET, Orientation, PixelScale, Rgb, SpriteDef, billboard_rotation, direction, facing,
+    foot_point, quad_corners, surface_point,
 };
 
 use crate::camera::{ClientBoard, IsoCamera};
 
 /// How far a fallback's base floats above the surface; below the highlights.
 const BASE_LIFT: f32 = 0.005;
-/// Radius of a fallback's base on each cell: the 80% inset of the figure's volume.
-const BASE_RADIUS: f32 = 0.8;
+/// Radius of a fallback's base on each cell: a hex's corner radius is one world unit, inset as
+/// the figure's volume is.
+const BASE_RADIUS: f32 = INSET;
 /// Alpha below which a sprite pixel is cut out.
 const CUTOFF: f32 = 0.5;
 
@@ -48,6 +49,9 @@ pub struct FigureSprite {
     pub base: Option<Rgb>,
     /// Whether to tint the sprite with its controller's seat color, for neutral fallbacks.
     pub tint_by_seat: bool,
+    /// The figure's footprint cells around its anchor at rotation 0, in footprint order, which
+    /// decide the way it faces (see [`strata_scene::facing`]).
+    pub footprint: Vec<Hex>,
 }
 
 /// The sprite of every kind of figure; the client's assets plugin fills it in.
@@ -205,6 +209,10 @@ fn sync_figures(
     }
     let orientation = board.0.orientation;
     let rebuild_all = sprites.is_changed() || board.is_changed();
+    if rebuild_all {
+        // A look's sprite may have changed size, so its cached quad is stale.
+        assets.quads.clear();
+    }
     let wanted: BTreeMap<FigureId, &FigurePose> = poses.0.iter().map(|p| (p.id, p)).collect();
     let mut kept = BTreeMap::new();
     for (entity, view, mut placed, mut transform) in &mut placed {
@@ -317,12 +325,12 @@ fn animate_figures(
             *animation = FigureAnimation::default();
             pose = sprite.def.pose(IDLE, 0.0);
         }
-        let facing = direction(placed.pose.rotation, step);
-        let shown = Some((pose.animation.clone(), facing, pose.frame));
+        let toward = direction(facing(&sprite.footprint, placed.pose.rotation), step);
+        let shown = Some((pose.animation.clone(), toward, pose.frame));
         if placed.shown == shown {
             continue;
         }
-        let (min, max) = sprite.def.uv_rect(sprite.sheet_size, &pose, facing);
+        let (min, max) = sprite.def.uv_rect(sprite.sheet_size, &pose, toward);
         if let Some(mut material) = materials.get_mut(&placed.material) {
             material.uv_transform = Affine2::from_scale_angle_translation(max - min, 0.0, min);
         }

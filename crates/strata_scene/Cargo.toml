@@ -10,9 +10,8 @@ publish = false
 strata_kernel = { path = "../strata_kernel" }
 strata_model = { path = "../strata_model" }
 strata_content = { path = "../strata_content" }
-strata_lua = { path = "../strata_lua" }
 thiserror = "2"
 glam = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3"
+strata_lua = { path = "../strata_lua" }

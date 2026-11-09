@@ -25,8 +25,13 @@ fn pose(id: u32, hex: Hex, rotation: u8) -> FigurePose {
     }
 }
 
-/// An app with the fallback for a one-level figure, at camera step 0.
+/// An app with the fallback for a one-level, one-cell figure, at camera step 0.
 fn app(poses: Vec<FigurePose>) -> App {
+    app_with(poses, &[Hex::ORIGIN])
+}
+
+/// An app with the fallback for a one-level figure with `footprint`, at camera step 0.
+fn app_with(poses: Vec<FigurePose>, footprint: &[Hex]) -> App {
     let mut app = App::new();
     app.add_plugins((MinimalPlugins, AssetPlugin::default(), FigurePlugin))
         .init_asset::<Mesh>()
@@ -39,7 +44,7 @@ fn app(poses: Vec<FigurePose>) -> App {
     let art = fallback_sprite(
         key,
         (0, 12),
-        &[Hex::ORIGIN],
+        footprint,
         Orientation::Pointy,
         [9, 9, 9],
         scale,
@@ -55,6 +60,7 @@ fn app(poses: Vec<FigurePose>) -> App {
         sheet_size: art.size,
         base: Some([9, 9, 9]),
         tint_by_seat: false,
+        footprint: footprint.to_vec(),
     };
     app.insert_resource(FigureSprites(BTreeMap::from([(look(), sprite)])))
         .insert_resource(FigurePoses(poses));
@@ -165,4 +171,52 @@ fn figures_without_a_sprite_or_a_board_are_not_drawn() {
     app.insert_resource(FigurePoses(vec![pose(0, Hex::ORIGIN, 0)]));
     app.update();
     assert!(figures(&mut app).is_empty());
+}
+
+#[test]
+fn a_snake_walking_east_shows_its_east_frame() {
+    // Stepping east leaves the two-cell base at rotation 3 with its rear on the west cell.
+    let two = [Hex::ORIGIN, Hex::new(1, 0)];
+    let mut snake = pose(0, Hex::new(1, 0), 3);
+    snake.cells.push(Space::at(Hex::ORIGIN, 1));
+    let mut app = app_with(vec![snake], &two);
+    assert_eq!(
+        uv_origin(&mut app, FigureId(0)),
+        Vec2::ZERO,
+        "direction 0, east"
+    );
+}
+
+/// The billboard quad's corner positions for figure `id`.
+fn quad_of(app: &mut App, id: FigureId) -> Vec<[f32; 3]> {
+    let mut query = app.world_mut().query::<(&FigureView, &Mesh3d)>();
+    let (_, mesh) = query.iter(app.world()).find(|(v, _)| v.id == id).unwrap();
+    let handle = mesh.0.clone();
+    let meshes = app.world().resource::<Assets<Mesh>>();
+    let positions = meshes
+        .get(&handle)
+        .unwrap()
+        .attribute(Mesh::ATTRIBUTE_POSITION)
+        .unwrap();
+    positions.as_float3().unwrap().to_vec()
+}
+
+#[test]
+fn a_new_sprite_for_a_look_gets_a_new_quad() {
+    let mut app = app(vec![pose(0, Hex::ORIGIN, 0)]);
+    let before = quad_of(&mut app, FigureId(0));
+    let mut sprites = app.world_mut().resource_mut::<FigureSprites>();
+    let sprite = sprites.0.get_mut(&look()).unwrap();
+    sprite.def.frame.y *= 2;
+    sprite.def.anchor.y *= 2;
+    app.update();
+    let after = quad_of(&mut app, FigureId(0));
+    assert_ne!(
+        before, after,
+        "the cached quad was dropped with the old sprite"
+    );
+    assert!(
+        (after[2][1] - 2.0 * before[2][1]).abs() < 1e-5,
+        "twice as tall"
+    );
 }

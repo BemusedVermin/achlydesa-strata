@@ -108,7 +108,7 @@ fn drain_sim(
                 let orientation = Orientation::from_name(info.orientation.as_str());
                 commands.insert_resource(BoardLooks {
                     orientation,
-                    packs: info.packs,
+                    assets: info.assets,
                     looks: info.looks,
                 });
                 commands.insert_resource(FeatureNames(info.features));

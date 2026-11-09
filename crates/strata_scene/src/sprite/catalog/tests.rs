@@ -1,10 +1,19 @@
 use std::path::{Path, PathBuf};
 
 use glam::UVec2;
+use strata_content::{ASSET_CONSTRUCTORS, ASSET_GLOBALS};
 use strata_kernel::PackId;
-use strata_lua::PackSource;
 
 use super::*;
+
+/// What `source` declares, run the way the simulation thread runs `assets.lua`.
+fn run(source: &str) -> Declarations {
+    strata_lua::declare("t/assets.lua", source, &ASSET_CONSTRUCTORS, &ASSET_GLOBALS).unwrap()
+}
+
+fn add(catalog: &mut SpriteCatalog, id: &str, root: &str, source: &str) -> Result<(), AssetError> {
+    catalog.add_pack(&pack(id), Path::new(root), &run(source))
+}
 
 const ASSETS: &str = r#"
 pixels_per_level = 16
@@ -36,9 +45,7 @@ fn one_sprite(fields: &str) -> String {
 
 fn error_of(source: &str) -> String {
     let mut catalog = SpriteCatalog::default();
-    let error = catalog
-        .add_pack(&pack("t"), Path::new("/t"), source)
-        .unwrap_err();
+    let error = add(&mut catalog, "t", "/t", source).unwrap_err();
     assert_eq!(
         catalog,
         SpriteCatalog::default(),
@@ -50,9 +57,7 @@ fn error_of(source: &str) -> String {
 #[test]
 fn a_pack_declares_its_scale_and_sprites() {
     let mut catalog = SpriteCatalog::default();
-    catalog
-        .add_pack(&pack("t"), Path::new("/packs/t"), ASSETS)
-        .unwrap();
+    add(&mut catalog, "t", "/packs/t", ASSETS).unwrap();
     assert_eq!(
         catalog.scale(&pack("t")),
         PixelScale {
@@ -81,13 +86,11 @@ fn a_pack_declares_its_scale_and_sprites() {
 #[test]
 fn a_pack_without_a_scale_or_file_gets_the_default() {
     let mut catalog = SpriteCatalog::default();
-    catalog.add_pack(&pack("t"), Path::new("/t"), "").unwrap();
+    add(&mut catalog, "t", "/t", "").unwrap();
     assert_eq!(catalog.scale(&pack("t")), PixelScale::default());
     assert_eq!(catalog.scale(&pack("unknown")), PixelScale::default());
     assert!(one_sprite("").contains("sprite"));
-    catalog
-        .add_pack(&pack("u"), Path::new("/u"), &one_sprite(""))
-        .unwrap();
+    add(&mut catalog, "u", "/u", &one_sprite("")).unwrap();
     assert_eq!(catalog.sprites().count(), 1);
 }
 
@@ -98,11 +101,25 @@ fn bad_sprites_are_reported_with_their_line() {
         (one_sprite("colour = 'red'"), "unknown field `colour`"),
         (
             one_sprite("anchor = { x = 9, y = 0 }"),
-            "outside the 8x8 frame",
+            "`anchor.x` must be an integer from 0 to 8",
         ),
         (
             one_sprite("frame = { w = 0, h = 8 }"),
-            "`frame.w` must be an integer of at least 1",
+            "`frame.w` must be an integer from 1 to 1024",
+        ),
+        (
+            one_sprite("frame = { w = 8, h = 4096 }"),
+            "`frame.h` must be an integer from 1 to 1024",
+        ),
+        (
+            one_sprite("animations = { idle = { frames = 65, fps = 1 } }"),
+            "`idle.frames` must be an integer from 1 to 64",
+        ),
+        (
+            one_sprite(
+                "frame = { w = 1024, h = 8 }, animations = { idle = { frames = 64, fps = 1 } }",
+            ),
+            "wider or taller than 16384",
         ),
         (one_sprite("sheet = '../escape.png'"), "inside `assets/`"),
         (
@@ -119,12 +136,17 @@ fn bad_sprites_are_reported_with_their_line() {
         ),
         (
             "pixels_per_level = 0".to_owned(),
-            "`pixels_per_level` must be a positive integer",
+            "`pixels_per_level` must be an integer from 1 to 64",
         ),
         (
-            "terrain { key = 'terrain.grass' }".to_owned(),
-            "t/assets.lua",
+            "pixels_per_level = 4294967297".to_owned(),
+            "`pixels_per_level` must be an integer from 1 to 64",
         ),
+        (
+            "hex_width_px = 100000".to_owned(),
+            "`hex_width_px` must be an integer from 1 to 512",
+        ),
+        (one_sprite("directions = 4"), "t/assets.lua"),
     ];
     for (source, expected) in cases {
         let error = error_of(&source);
@@ -136,36 +158,37 @@ fn bad_sprites_are_reported_with_their_line() {
     assert!(error_of(&format!("\n\n{}", one_sprite("directions = 4"))).contains("line 3"));
 }
 
+fn assets(id: &str, declared: Result<Declarations, String>) -> PackAssets {
+    PackAssets {
+        pack: pack(id),
+        root: PathBuf::from("/packs").join(id),
+        declared,
+    }
+}
+
 #[test]
 fn packs_load_in_order_and_later_sprites_replace_earlier_ones() {
-    let dir = tempfile::tempdir().unwrap();
-    let write = |id: &str, source: Option<&str>| {
-        let root = dir.path().join(id);
-        std::fs::create_dir_all(&root).unwrap();
-        if let Some(source) = source {
-            std::fs::write(root.join(ASSETS_FILE), source).unwrap();
-        }
-        PackSource {
-            id: pack(id),
-            root,
-            dependencies: Vec::new(),
-        }
-    };
     let packs = [
-        write("base", Some(&one_sprite(""))),
-        write("art", None),
-        write("broken", Some("sprite {")),
-        write(
+        assets("base", Ok(run(&one_sprite("")))),
+        assets("broken", Err("syntax error near `{`".into())),
+        assets("bad", Ok(run(&one_sprite("directions = 4")))),
+        assets(
             "mod",
-            Some(&format!("pixels_per_level = 24\n{}", one_sprite(""))),
+            Ok(run(&format!("pixels_per_level = 24\n{}", one_sprite("")))),
         ),
     ];
-    let (catalog, errors) = SpriteCatalog::load(&packs);
-    assert_eq!(errors.len(), 1);
-    assert_eq!(errors[0].file, "broken/assets.lua");
+    let (catalog, errors) = SpriteCatalog::from_packs(&packs);
+    let files: Vec<_> = errors.iter().map(|e| e.file.as_str()).collect();
+    assert_eq!(files, ["broken/assets.lua", "bad/assets.lua"]);
+    assert!(errors[0].message.contains("syntax error"));
     let archer = catalog.sprite("sprite.test_archer").unwrap();
     assert_eq!(archer.pack, pack("mod"));
-    assert_eq!(archer.sheet, dir.path().join("mod/assets/a.png"));
+    assert_eq!(archer.sheet, PathBuf::from("/packs/mod/assets/a.png"));
     assert_eq!(catalog.scale(&pack("mod")).pixels_per_level, 24);
     assert_eq!(catalog.scale(&pack("broken")), PixelScale::default());
+    let failed: Vec<_> = ["base", "broken", "bad", "mod", "absent"]
+        .into_iter()
+        .filter(|id| catalog.failed(&pack(id)))
+        .collect();
+    assert_eq!(failed, ["broken", "bad"]);
 }

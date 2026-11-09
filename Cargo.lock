@@ -5215,7 +5215,6 @@ dependencies = [
  "strata_kernel",
  "strata_lua",
  "strata_model",
- "tempfile",
  "thiserror 2.0.21",
 ]
 
