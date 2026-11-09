@@ -128,8 +128,12 @@ walk('inside', 'a footprint can walk up to the edge', 'rs', 'field', 'test_cart'
 walk('spread_ok', 'a footprint may straddle a step within its spread', 'rs', 'ledge', 'test_cart', { 1, 0, 1, 0 }, moved)
 walk('spread_too_wide', 'a footprint cannot straddle a step wider than its spread', 'rs', 'ledge', 'test_sled', { 1, 0, 1, 0 })
 
--- Without a target list `move` takes the cheapest rotation.
+-- Without a target list `move` takes the cheapest rotation, then the one reached with the fewest
+-- pivots, then the lowest.
 walk('stride', 'without a rotation a move takes the cheapest one', 'rs', 'field', 'test_wyrm', { 0, 1, 1 }, moved, 'stride')
+-- Without a rotation, a move to the figure's own space is refused rather than turning it: turning
+-- in place takes an explicit `o`.
+walk('stride_in_place', 'without a rotation a move to its own space is refused', 'rs', 'field', 'test_cart', { 0, 0, 1 }, nil, 'stride')
 
 -- Falling: a three-level drop is one level beyond `max_fall = 2`.
 walk('fall_harmless', 'a fall deals no damage by default', 'rs', 'cliff', 'test_soldier', { 2, 0, 1 },

@@ -103,6 +103,9 @@ pub struct Reach {
     pub cells: Vec<Space>,
     /// Total movement cost to get there.
     pub cost: i64,
+    /// How many times the route pivots in place (design §7.3); each pivot repeats an anchor in
+    /// `path`.
+    pub pivots: u32,
     /// The anchor spaces walked, excluding the start and ending at `space`. A pivot in place
     /// keeps the anchor, so it repeats the space before it.
     pub path: Vec<Space>,

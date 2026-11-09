@@ -5,8 +5,9 @@
 //! keeps its rotation. A larger footprint can reach a space in several rotations, so it is listed
 //! as `{ q, r, z, o }`; `move` without `o` takes the cheapest rotation, then the one reached with
 //! the fewest pivots in place, then the lowest. A two-cell figure can also be listed on its own
-//! space in another rotation, reached by pivoting at no cost. A move that ends in a fall emits
-//! `figure_fell` with `{ figure, levels }`, the levels dropped.
+//! space in another rotation, reached by pivoting at no cost. Only a move given that `o` turns it
+//! in place: without `o`, a move to the figure's own space is refused. A move that ends in a fall
+//! emits `figure_fell` with `{ figure, levels }`, the levels dropped.
 //!
 //! A move first resolves the reprisals for leaving engagement along its route, and does not move
 //! a figure they take out of play. `preview(figure)` lists the same stops as `reachable`, as
@@ -109,20 +110,9 @@ fn previewed(reach: &Reach) -> Value {
     Value::Map(fields.collect())
 }
 
-/// How many times the route of `reach`, starting with the anchor on `from`, pivots in place: a
-/// step always changes column, so each repeated anchor in its path is a pivot.
-fn pivots(reach: &Reach, from: Option<Space>) -> usize {
-    let mut last = from;
-    let mut count = 0;
-    for &at in &reach.path {
-        count += usize::from(last == Some(at));
-        last = Some(at);
-    }
-    count
-}
-
 /// The stop `move` asked for: the given rotation, or else the cheapest one, then the one whose
 /// route pivots least, so a figure keeps its facing unless turning is needed, then the lowest.
+/// Without a rotation, the figure's own space is never a stop: turning in place takes an `o`.
 fn chosen(
     reach: Vec<Reach>,
     from: Option<Space>,
@@ -132,7 +122,8 @@ fn chosen(
     let mut hits = stops(reach).into_iter().filter(|r| r.space == to);
     match turn {
         Some(turn) => hits.find(|r| r.rotation == turn),
-        None => hits.min_by_key(|r| (r.cost, pivots(r, from), r.rotation)),
+        None if Some(to) == from => None,
+        None => hits.min_by_key(|r| (r.cost, r.pivots, r.rotation)),
     }
 }
 

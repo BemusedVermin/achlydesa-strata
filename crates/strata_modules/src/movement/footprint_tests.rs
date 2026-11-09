@@ -203,20 +203,9 @@ pub(super) fn run(scene: &Scene) -> Vec<Reach> {
     reachable(scene, FigureId(0), LIMITS).unwrap()
 }
 
-/// How many times the route of `reach`, starting with the anchor on `from`, pivots in place: a
-/// step always changes column, so each repeated anchor is a pivot.
-pub(super) fn pivots(reach: &Reach, from: Space) -> usize {
-    let before = std::iter::once(&from).chain(&reach.path);
-    before.zip(&reach.path).filter(|(a, b)| a == b).count()
-}
-
 /// The routes of `scene`'s figure that only step, never pivoting in place.
 fn stepped(scene: &Scene) -> Vec<Reach> {
-    let from = scene.figures[0].at;
-    run(scene)
-        .into_iter()
-        .filter(|r| pivots(r, from) == 0)
-        .collect()
+    run(scene).into_iter().filter(|r| r.pivots == 0).collect()
 }
 
 /// The rotations the figure can end in at `(q, r)`.
@@ -520,7 +509,7 @@ fn placements_stand(case: &Case, seen: &mut Coverage) -> Result<(), TestCaseErro
         prop_assert!(high - low <= u32::from(case.spread));
         spread |= high > low;
         // A rigid shape changes rotation only by pivoting in place.
-        if !case.snake && pivots(r, scene.figures[0].at) == 0 {
+        if !case.snake && r.pivots == 0 {
             prop_assert_eq!(r.rotation, Rotation::new(case.rotation).unwrap());
         }
     }

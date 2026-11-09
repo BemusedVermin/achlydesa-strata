@@ -9,9 +9,7 @@ use strata_model::{FigureId, MoveMode};
 use strata_rules::Reach;
 
 use super::body::Body;
-use super::footprint_tests::{
-    Figure, LIMITS, Scene, TWO, board, flat, footprint, pivots, ragged, run,
-};
+use super::footprint_tests::{Figure, LIMITS, Scene, TWO, board, flat, footprint, ragged, run};
 use super::search::Cache;
 
 /// The anchor every scene starts on.
@@ -56,7 +54,7 @@ fn a_two_cell_figure_turns_in_place_at_no_cost() {
             // One pivot per 60 degrees, the short way round.
             let turns = usize::from(o.min(6 - o));
             assert_eq!(r.path, vec![START; turns], "{r:?}");
-            assert_eq!(pivots(r, START), turns);
+            assert_eq!(r.pivots as usize, turns);
             // The walk holds the body after every pivot: the anchor stays, the rear swings.
             assert_eq!(r.walk.len(), turns + 1);
             assert!(r.walk.iter().all(|cells| cells[0] == START));
@@ -90,7 +88,7 @@ fn a_turn_sweeps_past_a_figure_the_long_way_round() {
     let reach = run(&scene);
     assert_eq!(turned(&reach), [2, 3, 4, 5]);
     let o2 = in_place(&reach)[&2];
-    assert_eq!(pivots(o2, START), 4, "counterclockwise, through 5, 4 and 3");
+    assert_eq!(o2.pivots, 4, "counterclockwise, through 5, 4 and 3");
     // With the north-east neighbour blocked too, the rear cannot swing either way.
     scene.figures.push(blocker(1, -1));
     assert!(turned(&run(&scene)).is_empty());
@@ -148,11 +146,7 @@ fn a_turn_respects_can_enter_climb_and_stop_terrain() {
     scene.allowance = 0;
     let reach = run(&scene);
     assert!(in_place(&reach)[&1].stops_here);
-    assert_eq!(
-        pivots(in_place(&reach)[&2], START),
-        4,
-        "not through the mud"
-    );
+    assert_eq!(in_place(&reach)[&2].pivots, 4, "not through the mud");
 }
 
 #[test]
@@ -200,7 +194,7 @@ fn a_three_cell_shape_never_pivots() {
     let reach = run(&scene);
     assert!(!reach.is_empty());
     assert!(reach.iter().all(|r| r.rotation == Rotation::default()));
-    assert!(reach.iter().all(|r| pivots(r, START) == 0));
+    assert!(reach.iter().all(|r| r.pivots == 0));
     // Asked directly, the body offers no pivot.
     let mut cache = Cache::new(&scene, FigureId(0));
     let before = scene_cells(&scene);
@@ -246,8 +240,12 @@ proptest! {
         let reach = run(&scene);
         let by_key: BTreeMap<_, _> = reach.iter().map(|r| ((r.space, r.rotation), r)).collect();
         for r in &reach {
+            // A step always changes column, so each repeated anchor in the path is a pivot.
+            let anchors = std::iter::once(&from).chain(&r.path);
+            let repeated = anchors.zip(&r.path).filter(|(a, b)| a == b).count();
+            prop_assert_eq!(r.pivots as usize, repeated, "{:?}", r);
             // Every step here costs one, so a route costs exactly its steps: pivots are free.
-            let steps = r.path.len() - pivots(r, from);
+            let steps = r.path.len() - repeated;
             prop_assert_eq!(r.cost, steps as i64, "{:?}", r);
             prop_assert!(r.cost <= allowance);
             prop_assert_eq!(r.walk.len(), r.path.len() + 1);
@@ -256,9 +254,9 @@ proptest! {
             if before == r.space && r.path.len() > 1 {
                 let previous = &r.walk[r.walk.len() - 2];
                 let turned_from = by_key.values().find(|p| p.space == r.space && &p.cells == previous);
-                if let Some(p) = turned_from {
-                    prop_assert_eq!(p.cost, r.cost);
-                }
+                // The node it turned from is not the start, so the search reached it too.
+                prop_assert!(turned_from.is_some(), "{:?}", r);
+                prop_assert_eq!(turned_from.unwrap().cost, r.cost);
             }
         }
         // The same query twice gives the same answer.

@@ -208,7 +208,9 @@ pub(super) fn search(
                 }
             }
         }
-        // Turning in place is free, so a pivot reaches its node at this node's cost.
+        // Turning in place is free, so a pivot reaches its node at this node's cost. Every node but
+        // the start was reached within the allowance, so this only skips the start when the rules
+        // give a negative allowance: such a figure may not even turn.
         if cost > allowance {
             continue;
         }
@@ -247,6 +249,7 @@ pub(super) fn search(
             rotation: key.1,
             cells: node.cells.clone(),
             cost: node.cost,
+            pivots: node.pivots,
             path,
             walk,
             stops_here: node.stops_here,

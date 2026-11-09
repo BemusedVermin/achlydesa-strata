@@ -153,6 +153,20 @@ fn without_a_rotation_a_move_takes_the_cheapest() {
 }
 
 #[test]
+fn without_a_rotation_a_move_to_its_own_space_does_not_turn() {
+    let reports = run();
+    let what = "without a rotation a move to its own space is refused";
+    let ran = report(&reports, what);
+    let message = &ran.outcome.as_ref().unwrap_err().message;
+    assert!(message.contains("cannot reach"), "{what}: {message}");
+    let turned = ran
+        .events
+        .iter()
+        .any(|e| matches!(e, Event::FigureMoved { .. }));
+    assert!(!turned, "{what}: the figure moved");
+}
+
+#[test]
 fn falls_emit_figure_fell_and_wound_only_when_configured() {
     let reports = run();
     let names = [
@@ -265,7 +279,7 @@ fn deployment_stands_a_rear_cell_where_movement_would() {
 
 #[test]
 fn every_footprint_test_is_checked_here() {
-    assert_eq!(run().len(), 26, "{}", summary(&run()));
+    assert_eq!(run().len(), 27, "{}", summary(&run()));
 }
 
 #[test]
