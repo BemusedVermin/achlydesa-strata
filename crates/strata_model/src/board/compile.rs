@@ -1,6 +1,6 @@
 //! Compiling a `MapDef` into a `CompiledBoard`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use strata_kernel::{Hex, Sym};
 
@@ -22,17 +22,31 @@ type Placed = Vec<(usize, ColumnSegment)>;
 /// Compiles `map` into columns, checking overlap and, if the map asks for it, support.
 ///
 /// A feature cell stands on the top of the highest terrain segment in its column, and its
-/// segment levels are measured from there.
+/// segment levels are measured from there. On failure this is the first error [`compile_all`]
+/// finds.
 pub fn compile(map: &MapDef, defs: &impl BoardDefs) -> Result<CompiledBoard, BoardError> {
+    compile_all(map, defs).map_err(|mut errors| errors.swap_remove(0))
+}
+
+/// Compiles `map` like [`compile`], but reports every error instead of the first.
+///
+/// Piece errors come first in map order, then support errors by hex, then feature errors in map
+/// order. A piece cell that clashes with an earlier one is left out and the search goes on, so
+/// each overlapping cell is reported once. A hex with an overlap gets no support error, since
+/// the cell left out may be what would have supported it. The error list is never empty.
+pub fn compile_all(map: &MapDef, defs: &impl BoardDefs) -> Result<CompiledBoard, Vec<BoardError>> {
+    let mut errors = Vec::new();
     let mut placed: BTreeMap<Hex, Placed> = BTreeMap::new();
+    let mut overlaps = BTreeSet::new();
     for (index, piece) in map.pieces.iter().enumerate() {
-        let tile = defs
-            .tile(&piece.piece)
-            .ok_or_else(|| BoardError::UnknownTile {
+        let Some(tile) = defs.tile(&piece.piece) else {
+            errors.push(BoardError::UnknownTile {
                 piece: index,
                 at: piece.at,
                 name: piece.piece.clone(),
-            })?;
+            });
+            continue;
+        };
         let z0 = u32::from(piece.level);
         let segment = ColumnSegment {
             z0,
@@ -48,17 +62,19 @@ pub fn compile(map: &MapDef, defs: &impl BoardDefs) -> Result<CompiledBoard, Boa
                 .iter()
                 .find(|(_, s)| s.z0 < segment.z1 && segment.z0 < s.z1);
             if let Some(&(other, _)) = clash {
-                return Err(BoardError::Overlap {
+                overlaps.insert(hex);
+                errors.push(BoardError::Overlap {
                     piece: index,
                     other,
                     hex,
                 });
+                continue;
             }
             column.push((index, segment));
         }
     }
     if map.constraints.require_support {
-        check_support(&placed)?;
+        check_support(&placed, &overlaps, &mut errors);
     }
     let mut columns: BTreeMap<Hex, Column> = placed
         .into_iter()
@@ -73,21 +89,29 @@ pub fn compile(map: &MapDef, defs: &impl BoardDefs) -> Result<CompiledBoard, Boa
             )
         })
         .collect();
-    place_features(map, defs, &mut columns)?;
-    Ok(CompiledBoard::from_sparse(columns))
+    place_features(map, defs, &mut columns, &mut errors);
+    if errors.is_empty() {
+        Ok(CompiledBoard::from_sparse(columns))
+    } else {
+        Err(errors)
+    }
 }
 
-/// Requires every raised piece cell to rest on the top of another segment.
-fn check_support(placed: &BTreeMap<Hex, Placed>) -> Result<(), BoardError> {
-    for (&hex, column) in placed {
+/// Requires every raised piece cell to rest on the top of another segment, except in the
+/// `skipped` hexes, which already have an overlap error.
+fn check_support(
+    placed: &BTreeMap<Hex, Placed>,
+    skipped: &BTreeSet<Hex>,
+    errors: &mut Vec<BoardError>,
+) {
+    for (&hex, column) in placed.iter().filter(|(hex, _)| !skipped.contains(hex)) {
         for &(piece, segment) in column {
             let supported = segment.z0 == 0 || column.iter().any(|(_, s)| s.z1 == segment.z0);
             if !supported {
-                return Err(BoardError::Unsupported { piece, hex });
+                errors.push(BoardError::Unsupported { piece, hex });
             }
         }
     }
-    Ok(())
 }
 
 /// Adds each placed feature's spans to the columns it covers.
@@ -95,21 +119,26 @@ fn place_features(
     map: &MapDef,
     defs: &impl BoardDefs,
     columns: &mut BTreeMap<Hex, Column>,
-) -> Result<(), BoardError> {
+    errors: &mut Vec<BoardError>,
+) {
     for (index, placed) in map.features.iter().enumerate() {
-        let feature = defs
-            .feature(&placed.feature)
-            .ok_or_else(|| BoardError::UnknownFeature {
+        let Some(feature) = defs.feature(&placed.feature) else {
+            errors.push(BoardError::UnknownFeature {
                 feature: index,
                 at: placed.at,
                 name: placed.feature.clone(),
-            })?;
+            });
+            continue;
+        };
         for cell in &feature.cells {
             let hex = cell.at.rotate(placed.rot).add(placed.at);
-            let column = columns.get_mut(&hex).ok_or(BoardError::FeatureOffBoard {
-                feature: index,
-                hex,
-            })?;
+            let Some(column) = columns.get_mut(&hex) else {
+                errors.push(BoardError::FeatureOffBoard {
+                    feature: index,
+                    hex,
+                });
+                continue;
+            };
             let base = column.segments.iter().map(|s| s.z1).max().unwrap_or(0);
             column
                 .features
@@ -122,5 +151,4 @@ fn place_features(
                 }));
         }
     }
-    Ok(())
 }

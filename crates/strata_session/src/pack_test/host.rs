@@ -9,11 +9,11 @@ use crate::names::Names;
 use strata_content::ContentRegistry;
 use strata_kernel::{Blocker, DefId, Hex, Rotation, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
-use strata_model::board::{BoardDefs, CompiledBoard};
+use strata_model::board::CompiledBoard;
 use strata_model::{
-    AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureDef, FigureDefRef, FigureId,
-    FigureStatus, FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef,
-    StatDef, TerrainDef, TileDef, UnitDef, UnitId, UnitState,
+    AbilityOwner, Descriptor, DieDef, DieKind, FigureDef, FigureDefRef, FigureId, FigureStatus,
+    FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef, StatDef,
+    TerrainDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
     Ctx, DeploySlot, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics,
@@ -39,32 +39,7 @@ pub(crate) fn find<'a, T: Def>(
     pack: &str,
     name: &str,
 ) -> Option<(DefId, &'a T)> {
-    let suffix = format!(":{name}");
-    registry
-        .find::<T>(name)
-        .or_else(|| registry.find::<T>(&format!("{pack}:{name}")))
-        .or_else(|| {
-            let mut hits = registry
-                .iter::<T>()
-                .filter(|(_, id, _)| id.ends_with(&suffix));
-            hits.next().map(|(id, _, def)| (id, def))
-        })
-}
-
-/// Resolves the tile and feature names of a map against the registry.
-pub(crate) struct RegistryDefs<'a> {
-    pub(crate) registry: &'a ContentRegistry,
-    pub(crate) pack: &'a str,
-}
-
-impl BoardDefs for RegistryDefs<'_> {
-    fn tile(&self, name: &Sym) -> Option<&TileDef> {
-        find::<TileDef>(self.registry, self.pack, name.as_str()).map(|(_, def)| def)
-    }
-
-    fn feature(&self, name: &Sym) -> Option<&FeatureDef> {
-        find::<FeatureDef>(self.registry, self.pack, name.as_str()).map(|(_, def)| def)
-    }
+    registry.lookup::<T>(pack, name)
 }
 
 /// The faces a command's dice are forced to, one list per roll.

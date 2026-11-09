@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use strata_content::ContentRegistry;
+use strata_content::{ContentRegistry, RegistryDefs};
 use strata_kernel::{DefId, Space};
 use strata_model::board::{CompiledBoard, compile};
 use strata_model::{
@@ -12,7 +12,7 @@ use strata_model::{
     PlayerId, PlayerState, RelicDef, RelicState, ScenarioDef, UnitDef, UnitId, UnitState,
 };
 
-use crate::pack_test::host::{RegistryDefs, find};
+use crate::pack_test::host::find;
 
 /// The setup cannot be turned into a match.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
@@ -54,7 +54,7 @@ pub fn build_match(
     let pack = full.and_then(|n| n.split_once(':')).map_or("", |(p, _)| p);
     let (_, map) = find::<MapDef>(registry, pack, scenario.map.as_str())
         .ok_or_else(|| err(format!("unknown map `{}`", scenario.map)))?;
-    let defs = RegistryDefs { registry, pack };
+    let defs = RegistryDefs::new(registry, pack);
     let board = compile(map, &defs).map_err(|e| err(e.to_string()))?;
     check_seats(&setup, scenario)?;
     let mut state = GameState::default();
