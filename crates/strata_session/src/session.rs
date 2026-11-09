@@ -6,6 +6,7 @@ use strata_model::{Command, Event, GameState, PlayerId, TokenChoice};
 use strata_rules::{Engine, Outcome, RuleViolation};
 
 use crate::controller::Controller;
+use crate::preview::Previews;
 use crate::replay::{Replay, SNAPSHOT_EVERY, Snapshot};
 use crate::view::PlayerView;
 
@@ -63,6 +64,13 @@ impl<'a> Session<'a> {
         } else {
             self.engine.legal_commands(player)
         }
+    }
+
+    /// What the commands in `legal`, legal in the committed state, would do: movement reach and
+    /// attack odds for the client's previews.
+    pub fn previews(&self, legal: &[Command]) -> Previews {
+        let engine = &self.engine;
+        Previews::of(engine.runtime(), engine.env(), engine.state(), legal)
     }
 
     /// How `player` may place the tokens in hand, if they have any to place.

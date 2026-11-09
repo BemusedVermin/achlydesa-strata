@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use strata_kernel::{ModuleId, Sym, Value, WindowId};
-use strata_model::{Event, FigureId, VarKey};
+use strata_model::{Event, FigureId, GameState, VarKey};
 use strata_rules::{Ctx, DicePool, Halt, MAX_POOL, NativeEnv};
 
 use super::sight::{Sight, height_bonus};
@@ -126,13 +126,12 @@ impl Record {
 /// attacker's `attack` stat, for special attacks.
 pub(crate) fn start(
     rules: &Rules,
-    ctx: &dyn Ctx,
+    state: &GameState,
     env: &dyn NativeEnv,
     (attacker, target): (FigureId, FigureId),
-    sight: Sight,
+    sight: &Sight,
     dice: Option<i64>,
 ) -> Result<Record, Halt> {
-    let state = ctx.state();
     let pool = |figure, stat| DicePool::for_stat(env, state, &rules.die, figure, stat);
     let attack = match dice {
         Some(dice) => dice,
@@ -188,7 +187,7 @@ pub(crate) fn attack(
     }
     let faces = [("hit", &rules.hit), ("block", &rules.block)];
     crate::shared::check_faces(env, "core:combat", &rules.die, &faces)?;
-    let record = start(rules, ctx, env, (attacker, target), sight, dice)?;
+    let record = start(rules, ctx.state(), env, (attacker, target), &sight, dice)?;
     let record = steps(rules, ctx, env, record)?;
     ctx.emit(Event::Custom {
         id: Sym::new(ATTACK_EVENT),

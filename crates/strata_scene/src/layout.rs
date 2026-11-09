@@ -30,7 +30,12 @@ impl Orientation {
 
     /// The ground position `(x, z)` of the center of `hex`, with a hex corner one unit from it.
     pub fn center(self, hex: Hex) -> (f32, f32) {
-        let (q, r) = (hex.q as f32, hex.r as f32);
+        self.axial(hex.q as f32, hex.r as f32)
+    }
+
+    /// The ground position `(x, z)` of fractional axial coordinates `(q, r)`, as for
+    /// [`center`](Self::center).
+    pub fn axial(self, q: f32, r: f32) -> (f32, f32) {
         match self {
             Self::Pointy => (SQRT_3 * (q + r / 2.0), 1.5 * r),
             Self::Flat => (1.5 * q, SQRT_3 * (r + q / 2.0)),

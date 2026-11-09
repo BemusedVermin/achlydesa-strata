@@ -9,7 +9,7 @@
 use bevy::prelude::*;
 use bevy_egui::input::EguiWantsInput;
 use strata_model::Answer;
-use strata_render::{BoardHighlights, SpaceClicked};
+use strata_render::{BoardHighlights, DrawPreviews, HoveredSpace, PreviewMarks, SpaceClicked};
 use strata_session::PlayerView;
 
 use crate::sim_link::{LatestView, SendAnswer, SendCommand, SimStatus};
@@ -18,12 +18,14 @@ pub mod builder;
 mod command;
 pub mod decision;
 pub mod pick;
+pub mod preview;
 pub mod tokens;
 
 pub use command::{CommandInput, Press};
 
 use decision::{Highlights, Widget};
 use pick::{Pick, Refusal};
+use preview::PreviewModel;
 
 /// The input state the board and the decision prompt share.
 #[derive(Resource, Clone, Debug, Default, PartialEq, Eq)]
@@ -102,9 +104,17 @@ impl Plugin for PlayerInputPlugin {
             .init_resource::<CommandInput>()
             .init_resource::<Highlighted>()
             .init_resource::<BoardHighlights>()
+            .init_resource::<HoveredSpace>()
+            .init_resource::<PreviewModel>()
+            .init_resource::<PreviewMarks>()
             .add_message::<SpaceClicked>()
             .add_message::<SendCommand>()
-            .add_systems(Update, (refresh, on_click, highlight).chain());
+            .add_systems(
+                Update,
+                (refresh, on_click, highlight, preview)
+                    .chain()
+                    .before(DrawPreviews),
+            );
     }
 }
 
@@ -167,6 +177,25 @@ fn highlight(
         board.set_if_neq(BoardHighlights(highlights.board_spaces(state)));
         shown.set_if_neq(Highlighted(highlights));
     }
+}
+
+/// Keeps the previews in step with the view, the command being built and the hovered space.
+fn preview(
+    view: Res<LatestView>,
+    command: Res<CommandInput>,
+    hovered: Res<HoveredSpace>,
+    mut model: ResMut<PreviewModel>,
+    mut marks: ResMut<PreviewMarks>,
+) {
+    if !(view.is_changed() || command.is_changed() || hovered.is_changed()) {
+        return;
+    }
+    let next = match view.0.as_deref() {
+        Some(view) => PreviewModel::of(view, &command, hovered.0),
+        None => PreviewModel::default(),
+    };
+    marks.set_if_neq(next.marks.clone());
+    model.set_if_neq(next);
 }
 
 #[cfg(test)]

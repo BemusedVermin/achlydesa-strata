@@ -211,7 +211,7 @@ fn with_no_decision_a_click_does_nothing_and_says_nothing() {
 }
 
 /// A headless app with the decision input and the resources the sim link would provide.
-fn input_app() -> App {
+pub(super) fn input_app() -> App {
     let mut app = App::new();
     app.add_plugins(MinimalPlugins)
         .init_resource::<LatestView>()

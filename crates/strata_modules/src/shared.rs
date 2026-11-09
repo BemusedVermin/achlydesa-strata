@@ -1,7 +1,7 @@
 //! Small helpers that more than one module of this crate needs.
 
 use strata_kernel::{Sym, Value};
-use strata_model::{DieKind, FigureId, FigureState};
+use strata_model::{FigureId, FigureState};
 use strata_rules::{Halt, NativeEnv};
 
 /// The figure's ID as query subjects, script values and action arguments carry it.
@@ -33,7 +33,10 @@ pub(crate) fn check_faces(
         return Err(bad("die", format!("unknown die `{die}`")));
     };
     for &(key, face) in faces {
-        if !matches!(&kind, DieKind::Faces(found) if found.contains(face)) {
+        if !kind
+            .odds(face.as_str())
+            .is_some_and(|(matching, _)| matching > 0)
+        {
             return Err(bad(key, format!("`{face}` is not a face of die `{die}`")));
         }
     }

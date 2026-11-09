@@ -11,6 +11,7 @@ pub mod inspect;
 pub mod launch;
 pub mod names;
 pub mod pack_test;
+pub mod preview;
 pub mod random;
 pub mod replay;
 pub mod replay_text;
@@ -25,6 +26,7 @@ pub use human::HumanController;
 pub use inspect::{Change, Clamp, InspectStep, Inspection, TraceMismatch};
 pub use launch::{LaunchSpec, launch};
 pub use names::Names;
+pub use preview::{AttackPreview, MoveStop, PoolPreview, Previews};
 pub use random::RandomController;
 pub use replay::{
     REPLAY_FORMAT, Replay, ReplayError, ReplayRecord, SNAPSHOT_EVERY, Snapshot, engine_version,

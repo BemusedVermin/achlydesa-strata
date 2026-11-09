@@ -13,6 +13,7 @@ use crate::sim_link::{EventLog, LatestView, SendAnswer, SendCommand};
 pub mod cards;
 pub mod command;
 pub mod log;
+pub mod preview;
 pub mod prompt;
 pub mod turn;
 
@@ -23,7 +24,7 @@ pub struct UiPlugin;
 impl Plugin for UiPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<Inspected>()
-            .add_systems(EguiPrimaryContextPass, panels);
+            .add_systems(EguiPrimaryContextPass, (panels, preview::preview_ui));
     }
 }
 
