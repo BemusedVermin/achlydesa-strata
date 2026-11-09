@@ -1,5 +1,6 @@
 //! Multi-space footprints: snake turns, rigid translation, level spread, occupancy and
-//! engagement, plus the one-space search staying exactly as it was.
+//! engagement, plus the one-space search staying exactly as it was. Turning in place has its own
+//! tests, in `pivot_tests`, on the scene built here.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -16,10 +17,10 @@ use super::body::Body;
 use super::search::search;
 use super::{Headroom, Limits, reachable};
 
-const GRASS: DefId = DefId(1);
-const MUD: DefId = DefId(2);
+pub(super) const GRASS: DefId = DefId(1);
+pub(super) const MUD: DefId = DefId(2);
 
-const LIMITS: Limits = Limits {
+pub(super) const LIMITS: Limits = Limits {
     headroom: Headroom::FigureHeight,
     max_climb: 1,
     max_fall: 2,
@@ -50,7 +51,7 @@ fn tile(terrain: DefId) -> TileDef {
 }
 
 /// One tile per `(q, r, level, mud)`.
-fn board(pieces: &[(i32, i32, u8, bool)]) -> CompiledBoard {
+pub(super) fn board(pieces: &[(i32, i32, u8, bool)]) -> CompiledBoard {
     let placed = pieces.iter().map(|&(q, r, level, mud)| PlacedPiece {
         piece: if mud { "m" } else { "g" }.into(),
         at: Hex::new(q, r),
@@ -76,12 +77,12 @@ fn board(pieces: &[(i32, i32, u8, bool)]) -> CompiledBoard {
 }
 
 /// Flat grass over every hex within `radius` of the origin.
-fn flat(radius: u32) -> CompiledBoard {
+pub(super) fn flat(radius: u32) -> CompiledBoard {
     let hexes = Hex::ORIGIN.spiral(radius).into_iter();
     board(&hexes.map(|h| (h.q, h.r, 0, false)).collect::<Vec<_>>())
 }
 
-fn footprint(cells: &[(i32, i32)], move_mode: MoveMode, max_spread: u8) -> FootprintDef {
+pub(super) fn footprint(cells: &[(i32, i32)], move_mode: MoveMode, max_spread: u8) -> FootprintDef {
     FootprintDef {
         id: DefId(0),
         name: Text::default(),
@@ -95,25 +96,27 @@ fn footprint(cells: &[(i32, i32)], move_mode: MoveMode, max_spread: u8) -> Footp
 }
 
 /// A figure: anchor, rotation and footprint.
-struct Figure {
-    at: Space,
-    rotation: Rotation,
-    footprint: Option<FootprintDef>,
+pub(super) struct Figure {
+    pub at: Space,
+    pub rotation: Rotation,
+    pub footprint: Option<FootprintDef>,
 }
 
-struct Scene {
-    board: CompiledBoard,
-    figures: Vec<Figure>,
-    allowance: i64,
+pub(super) struct Scene {
+    pub board: CompiledBoard,
+    pub figures: Vec<Figure>,
+    pub allowance: i64,
     /// Every figure's height, in levels.
-    height: u32,
+    pub height: u32,
     /// Enemies, engaged with any cell in an adjacent column. They are not figures, so they block
     /// nothing.
-    enemies: Vec<Hex>,
+    pub enemies: Vec<Hex>,
+    /// Spaces `can_enter` refuses.
+    pub barred: BTreeSet<Space>,
 }
 
 impl Scene {
-    fn new(board: CompiledBoard, footprint: Option<FootprintDef>) -> Self {
+    pub fn new(board: CompiledBoard, footprint: Option<FootprintDef>) -> Self {
         let mover = Figure {
             at: Space::new(0, 0, 1),
             rotation: Rotation::default(),
@@ -125,6 +128,7 @@ impl Scene {
             allowance: 1,
             height: 1,
             enemies: Vec::new(),
+            barred: BTreeSet::new(),
         }
     }
 
@@ -185,8 +189,8 @@ impl MoveWorld for Scene {
     fn can_climb(&self, _: FigureId, _: DefId, _: i32) -> Result<bool, LogicError> {
         Ok(true)
     }
-    fn can_enter(&self, _: FigureId, _: Space) -> Result<bool, LogicError> {
-        Ok(true)
+    fn can_enter(&self, _: FigureId, to: Space) -> Result<bool, LogicError> {
+        Ok(!self.barred.contains(&to))
     }
     /// Some enemy engaged with `from` is not engaged with `to`. Multi-cell steps use the
     /// trait's default, built from this.
@@ -195,8 +199,13 @@ impl MoveWorld for Scene {
     }
 }
 
-fn run(scene: &Scene) -> Vec<Reach> {
+pub(super) fn run(scene: &Scene) -> Vec<Reach> {
     reachable(scene, FigureId(0), LIMITS).unwrap()
+}
+
+/// The routes of `scene`'s figure that only step, never pivoting in place.
+fn stepped(scene: &Scene) -> Vec<Reach> {
+    run(scene).into_iter().filter(|r| r.pivots == 0).collect()
 }
 
 /// The rotations the figure can end in at `(q, r)`.
@@ -205,12 +214,13 @@ fn turns(reach: &[Reach], q: i32, r: i32) -> Vec<u8> {
     here.map(|x| x.rotation.steps()).collect()
 }
 
-const TWO: [(i32, i32); 2] = [(0, 0), (1, 0)];
+pub(super) const TWO: [(i32, i32); 2] = [(0, 0), (1, 0)];
 
 #[test]
 fn a_snake_turns_so_its_rear_follows_the_leader() {
     let scene = Scene::new(flat(3), Some(footprint(&TWO, MoveMode::Snake, 1)));
-    let reach = run(&scene);
+    // Pivots in place aside, which can then turn it any way.
+    let reach = stepped(&scene);
     // Facing east-to-west (rear at E): stepping SE swings the rear to NW, onto the old anchor.
     assert_eq!(turns(&reach, 0, 1), [4]);
     assert_eq!(turns(&reach, -1, 0), [0]);
@@ -222,9 +232,10 @@ fn a_snake_turns_so_its_rear_follows_the_leader() {
 }
 
 #[test]
-fn a_rigid_shape_only_translates() {
+fn a_rigid_shape_only_translates_when_it_steps() {
     let scene = Scene::new(flat(3), Some(footprint(&TWO, MoveMode::Rigid, 1)));
-    let reach = run(&scene);
+    // Pivots in place aside, which can then turn it any way.
+    let reach = stepped(&scene);
     assert!(reach.iter().all(|r| r.rotation == Rotation::default()));
     let se = reach
         .iter()
@@ -403,7 +414,7 @@ fn a_one_cell_footprint_moves_exactly_like_no_footprint() {
 /// entry `i => gap` of `upper` adds a tile `gap` levels above column `i`'s ground (or where the
 /// ground would be, over a hole): an overhang with `gap - 1` levels of headroom under it, or a
 /// bridge deck over a chasm.
-fn ragged(
+pub(super) fn ragged(
     levels: &[u8],
     holes: &BTreeSet<usize>,
     mud: &BTreeSet<usize>,
@@ -497,7 +508,8 @@ fn placements_stand(case: &Case, seen: &mut Coverage) -> Result<(), TestCaseErro
         let high = r.cells.iter().map(|c| c.z).max().unwrap();
         prop_assert!(high - low <= u32::from(case.spread));
         spread |= high > low;
-        if !case.snake {
+        // A rigid shape changes rotation only by pivoting in place.
+        if !case.snake && r.pivots == 0 {
             prop_assert_eq!(r.rotation, Rotation::new(case.rotation).unwrap());
         }
     }

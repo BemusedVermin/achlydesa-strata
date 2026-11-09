@@ -4,7 +4,8 @@
 //! in their `snake` or `rigid` mode with every cell on a surface. Costs, climbing and entry come
 //! from the `move_cost`, `can_climb` and `can_enter` queries, asked once per terrain and level
 //! change. Stop-on-enter terrain and falls end a move; occupied spaces can be passed through but
-//! not stopped on. A space whose route takes the body out of engagement with an enemy, with no
+//! not stopped on. A two-cell figure may pivot in place about its anchor, one 60-degree turn at a
+//! time and at no cost. A space whose route takes the body out of engagement with an enemy, with no
 //! cell staying engaged with it, is flagged `provokes_reprisal`. A move that ends in a fall emits
 //! `figure_fell`; `fall_wounds` turns on the native falling damage. A move resolves the reprisals
 //! its route provokes, through the `engagement` slot, before the figure moves.
@@ -12,6 +13,7 @@
 mod api;
 mod body;
 mod fall;
+mod pivot;
 mod search;
 
 use std::collections::BTreeMap;
@@ -31,6 +33,8 @@ pub use self::search::{Headroom, Limits, reachable};
 
 #[cfg(test)]
 mod footprint_tests;
+#[cfg(test)]
+mod pivot_tests;
 #[cfg(test)]
 mod tests;
 

@@ -165,3 +165,13 @@ test {
     expect.event('figure_moved', { figure = 'p0.test_soldier#1' }),
   },
 }
+
+-- Turning in place (#187): the enemy on (2, -1) is next to the cart's rear cell on (1, 0) only.
+-- One free pivot swings the rear to (0, 1), and the body leaves the enemy.
+walk('pivot_leaves', 'a turn in place that takes the rear away from an enemy gives it a reprisal', 'field',
+  'test_cart', { 2, -1 }, { 0, 0, 1, 1 }, { 'blank' },
+  { expect.event('reprisal'), expect.event('figure_moved', { figure = 'p0.test_cart#1' }) })
+-- One pivot the other way swings the rear to (1, -1), still next to the enemy.
+walk('pivot_keeps', 'a turn in place that keeps the rear next to an enemy gives it none', 'field',
+  'test_cart', { 2, -1 }, { 0, 0, 1, 5 }, nil,
+  { expect.event('figure_moved', { figure = 'p0.test_cart#1' }) })

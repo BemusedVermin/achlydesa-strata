@@ -103,10 +103,14 @@ pub struct Reach {
     pub cells: Vec<Space>,
     /// Total movement cost to get there.
     pub cost: i64,
-    /// The anchor spaces walked, excluding the start and ending at `space`.
+    /// How many times the route pivots in place (design §7.3); each pivot repeats an anchor in
+    /// `path`.
+    pub pivots: u32,
+    /// The anchor spaces walked, excluding the start and ending at `space`. A pivot in place
+    /// keeps the anchor, so it repeats the space before it.
     pub path: Vec<Space>,
-    /// The spaces the footprint covers where the figure starts and then after each step of
-    /// `path`, in offset order, so one entry longer than `path`. A move hands this to
+    /// The spaces the footprint covers where the figure starts and then after each step or
+    /// pivot of `path`, in offset order, so one entry longer than `path`. A move hands this to
     /// [`Ctx::leave_engagement`](crate::Ctx::leave_engagement).
     pub walk: Vec<Vec<Space>>,
     /// Entering the space ends the move.

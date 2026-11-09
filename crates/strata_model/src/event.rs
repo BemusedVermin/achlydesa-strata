@@ -32,7 +32,8 @@ pub enum Event {
         to: Space,
         /// Its new rotation.
         rotation: Rotation,
-        /// The spaces walked, excluding the start and ending at `to`; empty for a placement.
+        /// The spaces walked, excluding the start and ending at `to`; empty for a placement. A
+        /// pivot in place repeats the space before it.
         #[serde(default)]
         path: Vec<Space>,
         /// Every space the figure's footprint covers at `to`, anchor included, in offset order;
