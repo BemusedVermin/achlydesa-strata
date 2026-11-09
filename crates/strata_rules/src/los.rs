@@ -3,24 +3,40 @@
 //! A module in the `los` slot provides [`LineOfSight`]. It asks a [`LosWorld`], which the host
 //! implements over the board and the loaded content, for what stands where.
 
-use strata_kernel::{Blocker, Frac, Hex, Seg3};
+use strata_kernel::{Blocker, Frac, Hex, Seg3, Space};
 use strata_model::FigureId;
 
 use crate::query::LogicError;
 
 /// A figure's camera-independent volume, in sub-level heights measured from the board floor.
+///
+/// Each cell stands on its own surface (design §7.3), so each carries its own prism (§7.6).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FigureVolume {
     /// The anchor cell.
     pub anchor: Hex,
-    /// Every cell of the footprint, anchor included.
-    pub cells: Vec<Hex>,
-    /// Height of the point other figures aim at.
+    /// Height of the point other figures aim at, above the anchor cell's center.
     pub target: i64,
-    /// Bottom of the hit zone.
+    /// Every cell of the footprint, anchor included, each with its hit-zone prism.
+    pub cells: Vec<VolumeCell>,
+}
+
+/// One footprint cell of a [`FigureVolume`]: the space it stands on and the hit zone above it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct VolumeCell {
+    /// The space the cell stands on, at its own surface level.
+    pub space: Space,
+    /// Bottom of the hit zone over this cell.
     pub bottom: i64,
-    /// Top of the hit zone.
+    /// Top of the hit zone over this cell.
     pub top: i64,
+}
+
+impl FigureVolume {
+    /// The columns the figure stands in, one per cell.
+    pub fn hexes(&self) -> impl Iterator<Item = Hex> + '_ {
+        self.cells.iter().map(|c| c.space.hex())
+    }
 }
 
 /// What line of sight may ask about the board.

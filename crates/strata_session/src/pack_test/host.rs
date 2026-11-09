@@ -19,7 +19,7 @@ use strata_rules::{
     Ctx, DeploySlot, Engagement, EngagementMemo, EvalCtx, FigureVolume, Halt, LineOfSight,
     LogicError, LogicEvaluator, Logics, LosResult, LosWorld, MoveWorld, Movement, NativeEvaluator,
     Query, QueryEngine, QueryTrace, Reach, SourcedModifier, StatBounds, StatQuery, TerrainRules,
-    VoteQuery, World, passable_cells,
+    VolumeCell, VoteQuery, World, passable_cells,
 };
 
 impl CardSource for Host {
@@ -542,24 +542,30 @@ impl LosWorld for StateLos<'_> {
         on_board.map(|(id, _)| FigureId(id)).collect()
     }
 
+    /// Each covered cell's prism rises from that cell's own surface, as occupancy records it
+    /// (design §7.3, §7.6); the target point rises from the anchor's.
     fn volume(&self, figure: FigureId) -> Option<FigureVolume> {
         let fig = self.state.figures.get(figure.index())?;
-        let at = fig
-            .location
-            .filter(|_| fig.status == FigureStatus::OnBoard)?;
+        let at = self.state.standing(figure)?;
         let registry = &self.host.registry;
         let unit = registry.get::<UnitDef>(fig.def.unit)?;
         let entry = unit.figures.iter().find(|f| f.id == fig.def.figure)?;
-        let footprint = registry.get::<FootprintDef>(entry.footprint)?;
-        let shape = footprint.cells.rotated(fig.rotation).translated(at.hex());
-        let floor = i64::from(at.z) * SUB_LEVELS;
-        let height = |sub: u16| floor + i64::from(sub);
+        let height = |space: Space, sub: u16| i64::from(space.z) * SUB_LEVELS + i64::from(sub);
+        let mut covered = self.state.covered(figure);
+        if covered.is_empty() {
+            // A figure on the board always occupies its cells; this guards a hand-built state.
+            covered.push(at);
+        }
+        let (bottom, top) = entry.los.hit_zone;
+        let cells = covered.into_iter().map(|space| VolumeCell {
+            space,
+            bottom: height(space, bottom),
+            top: height(space, top),
+        });
         Some(FigureVolume {
             anchor: at.hex(),
-            cells: shape.cells().to_vec(),
-            target: height(entry.los.target),
-            bottom: height(entry.los.hit_zone.0),
-            top: height(entry.los.hit_zone.1),
+            target: height(at, entry.los.target),
+            cells: cells.collect(),
         })
     }
 }

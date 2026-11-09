@@ -65,7 +65,7 @@ impl LineOfSight for Service {
             Policy::Columns => vec![Point3::new(Point::center(seen.anchor), seen.target)],
         };
         // The endpoint columns never block: each figure stands in its own.
-        let ends: Vec<Hex> = seer.cells.iter().chain(&seen.cells).copied().collect();
+        let ends: Vec<Hex> = seer.hexes().chain(seen.hexes()).collect();
         let figures = geometry::figure_columns(world, [from, to]);
         let blockers = |hex: Hex| {
             figures

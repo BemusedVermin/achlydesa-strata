@@ -1,4 +1,5 @@
--- Line of sight on a row of seven hexes: walls, a bridge deck, cover and intervening figures.
+-- Line of sight on a row of seven hexes: walls, a bridge deck, cover and intervening figures,
+-- and two-space figures whose cells stand on different levels.
 -- Needs the native `t:driver` module the Rust tests register (it handles `hit`) and `core:los`.
 terrain { id = 'grass', name = 'Grass', standable = true }
 tile { id = 'meadow', name = 'Meadow', terrain = 'grass', thickness = 1, shape = {{ q = 0, r = 0 }} }
@@ -28,16 +29,33 @@ map {
 local bridge = row()
 bridge[#bridge + 1] = { piece = 'meadow', at = { q = 3, r = 0 }, rot = 0, level = 4 }
 map { id = 'bridge', name = 'Bridge', orientation = 'pointy', pieces = bridge }
+-- The low wall, with (6, 0) one level higher than the rest of the row.
+local step = row()
+step[#step + 1] = { piece = 'meadow', at = { q = 6, r = 0 }, rot = 0, level = 1 }
+map {
+  id = 'step_wall', name = 'Step behind a low wall', orientation = 'pointy', pieces = step,
+  features = {{ feature = 'wall1', at = { q = 3, r = 0 }, rot = 0 }},
+}
+-- A lane from (4, -3) to (4, 3), with a one-level rise on (3, 0) beside its middle.
+local lane = {
+  { piece = 'meadow', at = { q = 3, r = 0 }, rot = 0, level = 0 },
+  { piece = 'meadow', at = { q = 3, r = 0 }, rot = 0, level = 1 },
+}
+for r = -3, 3 do lane[#lane + 1] = { piece = 'meadow', at = { q = 4, r = r }, rot = 0, level = 0 } end
+map { id = 'lane', name = 'Lane', orientation = 'pointy', pieces = lane }
 
 footprint { id = 'one', name = 'One', cells = {{ q = 0, r = 0 }}, move = 'rigid', max_spread = 1 }
-local function figure(eye)
+-- Placed with rotation 0, so the rear cell is east of the anchor.
+footprint { id = 'two', name = 'Two', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }}, move = 'rigid', max_spread = 1 }
+local function figure(eye, footprint)
   return {
-    id = 'f', count = 1, footprint = 'one', height = 1,
+    id = 'f', count = 1, footprint = footprint or 'one', height = 1,
     los = { target = eye, hit_zone = {0, 12}, samples = {'center'} },
   }
 end
 unit { id = 'soldier', name = 'Soldier', kind = 'squad', rarity = 'common', stats = {}, figures = { figure(10) } }
 unit { id = 'scout', name = 'Scout', kind = 'squad', rarity = 'common', stats = {}, figures = { figure(20) } }
+unit { id = 'cart', name = 'Cart', kind = 'squad', rarity = 'common', stats = {}, figures = { figure(10, 'two') } }
 
 -- Reports how many enemies the wounded figure can see.
 rule_module {
@@ -75,3 +93,14 @@ look('bridge', 'a deck overhead does not block', 'bridge', { at('soldier', 0, 0)
 look('crowd', 'an intervening figure hides the one behind it', 'open',
   { at('soldier', 0, 0), at('soldier', 1, 5), at('soldier', 1, 2) }, 1)
 look('deck', 'a figure on the deck sees past it', 'bridge', { at('soldier', 0, 3, 5), at('soldier', 1, 6) }, 1)
+
+-- Two-space figures: each cell's prism rises from the surface that cell stands on.
+look('rear_up', 'a rear cell a level up is seen over a low wall', 'step_wall',
+  { at('soldier', 0, 0), at('cart', 1, 5) }, 1)
+look('rear_level', 'a rear cell on the anchor\'s level stays behind a low wall', 'low_wall',
+  { at('soldier', 0, 0), at('cart', 1, 5) }, 0)
+local function on(unit, player, q, r, z) return { unit = unit, player = player, at = {{ q = q, r = r, z = z }} } end
+look('lane_open', 'the lane is open end to end', 'lane',
+  { on('soldier', 0, 4, -3, 1), on('soldier', 1, 4, 3, 1) }, 1)
+look('rear_down', 'a rear cell a level below its anchor blocks sight past it', 'lane',
+  { on('soldier', 0, 4, -3, 1), on('soldier', 1, 4, 3, 1), on('cart', 0, 3, 0, 2) }, 0)

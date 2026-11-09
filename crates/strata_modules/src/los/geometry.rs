@@ -32,16 +32,13 @@ fn offsets() -> [Point; 7] {
 }
 
 /// The points a figure can be hit at: three heights, each at the center and the six inset
-/// corners of every footprint cell, so 21 points for a one-space figure.
+/// corners of every footprint cell, so 21 points for a one-space figure. Each cell's heights are
+/// those of its own prism, so a cell standing a level up is sampled a level up.
 pub(super) fn samples(volume: &FigureVolume) -> Vec<Point3> {
-    let heights = [
-        volume.bottom + 1,
-        (volume.bottom + volume.top) / 2,
-        volume.top - 1,
-    ];
     let mut points = Vec::new();
-    for &cell in &volume.cells {
-        let center = Point::center(cell);
+    for cell in &volume.cells {
+        let heights = [cell.bottom + 1, (cell.bottom + cell.top) / 2, cell.top - 1];
+        let center = Point::center(cell.space.hex());
         for offset in offsets() {
             let xy = Point::new(center.q + offset.q, center.r + offset.r);
             points.extend(heights.map(|z| Point3::new(xy, z)));
@@ -51,7 +48,7 @@ pub(super) fn samples(volume: &FigureVolume) -> Vec<Point3> {
 }
 
 /// The blockers of every column a figure other than `skip` stands in: the column's own blockers
-/// plus one inset prism per figure, from the bottom to the top of its hit zone.
+/// plus one inset prism per figure cell, from the bottom to the top of that cell's hit zone.
 pub(super) fn figure_columns(
     world: &dyn LosWorld,
     skip: [FigureId; 2],
@@ -59,16 +56,16 @@ pub(super) fn figure_columns(
     let mut columns: BTreeMap<Hex, Vec<Blocker>> = BTreeMap::new();
     let others = world.figures().into_iter().filter(|f| !skip.contains(f));
     for volume in others.filter_map(|f| world.volume(f)) {
-        let prism = Blocker {
-            footprint: BlockerFootprint::InsetHex,
-            z0: volume.bottom,
-            z1: volume.top,
-        };
-        for &cell in &volume.cells {
+        for cell in &volume.cells {
+            let hex = cell.space.hex();
             let column = columns
-                .entry(cell)
-                .or_insert_with(|| world.blockers(cell).to_vec());
-            column.push(prism);
+                .entry(hex)
+                .or_insert_with(|| world.blockers(hex).to_vec());
+            column.push(Blocker {
+                footprint: BlockerFootprint::InsetHex,
+                z0: cell.bottom,
+                z1: cell.top,
+            });
         }
     }
     columns
