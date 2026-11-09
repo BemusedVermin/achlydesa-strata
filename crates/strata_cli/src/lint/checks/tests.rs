@@ -35,6 +35,123 @@ fn nested_functions_inside_a_hook_see_its_locals_and_its_upvalues() {
 }
 
 #[test]
+fn hooks_may_not_assign_globals() {
+    let source = "f { h = function()\n  calls = (calls or 0) + 1\n  local ok = 1\n  ok = 2\nend }";
+    assert_eq!(
+        upvalues(source),
+        vec!["2: hook assigns to the global `calls`"]
+    );
+    let declared = "f { h = function()\n  function helper() end\nend }";
+    assert_eq!(
+        upvalues(declared),
+        vec!["2: hook assigns to the global `helper`"]
+    );
+    // Outside hooks, the data stage may still set globals.
+    assert!(upvalues("shared = {}\nlocal function g() other = 1 end").is_empty());
+}
+
+#[test]
+fn hooks_may_not_write_into_captured_or_global_tables() {
+    let source = "local cache = {}\nf { h = function(ctx, k)\n  cache[k] = true\n  cache.n.m = 1\n  seen.last = k\nend }";
+    assert_eq!(
+        upvalues(source),
+        vec![
+            "3: hook writes into the upvalue table `cache`",
+            "4: hook writes into the upvalue table `cache`",
+            "5: hook writes into the global table `seen`",
+        ]
+    );
+}
+
+#[test]
+fn hooks_may_write_into_their_own_tables_and_call_results() {
+    let source = "f { h = function(ctx, self)\n  local out = {}\n  out[1] = 2\n  self.x = 1\n  ctx.vars(self).n = 3\n  local function m() end\nend }";
+    assert!(upvalues(source).is_empty(), "{:?}", upvalues(source));
+}
+
+#[test]
+fn functions_registered_inside_register_are_hooks_of_their_own() {
+    // Issue #242: `register` runs once, so its locals outlive every call of `targets`.
+    let source = "rule_module { id = 'm', register = function(r)
+  local seen = {}
+  r.action { id = 'a', targets = function(ctx, f)
+    local mine = {}
+    mine[1] = f
+    seen[#seen + 1] = f
+    return { #seen }
+  end }
+end }";
+    assert_eq!(
+        upvalues(source),
+        vec!["6: hook writes into the upvalue table `seen`"]
+    );
+}
+
+#[test]
+fn library_calls_that_write_their_first_argument_are_checked() {
+    let source = "local cache = {}
+f { h = function(ctx, x)
+  local out = {}
+  table.insert(out, x)
+  table.insert(cache, x)
+  table.remove(cache.list)
+  table.sort(seen)
+  rawset(cache, x, true)
+  table.concat(cache)
+end }";
+    assert_eq!(
+        upvalues(source),
+        vec![
+            "5: hook writes into the upvalue table `cache`",
+            "6: hook writes into the upvalue table `cache`",
+            "7: hook writes into the global table `seen`",
+            "8: hook writes into the upvalue table `cache`",
+        ]
+    );
+}
+
+#[test]
+fn writes_through_a_local_alias_are_checked() {
+    let source = "local cache = {}
+f { h = function(ctx, k)
+  local c, n = cache, 1
+  c[k] = true
+  local d = c.list
+  table.insert(d, k)
+  local g = Shared
+  g.x = 1
+  c = {}
+  n = 2
+end }";
+    assert_eq!(
+        upvalues(source),
+        vec![
+            "4: hook writes into the upvalue table `cache` through the local `c`",
+            "6: hook writes into the upvalue table `cache` through the local `d`",
+            "8: hook writes into the global table `Shared` through the local `g`",
+        ]
+    );
+}
+
+#[test]
+fn functions_a_definition_table_names_are_hooks() {
+    let source = "local cache = {}
+local function targets(ctx)
+  cache[1] = true
+end
+local filter = function() cache[2] = true end
+local function helper() cache[3] = true end
+ability { actions = {{ targets = targets, filter = filter }} }";
+    assert_eq!(
+        upvalues(source),
+        vec![
+            "3: hook writes into the upvalue table `cache`",
+            "5: hook writes into the upvalue table `cache`",
+        ]
+    );
+}
+
+#[test]
 fn only_functions_inside_call_tables_are_hooks() {
     assert!(upvalues("local n = 0\nf(function() n = 1 end)").is_empty());
     assert!(upvalues("local n = 0\nlocal t = { h = function() n = 1 end }").is_empty());
@@ -79,9 +196,16 @@ fn method_calls_define_hooks_too() {
 }
 
 #[test]
-fn only_plain_names_are_checked() {
+fn fields_of_captured_tables_and_globals_are_checked_too() {
     let source = "local t = {}\nf { h = function() t.x = 1; t[1] = 2; global = 3 end }";
-    assert!(upvalues(source).is_empty());
+    assert_eq!(
+        upvalues(source),
+        vec![
+            "2: hook writes into the upvalue table `t`",
+            "2: hook writes into the upvalue table `t`",
+            "2: hook assigns to the global `global`",
+        ]
+    );
 }
 
 #[test]

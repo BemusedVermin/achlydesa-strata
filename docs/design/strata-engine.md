@@ -545,14 +545,15 @@ The **loader state** runs the data stages once (section 4.3) and is dropped afte
 - **Libraries kept:** base, `string`, `table`, `math`, `utf8`.
 - **Removed:** `io`, `os`, `debug`, `package`, `coroutine`, `dofile`, `loadfile`, `load`, `collectgarbage`, `math.random` and `math.randomseed`.
 - **`require`** resolves only inside the pack and its declared dependencies. Module tables are frozen after loading.
-- **Environments** are per pack and frozen at runtime, so writing a global raises an error.
+- **Environments** are per pack and frozen when the data stage ends, so writing a global raises an error. Every table reachable from an environment is frozen with it: through keys, values and `__index` fallbacks, including tables frozen earlier with `freeze`. Constructors and new `require`s are refused after that point. Errors name the script line that made the write, even when a library function such as `table.insert` made it.
+- **Metatables on frozen tables.** A frozen table may keep only a lookup fallback, `setmetatable(t, { __index = parent })` with `parent` a table, and `parent` is frozen too. Any other metatable, and an `__index` function, makes the freeze fail, because Lua would hand the function the table's writable contents. Object-oriented modules in the `Class.__index = Class` style therefore cannot be globals or module tables: a class table carries its methods next to `__index`. Keep such classes local to a hook, or build plain tables of functions. Functions are not frozen, so a table held only in a closure's upvalue stays writable; the linter covers that case (section 9.4).
 - **Budgets:** `mlua`'s instruction-count hook aborts any call over its budget, and `set_memory_limit` caps each state's memory. Counting instructions rather than time keeps aborts deterministic. An aborted call rejects the command and flags the ability in the dev overlay.
 
 ### 9.4 Determinism rules
 
 - **Integers only.** Lua 5.4 has an integer subtype, and the bridge rejects any float crossing into Rust. `/` always produces a float, so scripts use `//`, and the linter flags `/`.
 - **Ordered iteration.** Lua 5.4 seeds string hashing per state, so raw table order can differ between threads. The runtime replaces `pairs` with a version that walks keys in sorted order, and removes `next`.
-- **No hidden state.** Frozen environments stop global writes, but a closure could still mutate an upvalue (`local n = 0` captured by a hook), and that value would then differ between the session and AI states. The linter rejects assignments to upvalues inside hooks; per-instance state belongs in `ctx.vars`. The determinism harness (section 16.5) catches anything the linter misses.
+- **No hidden state.** Frozen environments stop global writes, but a closure could still mutate an upvalue (`local n = 0` captured by a hook), and that value would then differ between the session and AI states. The linter rejects assignments to upvalues and globals inside hooks, and writes into captured or global tables (`cache[k] = v`, `table.insert(cache, v)`, also through a local alias). A function nested in a definition table inside another hook, such as a `targets` registered inside a rule module's `register`, is a hook of its own, so the enclosing function's locals count as upvalues; so is a function a definition table names (`{ targets = targets }`). Per-instance state belongs in `ctx.vars`. The determinism harness (section 16.5) catches anything the linter misses.
 - **No clocks or randomness** except `ctx.dice` and the command RNG.
 
 ### 9.5 Editor support

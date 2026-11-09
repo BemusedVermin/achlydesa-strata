@@ -1,9 +1,12 @@
 -- Builds the sandbox in place. Arguments: the real globals, the original
--- pcall/xpcall, the "is this error fatal?" predicate, and the registry of
--- frozen tables (frozen table -> table holding its contents).
-local globals, raw_pcall, raw_xpcall, is_fatal, frozen = ...
+-- pcall/xpcall, the "is this error fatal?" predicate, the registry of frozen
+-- tables (frozen table -> table holding its contents), the host's `lock(t)`,
+-- which freezes one table and returns nil or why it cannot, and `where()`,
+-- which returns "file:line: " of the innermost script frame.
+-- Returns the metamethods frozen tables share; the host freezes the libraries.
+local globals, raw_pcall, raw_xpcall, is_fatal, frozen, lock, where = ...
 
-local next, type, error, setmetatable = next, type, error, setmetatable
+local next, type, error, tostring = next, type, error, tostring
 local raw_get, raw_set, raw_len = rawget, rawset, rawlen
 local sort = table.sort
 
@@ -12,27 +15,33 @@ for _, name in ipairs { "dofile", "loadfile", "load", "collectgarbage", "next" }
 end
 math.random, math.randomseed = nil, nil
 
-local function freeze(t)
-  if type(t) ~= "table" then error("freeze expects a table", 2) end
-  if frozen[t] then return t end
-  if getmetatable(t) ~= nil then error("cannot freeze a table with a metatable", 2) end
-  local shadow = {}
-  for k, v in next, t do shadow[k] = v end
-  for k in next, shadow do raw_set(t, k, nil) end
-  frozen[t] = shadow
-  setmetatable(t, {
-    __index = shadow,
-    __newindex = function() error("attempt to modify a frozen table", 2) end,
-    __len = function() return #shadow end,
-    __metatable = false,
-  })
+-- Strings share one metatable; hide it so no script can add metamethods that outlive a call.
+getmetatable("").__metatable = false
+
+-- Errors raised here name the script line through `where()` rather than an error level, so
+-- they stay right when a C function such as `table.insert` did the write.
+local function frozen_write()
+  error(where() .. "attempt to modify a frozen table", 0)
+end
+
+local function global_write(_, key)
+  error(where() .. "cannot set global `" .. tostring(key) .. "`: globals are read-only once "
+    .. "the packs have loaded; use a local, or keep state in the game through ctx", 0)
+end
+
+local function frozen_len(t) return raw_len(frozen[t]) end
+
+-- Makes one table read-only (see lock.rs). Not a tail call, so `where()` sees the caller.
+function globals.freeze(t)
+  local problem = lock(t)
+  if problem then error(where() .. problem, 0) end
   return t
 end
 
 function globals.rawget(t, k) return raw_get(frozen[t] or t, k) end
 function globals.rawlen(t) return raw_len(frozen[t] or t) end
 function globals.rawset(t, k, v)
-  if frozen[t] then error("attempt to modify a frozen table", 2) end
+  if frozen[t] then frozen_write() end
   return raw_set(t, k, v)
 end
 
@@ -80,5 +89,4 @@ function globals.xpcall(f, handler, ...)
   end, ...))
 end
 
-globals.freeze = freeze
-for _, lib in ipairs { string, table, math, utf8 } do freeze(lib) end
+return { frozen = frozen_write, global = global_write, len = frozen_len }

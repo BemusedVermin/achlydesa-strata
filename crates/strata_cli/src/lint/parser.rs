@@ -29,6 +29,17 @@ pub struct Field {
     pub numbers: Vec<String>,
 }
 
+/// An assignment target that starts at a name: the name itself, or a field or index of it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Target {
+    /// The name the target starts at.
+    pub name: String,
+    /// Line of that name.
+    pub line: usize,
+    /// True for `name.x` or `name[k]` (any depth, with no call between), false for `name`.
+    pub field: bool,
+}
+
 /// What the walk reports, in source order. `at` values are token offsets that order
 /// findings the way a tree walk visits their nodes.
 pub trait Events {
@@ -38,9 +49,11 @@ pub trait Events {
     fn close_scope(&mut self);
     /// A `local` statement declares `name` in the innermost scope.
     fn declare(&mut self, name: String);
-    /// An anonymous `function ... end` expression starts, before its parameter scope opens.
-    fn function_start(&mut self);
-    /// The anonymous function that started last ends.
+    /// A function body starts, before its parameter scope opens. `name` is the plain name
+    /// it is given by `local function name`, `function name` or `local name = function`;
+    /// `None` for other anonymous functions and for `function a.b` or `function a:b`.
+    fn function_start(&mut self, name: Option<String>);
+    /// The function that started last ends.
     fn function_end(&mut self);
     /// The argument list of a call starts.
     fn args_start(&mut self);
@@ -52,8 +65,17 @@ pub trait Events {
     fn table_end(&mut self);
     /// A call whose argument is a table constructor `f { ... }`, with the table's named fields.
     fn call_table(&mut self, at: usize, fields: Vec<Field>);
-    /// An assignment statement; `names` are its targets that are plain names, with their lines.
-    fn assignment(&mut self, at: usize, names: Vec<(String, usize)>);
+    /// A `key = name` field of any table constructor, whose value is the lone name `name`.
+    fn field_name(&mut self, name: String);
+    /// A call `callee(first, ...)` whose callee is a dotted name such as `table.insert` and
+    /// whose first argument starts at a name, as `first` (`field` set when it is indexed).
+    fn call(&mut self, at: usize, callee: String, first: Target);
+    /// A `local name = source` declaration whose value starts at a name, reported after the
+    /// local is declared.
+    fn alias(&mut self, name: String, source: Target);
+    /// An assignment statement, or a `function` statement, which assigns its name. `targets`
+    /// are the targets that start at a name; `(e).x` and `f().x` are left out.
+    fn assignment(&mut self, at: usize, targets: Vec<Target>);
     /// A `/` operator on `line`.
     fn division(&mut self, at: usize, line: usize);
 }
@@ -67,6 +89,7 @@ pub fn parse(tokens: &[Token], events: &mut dyn Events) -> Result<(), SyntaxErro
         last: 0,
         depth: 0,
         numbers: Vec::new(),
+        function_name: None,
     };
     parser.chunk()
 }
@@ -78,6 +101,8 @@ type Parse<T = ()> = Result<T, SyntaxError>;
 enum Tail {
     /// A plain name with no suffix.
     Name,
+    /// A name followed only by `.name` and `[expr]` suffixes.
+    Field,
     /// A call.
     Call,
     /// A parenthesized expression or an index.
@@ -98,6 +123,8 @@ struct Parser<'a> {
     depth: usize,
     /// Every number literal read so far, with the function depth it was read at.
     numbers: Vec<(String, usize)>,
+    /// The local name the next function expression is assigned to, in `local f = function`.
+    function_name: Option<String>,
 }
 
 impl Parser<'_> {
@@ -239,7 +266,16 @@ impl Parser<'_> {
             "local" => self.local()?,
             "for" => self.for_loop(token.line)?,
             "function" => {
-                self.name_at(self.cur().line, "expected function name")?;
+                let name = self.name_at(self.cur().line, "expected function name")?;
+                let field = self.is(".") || self.is(":");
+                self.events.assignment(
+                    token.offset,
+                    vec![Target {
+                        name: name.text.clone(),
+                        line: name.line,
+                        field,
+                    }],
+                );
                 while let Some(separator) = self.eat(".").or_else(|| self.eat(":")) {
                     let message = format!("expected name after `{}`", separator.text);
                     self.name_at(self.cur().line, &message)?;
@@ -247,7 +283,9 @@ impl Parser<'_> {
                         break;
                     }
                 }
+                self.events.function_start((!field).then_some(name.text));
                 self.function_body(token.line)?;
+                self.events.function_end();
             }
             "if" => {
                 self.expression(token.line, "expected condition after `if`")?;
@@ -289,19 +327,31 @@ impl Parser<'_> {
     fn local(&mut self) -> Parse {
         if let Some(function) = self.eat("function") {
             let name = self.name_at(self.cur().line, "expected a function name")?;
-            self.events.declare(name.text);
-            return self.function_body(function.line);
+            self.events.declare(name.text.clone());
+            self.events.function_start(Some(name.text));
+            self.function_body(function.line)?;
+            self.events.function_end();
+            return Ok(());
         }
         if self.cur().kind != Kind::Name {
             let line = self.cur().line;
             return Err(self.error(line, "expected either a variable name or `function`"));
         }
-        for name in self.names(true)? {
-            self.events.declare(name);
+        let names = self.names(true)?;
+        for name in &names {
+            self.events.declare(name.clone());
         }
         if let Some(equal) = self.eat("=") {
-            if !self.expression_list()? {
+            if let [name] = names.as_slice() {
+                self.function_name = self.is("function").then(|| name.clone());
+            }
+            let Some(sources) = self.values()? else {
                 return Err(self.error(equal.line, "expected an expression"));
+            };
+            for (name, source) in names.into_iter().zip(sources) {
+                if let Some(source) = source {
+                    self.events.alias(name, source);
+                }
             }
         }
         Ok(())
@@ -361,7 +411,7 @@ impl Parser<'_> {
     /// A call statement or an assignment, starting at a name or `(`.
     fn expression_statement(&mut self) -> Parse {
         let start = self.cur().offset;
-        let mut names = Vec::new();
+        let mut targets = Vec::new();
         let mut target = self.cur().clone();
         let mut tail = self.suffixed()?;
         if tail == Tail::Call {
@@ -377,7 +427,11 @@ impl Parser<'_> {
                     let line = self.last;
                     return Err(self.error(line, "can't assign to the result of a call"));
                 }
-                Tail::Name => names.push((target.text, target.line)),
+                Tail::Name | Tail::Field => targets.push(Target {
+                    field: tail == Tail::Field,
+                    name: target.text,
+                    line: target.line,
+                }),
                 Tail::Other => {}
             }
             let Some(comma) = self.eat(",") else {
@@ -390,7 +444,7 @@ impl Parser<'_> {
             tail = self.suffixed()?;
         }
         let equal = self.expect("=", "expected `=` after name")?;
-        self.events.assignment(start, names);
+        self.events.assignment(start, targets);
         if !self.expression_list()? {
             return Err(self.error(equal.line, "expected values to set to"));
         }
@@ -399,18 +453,63 @@ impl Parser<'_> {
 
     /// Parses `expr {, expr}`. Returns false, consuming nothing, when no expression starts here.
     fn expression_list(&mut self) -> Parse<bool> {
+        Ok(self.values()?.is_some())
+    }
+
+    /// Parses `expr {, expr}` like [`Parser::expression_list`], returning for each expression
+    /// the target it spells when it is only a name with `.name` and `[expr]` suffixes.
+    fn values(&mut self) -> Parse<Option<Vec<Option<Target>>>> {
         if !self.starts_expression() {
-            return Ok(false);
+            return Ok(None);
         }
+        let mut values = Vec::new();
         loop {
+            let start = self.pos;
             self.subexpression(0, 0, "")?;
+            values.push(self.rooted(start));
             let Some(comma) = self.eat(",") else {
-                return Ok(true);
+                return Ok(Some(values));
             };
             if !self.starts_expression() {
                 return Err(self.error(comma.line, "trailing commas are not allowed"));
             }
         }
+    }
+
+    /// The target that the tokens from `start` up to the current one spell, if they are a
+    /// name followed only by `.name` and balanced `[...]` suffixes.
+    fn rooted(&self, start: usize) -> Option<Target> {
+        let first = &self.tokens[start];
+        if first.kind != Kind::Name {
+            return None;
+        }
+        let mut i = start + 1;
+        while i < self.pos {
+            if is_symbol(&self.tokens[i], ".") {
+                i += 2;
+            } else if is_symbol(&self.tokens[i], "[") {
+                let mut depth = 0usize;
+                while i < self.pos {
+                    let token = &self.tokens[i];
+                    i += 1;
+                    if is_symbol(token, "[") {
+                        depth += 1;
+                    } else if is_symbol(token, "]") {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                }
+            } else {
+                return None;
+            }
+        }
+        (i == self.pos).then(|| Target {
+            name: first.text.clone(),
+            line: first.line,
+            field: i > start + 1,
+        })
     }
 
     fn starts_expression(&self) -> bool {
@@ -459,7 +558,8 @@ impl Parser<'_> {
             self.table(&token)?;
         } else if self.is("function") {
             self.bump();
-            self.events.function_start();
+            let name = self.function_name.take();
+            self.events.function_start(name);
             self.function_body(token.line)?;
             self.events.function_end();
         } else {
@@ -476,6 +576,13 @@ impl Parser<'_> {
     fn suffixed(&mut self) -> Parse<Tail> {
         let first = self.bump();
         let mut tail = Tail::Name;
+        // The dotted name the expression spells so far, such as `table.insert`.
+        let mut path = (first.kind == Kind::Name).then(|| first.text.clone());
+        // An index stays rooted at the first name until a call or parenthesis intervenes.
+        let index = |tail: &Tail| match tail {
+            Tail::Name | Tail::Field => Tail::Field,
+            _ => Tail::Other,
+        };
         if first.kind != Kind::Name {
             self.expression(first.line, "expected an expression after `(`")?;
             let line = self.cur().line;
@@ -485,12 +592,14 @@ impl Parser<'_> {
         loop {
             let token = self.cur().clone();
             if token.kind == Kind::Str || self.is("(") || self.is("{") {
-                self.arguments()?;
+                self.arguments(path.take())?;
                 tail = Tail::Call;
             } else if self.eat(".").is_some() {
-                self.name_at(token.line, "expected identifier after `.`")?;
-                tail = Tail::Other;
+                let name = self.name_at(token.line, "expected identifier after `.`")?;
+                path = path.map(|p| format!("{p}.{}", name.text));
+                tail = index(&tail);
             } else if self.eat("[").is_some() {
+                path = None;
                 self.expression(token.line, "expected expression after `[`")?;
                 self.close(
                     "]",
@@ -498,14 +607,15 @@ impl Parser<'_> {
                     "expected `]` to close index expression",
                     true,
                 )?;
-                tail = Tail::Other;
+                tail = index(&tail);
             } else if self.eat(":").is_some() {
                 let name = self.name_at(token.line, "expected identifier after `:`")?;
                 let next = self.cur();
                 if !(next.kind == Kind::Str || self.is("(") || self.is("{")) {
                     return Err(self.error(name.line, "expected arguments after `:`"));
                 }
-                self.arguments()?;
+                path = None;
+                self.arguments(None)?;
                 tail = Tail::Call;
             } else {
                 return Ok(tail);
@@ -513,15 +623,21 @@ impl Parser<'_> {
         }
     }
 
-    /// Call arguments: a string, a table constructor or a parenthesized list.
-    fn arguments(&mut self) -> Parse {
+    /// Call arguments: a string, a table constructor or a parenthesized list. `callee` is the
+    /// called dotted name, if it is one.
+    fn arguments(&mut self, callee: Option<String>) -> Parse {
         let open = self.bump();
         self.events.args_start();
         if is_symbol(&open, "{") {
             let fields = self.table(&open)?;
             self.events.call_table(open.offset, fields);
         } else if is_symbol(&open, "(") {
-            let content = self.expression_list()?;
+            let values = self.values()?;
+            let first = values.as_ref().and_then(|v| v.first().cloned().flatten());
+            if let (Some(callee), Some(first)) = (callee, first) {
+                self.events.call(open.offset, callee, first);
+            }
+            let content = values.is_some();
             self.close(
                 ")",
                 open.line,
@@ -550,6 +666,9 @@ impl Parser<'_> {
                 let (first, mark) = (self.pos, self.numbers.len());
                 self.expression(equal.line, "expected an expression after `=`")?;
                 let lone = self.pos == first + 1 && self.tokens[first].kind == Kind::Str;
+                if self.pos == first + 1 && self.tokens[first].kind == Kind::Name {
+                    self.events.field_name(self.tokens[first].text.clone());
+                }
                 let numbers = self.numbers[mark..].iter().filter(|(text, depth)| {
                     *depth == self.depth && text.bytes().all(|b| b.is_ascii_digit())
                 });

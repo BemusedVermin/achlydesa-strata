@@ -3,7 +3,7 @@
 use mlua::{Lua, Result, Table, Value};
 
 use super::registry::{CHUNK_SEPARATOR, PACK_SEPARATOR, Shared, caller, chunk_name};
-use crate::host::freeze_deep;
+use crate::lock::{freeze_deep, into_lua};
 
 const MODULES_KEY: &str = "strata.modules";
 const ENV_PREFIX: &str = "strata.env.";
@@ -57,6 +57,11 @@ pub(crate) fn install(lua: &Lua, shared: &Shared) -> Result<()> {
         if !cached.is_nil() {
             return Ok(cached);
         }
+        if registry.borrow().sealed {
+            return Err(fail(
+                "modules load only while the packs load; require it at the top of a file".into(),
+            ));
+        }
         if !registry.borrow_mut().loading.insert(key.clone()) {
             return Err(fail("modules require each other in a cycle".into()));
         }
@@ -75,7 +80,7 @@ pub(crate) fn install(lua: &Lua, shared: &Shared) -> Result<()> {
         let value = match loaded? {
             Value::Nil => Value::Boolean(true),
             Value::Table(table) => {
-                freeze_deep(lua, &table)?;
+                freeze_deep(lua, &table).map_err(into_lua)?;
                 Value::Table(table)
             }
             other => other,

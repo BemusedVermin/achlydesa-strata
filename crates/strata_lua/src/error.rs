@@ -95,7 +95,8 @@ pub enum DataError {
     Script {
         /// The pack.
         pack: strata_kernel::PackId,
-        /// The stage: `data`, `data_updates` or `data_final`.
+        /// The stage: `data`, `data_updates` or `data_final`, or `freeze` when the
+        /// environment could not be frozen afterwards.
         stage: &'static str,
         /// The error text.
         message: String,

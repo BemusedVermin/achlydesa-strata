@@ -67,6 +67,16 @@ ability {
   }},
 }
 
+SWAP = { { DiceRolled = { die = 1, results = { 2, 3 } } }, { FigureDestroyed = 4 } }
+
+ability {
+  id = 'swap', name = 'Swap', text = 'Test.', scope = 'unit',
+  replacements = {{
+    event = 'var_set',
+    replace = function() return SWAP end,
+  }},
+}
+
 ability {
   id = 'loops', name = 'Loops', text = 'Test.', scope = 'unit',
   triggers = {{ event = 'wounds_applied', effect = function() while true do end end }},
@@ -446,6 +456,28 @@ fn replacements_and_reactions_run_in_lua() {
     );
     w.rules.react(reaction, &mut bench).unwrap();
     assert_eq!(customs(&bench.events)["reacted"], Value::Int(1));
+}
+
+#[test]
+fn a_replacement_may_return_a_frozen_global_table() {
+    let w = world(&[]);
+    let def = &w.ability("swap").replacements[0];
+    let event = Event::VarSet {
+        key: VarKey::default(),
+        value: Value::Int(1),
+    };
+    let mut bench = Bench::new();
+    let events = w.rules.replace(def, &event, &mut bench).unwrap();
+    assert_eq!(
+        events,
+        [
+            Event::DiceRolled {
+                die: DefId(1),
+                results: vec![2, 3],
+            },
+            Event::FigureDestroyed(FigureId(4)),
+        ]
+    );
 }
 
 #[test]

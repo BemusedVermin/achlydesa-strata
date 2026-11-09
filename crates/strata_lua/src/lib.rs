@@ -10,6 +10,7 @@ mod data;
 mod error;
 mod freeze;
 mod host;
+mod lock;
 mod module;
 mod rules;
 mod runtime;

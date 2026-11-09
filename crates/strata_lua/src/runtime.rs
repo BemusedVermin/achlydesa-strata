@@ -76,7 +76,9 @@ impl RuntimeLua {
             });
         }
         let host = stage.host();
-        let ctx = host.load(&host.new_env()?, "ctx", CTX_GLUE)?;
+        let env = host.new_env()?;
+        let ctx = host.load(&env, "ctx", CTX_GLUE)?;
+        host.freeze_env(&env)?;
         Ok(Self {
             stage,
             functions,
@@ -85,7 +87,8 @@ impl RuntimeLua {
     }
 
     /// Runs `register` of each module again, so the functions it registers are bound to the
-    /// same paths they were given when the registry was built.
+    /// same paths they were given when the registry was built. What it registered is frozen
+    /// afterwards, like the pack environments.
     pub fn bind_modules(&mut self, modules: &[ModuleBinding]) -> Result<(), RuntimeError> {
         let records = self.stage.records();
         for module in modules {
@@ -96,6 +99,7 @@ impl RuntimeLua {
             let root = run_register(&self.stage, &module.id, &module.config)?;
             let lua = self.stage.host().lua();
             harvest(lua, record, &root, &mut Vec::new(), &mut self.functions)?;
+            self.stage.host().freeze_tree(&root)?;
         }
         Ok(())
     }

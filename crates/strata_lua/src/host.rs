@@ -9,11 +9,11 @@ use mlua::{
 };
 
 use crate::error::HostError;
+use crate::lock::{self, FROZEN_KEY, PARTS_KEY, SANDBOX_CHUNK, Write};
 
 const PRELUDE: &str = include_str!("prelude.lua");
-pub(crate) const FROZEN_KEY: &str = "strata.frozen";
-/// The sandbox global that makes one table read-only.
-pub(crate) const FREEZE_GLOBAL: &str = "freeze";
+/// The standard libraries, frozen once the sandbox is built.
+const LIBRARIES: [&str; 4] = ["string", "table", "math", "utf8"];
 /// Instructions between hook invocations; budgets are rounded up to a multiple of this.
 const STEP: u32 = 100;
 
@@ -75,13 +75,30 @@ impl LuaHost {
             Ok(halted || flag.get())
         })?;
         globals.set("Halt", lua.create_userdata(Halt)?)?;
-        lua.load(PRELUDE).set_name("=sandbox").call::<()>((
-            globals,
+        let lock = lua.create_function(|lua, value: Value| {
+            let Value::Table(table) = value else {
+                return Ok(Some("freeze expects a table".to_owned()));
+            };
+            match lock::lock(lua, &table, Write::Frozen) {
+                Ok(()) => Ok(None),
+                Err(HostError::Script(problem)) => Ok(Some(problem)),
+                Err(other) => Err(lock::into_lua(other)),
+            }
+        })?;
+        let location = lua.create_function(|lua, ()| Ok(lock::location(lua)))?;
+        let parts: Table = lua.load(PRELUDE).set_name(SANDBOX_CHUNK).call((
+            globals.clone(),
             raw_pcall.clone(),
             raw_xpcall,
             is_fatal,
             frozen,
+            lock,
+            location,
         ))?;
+        lua.set_named_registry_value(PARTS_KEY, parts)?;
+        for name in LIBRARIES {
+            lock::lock(&lua, &globals.get::<Table>(name)?, Write::Frozen)?;
+        }
 
         let budget = limits.instructions.div_ceil(STEP).max(1);
         let (count, flag) = (used.clone(), tripped.clone());
@@ -121,10 +138,25 @@ impl LuaHost {
         Ok(env)
     }
 
-    /// Makes `table` read-only: later writes raise.
+    /// Makes `table` read-only: later writes raise. Its own tables are left as they are.
     pub fn freeze(&self, table: &Table) -> Result<(), HostError> {
-        let freeze: Function = self.lua.globals().get(FREEZE_GLOBAL)?;
-        Ok(freeze.call::<()>(table)?)
+        lock::lock(&self.lua, table, Write::Frozen)
+    }
+
+    /// Makes the pack environment `env` read-only, with every table reachable from it through
+    /// keys, values and `__index` fallbacks (design §9.3). Writing a global then raises an
+    /// error naming the global, and writing into a reachable table raises the frozen-table
+    /// error. Functions are left alone, so tables only their upvalues hold stay writable.
+    ///
+    /// Freezing runs in Rust and costs no VM instructions, so it never trips a budget.
+    pub fn freeze_env(&self, env: &Table) -> Result<(), HostError> {
+        lock::freeze_env(&self.lua, env)
+    }
+
+    /// Freezes `table` and every table reachable from it, including tables that were
+    /// frozen before and the tables those hold.
+    pub(crate) fn freeze_tree(&self, table: &Table) -> Result<(), HostError> {
+        lock::freeze_deep(&self.lua, table)
     }
 
     /// Compiles source text as a function running in `env`.
@@ -172,25 +204,4 @@ fn plain(error: &Error) -> String {
         Error::CallbackError { cause, .. } => plain(cause),
         other => other.to_string(),
     }
-}
-
-/// Freezes `table` and every table reachable through its values; functions are left alone.
-///
-/// A table is frozen before its children are visited, so cycles end at the first table seen twice.
-pub(crate) fn freeze_deep(lua: &Lua, table: &Table) -> mlua::Result<()> {
-    let frozen: Table = lua.named_registry_value(FROZEN_KEY)?;
-    if frozen.raw_get::<Value>(table)?.is_nil() {
-        let mut children = Vec::new();
-        for pair in table.pairs::<Value, Value>() {
-            if let (_, Value::Table(child)) = pair? {
-                children.push(child);
-            }
-        }
-        let freeze: Function = lua.globals().get(FREEZE_GLOBAL)?;
-        freeze.call::<()>(table)?;
-        for child in &children {
-            freeze_deep(lua, child)?;
-        }
-    }
-    Ok(())
 }
