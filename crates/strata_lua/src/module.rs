@@ -4,7 +4,7 @@ use std::fmt::Display;
 
 use mlua::{Function, Lua, Table, Value as LuaValue};
 use strata_kernel::{DefId, ModuleId, PackId, SlotId, Value, WindowId};
-use strata_model::{ActionDef, ModifierDef, ReactionDef, ReplacementDef, TriggerDef};
+use strata_model::{ActionDef, Logic, ModifierDef, ReactionDef, ReplacementDef, TriggerDef};
 use strata_rules::{ConfigSchema, ModuleError, Registrar, RuleModule};
 
 use crate::convert::{contents, from_lua, value_to_lua};
@@ -96,15 +96,70 @@ impl RuleModule for LuaModule {
     }
 }
 
-/// Hands one registration to the registrar.
+/// Hands one registration to the registrar, once its native descriptors compile (design §8.2).
 fn add(r: &mut Registrar, lua: &Lua, kind: &str, def: LuaValue) -> mlua::Result<()> {
     match kind {
-        "action" => r.action(from_lua::<ActionDef>(lua, def)?),
-        "modifier" => r.modifier(from_lua::<ModifierDef>(lua, def)?),
-        "trigger" => r.trigger(from_lua::<TriggerDef>(lua, def)?),
-        "replacement" => r.replacement(from_lua::<ReplacementDef>(lua, def)?),
-        "reaction" => r.reaction(from_lua::<ReactionDef>(lua, def)?),
+        "action" => {
+            let a = from_lua::<ActionDef>(lua, def)?;
+            check(
+                "action",
+                &[
+                    ("targets", a.targets.as_ref()),
+                    ("resolve", Some(&a.resolve)),
+                ],
+            )?;
+            r.action(a);
+        }
+        "modifier" => {
+            let m = from_lua::<ModifierDef>(lua, def)?;
+            let value = Some(&m.value);
+            check(
+                "modifier",
+                &[
+                    ("select", m.select.as_ref()),
+                    ("when", m.when.as_ref()),
+                    ("value", value),
+                ],
+            )?;
+            r.modifier(m);
+        }
+        "trigger" => {
+            let t = from_lua::<TriggerDef>(lua, def)?;
+            let fields = [("filter", t.filter.as_ref()), ("effect", Some(&t.effect))];
+            check("trigger", &fields)?;
+            r.trigger(t);
+        }
+        "replacement" => {
+            let rp = from_lua::<ReplacementDef>(lua, def)?;
+            check(
+                "replacement",
+                &[
+                    ("filter", rp.filter.as_ref()),
+                    ("replace", Some(&rp.replace)),
+                ],
+            )?;
+            r.replacement(rp);
+        }
+        "reaction" => {
+            let re = from_lua::<ReactionDef>(lua, def)?;
+            let fields = [("when", re.when.as_ref()), ("effect", Some(&re.effect))];
+            check("reaction", &fields)?;
+            r.reaction(re);
+        }
         _ => r.window(WindowId::new(&from_lua::<String>(lua, def)?)),
+    }
+    Ok(())
+}
+
+/// Checks each named logic field of a `kind` registration for its role
+/// ([`strata_rules::FieldRole::of`]).
+fn check(kind: &str, fields: &[(&str, Option<&Logic>)]) -> mlua::Result<()> {
+    for (field, logic) in fields {
+        let role = strata_rules::FieldRole::of(kind, field);
+        if let Some(logic) = logic {
+            let checked = strata_rules::check_logic(logic, role);
+            checked.map_err(|e| mlua::Error::runtime(format!("`{field}`: {e}")))?;
+        }
     }
     Ok(())
 }

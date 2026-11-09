@@ -35,6 +35,12 @@ relic {
   id = 'boon', name = 'Relic of Boon', mode = 'on_claim', claim = 'ends_move_on',
   effect = function(ctx) ctx.emit('boon_taken', 1) end,
 }
+-- An on-claim relic whose native effect marks the figure that claims it.
+marker { id = 'blessed', name = 'Blessed', stacking = 'count', visibility = 'public' }
+relic {
+  id = 'gift', name = 'Relic of Gift', mode = 'on_claim', claim = 'ends_move_on',
+  effect = { eff = 'add_marker', marker = 'blessed', who = 'self' },
+}
 
 -- A two-space cart: its rear cell is one column east of its anchor.
 footprint { id = 'two', name = 'Two', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }}, move = 'rigid', max_spread = 1 }
@@ -65,6 +71,7 @@ end
 scenario(scn('fury_up', 'fury', false))
 scenario(scn('fury_down', 'fury', true))
 scenario(scn('boon_up', 'boon', false))
+scenario(scn('gift_up', 'gift', false))
 local function long_scn(id, relics)
   return {
     id = id, name = id, map = 'long', players = { min = 2, max = 2 },
@@ -77,6 +84,22 @@ scenario(long_scn('pair', {{ relic = 'fury', spot = 'left' }, { relic = 'boon', 
 ruleset {
   id = 'rs', name = 'Relics',
   slots = { relics = { id = 'core:relics' } }, addons = {{ id = 'toy:driver' }},
+}
+
+-- `banish`: the toy driver's `attack` command removes `{ figure }` through `core:units`.
+rule_module {
+  id = 'banish',
+  register = function(r)
+    r.trigger {
+      event = 'attack_declared',
+      effect = function(ctx, event) ctx.units.remove(event.Custom.payload.figure) end,
+    }
+  end,
+}
+ruleset {
+  id = 'rs_units', name = 'Relics with units',
+  slots = { relics = { id = 'core:relics' }, units = { id = 'core:units' } },
+  addons = {{ id = 'toy:driver' }, { id = 'relics:banish' }},
 }
 
 local function board()
@@ -181,5 +204,32 @@ test {
     act.command(0, 'move_to', drive(2)),
     expect.event('boon_taken'),
     expect.stat('p0.test_cart#1', 'attack', 5),
+  },
+}
+test {
+  id = 'removed', name = 'removing the occupant releases the relic and its grants',
+  ruleset = 'rs_units', scenario = 'fury_up', place = board(),
+  steps = {
+    act.command(0, 'move_to', go(0, 1)),
+    expect.stat('p0.test_soldier#1', 'attack', 5),
+    act.command(1, 'attack', { figure = 0 }),
+    expect.event('figure_removed'),
+    expect.event('ability_detached'),
+    expect.event('relic_released'),
+    expect.figure('p0.test_soldier#1', 'removed'),
+  },
+}
+test {
+  id = 'gift', name = 'an on-claim effect acts for the figure on the relic',
+  ruleset = 'rs', scenario = 'gift_up',
+  place = {
+    { unit = 'test_soldier', player = 0, at = {{ q = 0, r = 0, z = 1 }} },
+    { unit = 'test_soldier', player = 1, at = {{ q = 1, r = 0, z = 1 }} },
+  },
+  steps = {
+    -- Another figure's move sets off the claim for the figure already standing on the relic.
+    act.command(0, 'move_to', go(0, 0)),
+    expect.event('relic_claimed'),
+    expect.event('marker_changed', { figure = 'p1.test_soldier#1' }),
   },
 }

@@ -1,0 +1,30 @@
+---
+source: crates/strata_rules/src/descriptor/card/tests.rs
+expression: phrases(&all)
+---
+Str("target")
+  => the target
+Map({"adjacent_to": Str("target"), "sel": Str("enemies")})
+  => enemy figures adjacent to the target
+Map({"engaged": Bool(true), "sel": Str("enemies")})
+  => enemy figures that are engaged
+Map({"engaged": Bool(false), "sel": Str("allies"), "trait": Str("soldier")})
+  => friendly soldier figures that are not engaged
+Map({"engaged": Bool(true), "sel": Str("self")})
+  => this figure while engaged
+Map({"in_los": Str("self"), "sel": Str("enemies")})
+  => enemy figures in line of sight
+Map({"cond": Str("engaged")})
+  => this figure is engaged
+Map({"cond": Str("engaged"), "who": Map({"sel": Str("enemies")})})
+  => enemy figures are engaged
+Map({"cond": Str("in_los"), "to": Str("target")})
+  => this figure has line of sight to the target
+Map({"cond": Str("in_los"), "from": Map({"sel": Str("allies")}), "to": Map({"sel": Str("enemies")})})
+  => friendly figures have line of sight to enemy figures
+Map({"cond": Str("attack_kind"), "is": Str("melee")})
+  => during a melee attack
+Map({"cond": Str("attack_kind"), "is": Str("ranged")})
+  => during a ranged attack
+Map({"cond": Str("higher_than"), "than": Str("target")})
+  => higher than the target

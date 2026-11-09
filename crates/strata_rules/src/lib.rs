@@ -22,10 +22,15 @@ pub mod slots;
 
 pub use catalog::{DuplicateModule, ModuleCatalog};
 pub use config::{ConfigError, ConfigSchema};
-pub use descriptor::{DescriptorError, NativeEvaluator, Node, World, check_ability, compile};
+pub use descriptor::{
+    AttackView, CardTextError, DescriptorError, EffectCx, EffectHost, FieldRole, LogicFault,
+    NativeEvaluator, Node, World, card_text, check_ability, check_effect, check_logic, compile,
+    native_effect, run_effect,
+};
 pub use engagement::{Engagement, EngagementMemo};
 pub use engine::{
-    CommandRecord, Ctx, Engine, Halt, HookRunner, MAX_DECISIONS, Outcome, RuleViolation, event_kind,
+    CommandRecord, Ctx, Engine, Halt, HookRunner, MAX_DECISIONS, Outcome, RuleViolation,
+    event_figure, event_kind, event_subjects,
 };
 pub use flow::{
     ActionRunner, ActivationGate, ActivationRules, Flow, FlowError, OrderingPolicy, PhaseTree,

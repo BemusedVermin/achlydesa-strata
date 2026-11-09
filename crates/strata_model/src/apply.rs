@@ -104,13 +104,8 @@ impl GameState {
                 source,
                 expiry,
             } => self.change_marker(*figure, *marker, i64::from(*delta), *source, *expiry)?,
-            Event::FigureDestroyed(id) => {
-                self.live_figure(*id)?;
-                self.board_changes.occupancy.retain(|_, f| f != id);
-                let fig = &mut self.figures[id.index()];
-                fig.location = None;
-                fig.status = FigureStatus::Destroyed;
-            }
+            Event::FigureDestroyed(id) => self.take_off(*id, FigureStatus::Destroyed)?,
+            Event::FigureRemoved(id) => self.take_off(*id, FigureStatus::Removed)?,
             Event::TokenPlaced { unit, token } => self.place_token(*unit, token)?,
             Event::TokenRevealed { unit, index } => {
                 let hidden = self.unit(*unit)?.tokens.get(usize::from(*index));
@@ -246,6 +241,16 @@ impl GameState {
 
     fn figure(&self, id: FigureId) -> Result<&FigureState, ApplyError> {
         self.figures.get(id.index()).ok_or(ApplyError::NoFigure(id))
+    }
+
+    /// Takes a figure in play off the board for good, leaving it with `status`.
+    fn take_off(&mut self, id: FigureId, status: FigureStatus) -> Result<(), ApplyError> {
+        self.live_figure(id)?;
+        self.board_changes.occupancy.retain(|_, f| *f != id);
+        let fig = &mut self.figures[id.index()];
+        fig.location = None;
+        fig.status = status;
+        Ok(())
     }
 
     /// A figure that is still in play: in reserve or on the board.

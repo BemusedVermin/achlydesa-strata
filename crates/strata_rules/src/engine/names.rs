@@ -1,7 +1,7 @@
 //! Names and owners of commands and events.
 
 use strata_kernel::Sym;
-use strata_model::{Answer, Command, Decision, DecisionKind, Event, GameState, PlayerId};
+use strata_model::{Answer, Command, Decision, DecisionKind, Event, FigureId, GameState, PlayerId};
 
 /// The name a handler registers for `command`.
 pub(crate) fn command_kind(command: &Command) -> &str {
@@ -21,6 +21,7 @@ pub fn event_kind(event: &Event) -> &str {
         Event::DiceRolled { .. } => "dice_rolled",
         Event::WoundsApplied { .. } => "wounds_applied",
         Event::FigureDestroyed(_) => "figure_destroyed",
+        Event::FigureRemoved(_) => "figure_removed",
         Event::MarkerChanged { .. } => "marker_changed",
         Event::TokenPlaced { .. } => "token_placed",
         Event::TokenRevealed { .. } => "token_revealed",
@@ -51,6 +52,52 @@ pub(crate) fn is_kind(name: &Sym, kind: &str) -> bool {
     name == kind
 }
 
+/// The figure an event is about, if its own fields name one. Custom events and relic claims
+/// name none here; [`event_subjects`] reads those.
+pub fn event_figure(event: &Event) -> Option<FigureId> {
+    match event {
+        Event::FigureMoved { figure, .. }
+        | Event::WoundsApplied { figure, .. }
+        | Event::MarkerChanged { figure, .. }
+        | Event::ControlChanged { figure, .. }
+        | Event::SlotsChanged { figure, .. }
+        | Event::FigureDestroyed(figure)
+        | Event::FigureRemoved(figure) => Some(*figure),
+        _ => None,
+    }
+}
+
+/// Who `self` and `target` are for a hook that `event` sets off, which has no owner of its own.
+///
+/// - An event about one figure ([`event_figure`]) gives that figure as both.
+/// - A relic claim gives the figure standing on the relic as both.
+/// - A custom event whose payload is a map reads it by convention: `self` is its `figure` or else
+///   its `attacker`, and `target` its `target` or else its `figure`. So core:combat's `attack`
+///   event gives the attacker as `self` and the attacked figure as `target`.
+/// - Any other event, such as `unit_removed`, gives neither. A selector that needs the missing
+///   figure then selects nothing, and the effect does nothing to it.
+pub fn event_subjects(state: &GameState, event: &Event) -> (Option<FigureId>, Option<FigureId>) {
+    match event {
+        Event::RelicClaimed { relic, .. } => {
+            let at = state.relics.get(relic.index()).and_then(|r| r.location);
+            let occupant = at.and_then(|at| state.occupant(at));
+            (occupant, occupant)
+        }
+        Event::Custom { payload, .. } => {
+            let figure = |key: &str| {
+                let found = payload.as_map().ok()?.get(key)?.as_int().ok()?;
+                u32::try_from(found).ok().map(FigureId)
+            };
+            let own = figure("figure").or_else(|| figure("attacker"));
+            (own, figure("target").or_else(|| figure("figure")))
+        }
+        _ => {
+            let figure = event_figure(event);
+            (figure, figure)
+        }
+    }
+}
+
 /// The player an event happens to: a figure's controller, a unit's owner, or the active player.
 pub(crate) fn affected_player(state: &GameState, event: &Event) -> PlayerId {
     let figure = match event {
@@ -58,7 +105,8 @@ pub(crate) fn affected_player(state: &GameState, event: &Event) -> PlayerId {
         | Event::WoundsApplied { figure, .. }
         | Event::MarkerChanged { figure, .. }
         | Event::ControlChanged { figure, .. }
-        | Event::FigureDestroyed(figure) => state.figures.get(figure.index()),
+        | Event::FigureDestroyed(figure)
+        | Event::FigureRemoved(figure) => state.figures.get(figure.index()),
         _ => None,
     };
     let unit = match event {

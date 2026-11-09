@@ -347,7 +347,7 @@ An activation gives each figure a budget of slots, by default one `move` and one
 
 Stats are never stored as current values. They are computed by queries, which is what makes abilities composable. A query starts from the base value, applies modifiers by layer (`set`, `add`, `mul`, `final`), then clamps to the stat's bounds. Boolean queries such as `can_enter`, `is_engaged`, `can_target` and `provokes_reprisal` collect votes, and `deny` beats `allow` beats the default unless a modifier is marked `override`.
 
-This is where the hot-path design lives. A modifier's condition, selector and value are usually *descriptors*: tagged tables such as `cond.adjacent { to = "self" }` or `sel.allies { trait = "soldier" }`, which the Rust evaluator handles natively and the AI can read. Any of those fields also accepts a plain Lua function, which is the slow path for cases no descriptor covers. Because archetypes (section 8) are built from descriptors, most queries never enter Lua.
+This is where the hot-path design lives. A modifier's condition, selector and value are usually *descriptors*: tagged tables such as `cond.attack_kind { is = "melee" }` or `sel.allies { trait = "soldier" }`, which the Rust evaluator handles natively and the AI can read. Any of those fields also accepts a plain Lua function, which is the slow path for cases no descriptor covers. Because archetypes (section 8) are built from descriptors, most queries never enter Lua. In Lua, plain data in a logic field is a native descriptor and a function is a script; the loader compiles every descriptor of an ability, relic or module registration, so an unknown or malformed one is a load error with its field route.
 
 Results are memoized within a resolution step and invalidated whenever an event applies.
 
@@ -450,6 +450,14 @@ Archetype parameters are filled with descriptors from four namespaces: `sel` (wh
 
 Any parameter also accepts a plain Lua function. That is the slow path: it works everywhere, costs a Lua call per evaluation, and is opaque to the AI.
 
+Written as plain data, a descriptor is a table whose namespace key names it, with its parameters beside it: `{ sel = "allies", adjacent_to = "self", trait = "soldier" }`, `{ cond = "attack_kind", is = "ranged" }`, `{ eff = "heal", amount = 2 }`. A bare string is a selector, a boolean a condition and an integer a value. The constructors in section 8.3 (`sel.allies { ... }`, `eff.heal(2)`) are library sugar for these tables.
+
+- `sel.target` is the figure the logic is aimed at: an action's target, the figure an event is about, or a pair query's context. The filter `engaged = true` (or `false`) keeps engaged (or free) figures. `cond.engaged` asks the `engagement` slot, `cond.in_los { from, to }` the `los` slot, and `cond.attack_kind { is = "melee" | "ranged" }` the attack in progress.
+- An effect acts on `who`, the target by default (`self` for `grant_slot`). `wound`, `heal` and `remove` go through the `units` slot; `cancel_wounds` and `excess_blocks_wound_attacker` read and change the attack in progress through the `combat` slot. `place` and `move` ask the acting player for an empty space and jump there: they walk no path, so they provoke no reprisals, and they ignore climbing limits and `can_enter` votes. As a replacement, an effect happens instead of the event; `cancel_wounds` replacing `wounds_applied` simply drops it, and no replacement applies again to the events its own effect emits.
+- Who `self` and `target` are: for an action, the acting figure and its first target (an action's `targets` has no target yet); for a trigger, replacement or relic effect and their filters, the figure the event is about, for both; for a relic's `on_claim` effect, the figure on the relic; for a custom event whose payload is a map, its `figure` or `attacker` as `self` and its `target` or `figure` as `target`, so core:combat's `attack` event gives the attacker and the attacked figure; for a reaction and its `when` during an attack, the defender and the attacker. A `when` that answers true lets the controller of `self` react. When an event names no figure, as `unit_removed` does, an effect's selectors that start from `self` select nothing, so the effect does nothing.
+- `cancel_wounds` in a combat window marks the attack cancelled: it still rolls, its hits and blocks stay as rolled, so excess blocks still count, but it applies no wounds. It works in every window before `combat.after_wounds`; there the wounds are already applied, and it is an error.
+- An acting field (`effect`, `replace`, `resolve`) holds an `eff` descriptor or a function. `{ native = "<name>" }`, naming Rust logic, is accepted only where the engine runs Rust logic by name: a trigger's `effect` and an action's `resolve`.
+
 ### 8.3 Archetypes in use
 
 ```lua
@@ -488,7 +496,7 @@ Shared keywords are just archetype calls bound to names in a Lua module. `kw.fli
 
 ### 8.4 Card text
 
-Each archetype has a text template, and each descriptor contributes a phrase, so Shieldwall renders as "Adjacent friendly soldier figures add 1 to their defense." An explicit `text = "..."` overrides the generated wording. `strata lint` warns when an override omits a number that appears in the parameters, which catches text drifting away from behavior.
+Each archetype has a text template, and each descriptor contributes a phrase, so Shieldwall renders as "Adjacent friendly soldier figures add 1 to their defense." The data stage's `card_text(template, params)` does the filling: `{name}` becomes the parameter's phrase (`{name:sel}` reads a bare string as a selector), and a phrase that starts a sentence is capitalized. It is a pure function of the template and the parameters. An explicit `text = "..."` overrides the generated wording. `strata lint` warns when an override omits a number that appears in the parameters, which catches text drifting away from behavior.
 
 ### 8.5 Unique abilities
 
@@ -692,7 +700,7 @@ pub enum Logic {
 }
 ```
 
-`Logic` puts the fast and slow paths into the type system. Coverage stats (section 8.6) simply count the two variants.
+`Logic` puts the fast and slow paths into the type system. Coverage stats (section 8.6) simply count the two variants. Plain data in a Lua logic field freezes as `Logic::Native`; a function freezes as `Logic::Script`.
 
 ### 10.6 Relics
 
@@ -841,6 +849,8 @@ pub struct GameState {
     pub pending: Option<PendingDecision>,
 }
 ```
+
+`AbilityInstance.def` is an `AbilityKey`: an `ability` record, or an entry of a unit's `abilities` or a relic's `grants.abilities`.
 
 ### 12.2 Match setup
 

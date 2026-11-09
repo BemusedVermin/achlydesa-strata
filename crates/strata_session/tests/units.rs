@@ -98,6 +98,33 @@ fn a_squad_is_removed_when_its_last_figure_is_destroyed() {
     assert_eq!(kinds, ["destroyed", "destroyed", "removed"]);
 }
 
+#[test]
+fn removing_a_figure_is_not_destroying_it() {
+    let reports = run();
+    let removed = report(
+        &reports,
+        "a removed figure leaves play without being destroyed",
+    );
+    assert!(removed.outcome.is_ok(), "{}", summary(&reports));
+    assert_eq!(destroyed(removed, 1) + destroyed(removed, 2), 0);
+    let gone = |e: &&Event| matches!(e, Event::FigureRemoved(_));
+    assert_eq!(removed.events.iter().filter(gone).count(), 2);
+}
+
+#[test]
+fn a_destruction_replaced_by_a_removal_announces_the_unit_once() {
+    let reports = run();
+    let exiled = report(
+        &reports,
+        "a destruction replaced by a removal removes the unit once",
+    );
+    assert!(exiled.outcome.is_ok(), "{}", summary(&reports));
+    assert_eq!(destroyed(exiled, 1) + destroyed(exiled, 2), 0);
+    let unit_removed =
+        |e: &&Event| matches!(e, Event::Custom { id, .. } if id.as_str() == "unit_removed");
+    assert_eq!(exiled.events.iter().filter(unit_removed).count(), 1);
+}
+
 fn hits(report: &TestReport) -> Option<i64> {
     report.events.iter().find_map(|e| match e {
         Event::VarSet { value, .. } => value.as_int().ok(),

@@ -43,6 +43,11 @@ pub(crate) struct Exec<'a> {
     events: Vec<Event>,
     queue: Vec<Queued>,
     open_windows: Vec<WindowId>,
+    /// The replacements in force while one runs, innermost last: the `used` set of each
+    /// replacement now running, its own index included. An event that a replacement's logic
+    /// emits starts from the innermost set, so no replacement applies to the events it causes
+    /// itself, however it emits them.
+    replacing: Vec<BTreeSet<usize>>,
 }
 
 impl<'a> Exec<'a> {
@@ -74,6 +79,7 @@ impl<'a> Exec<'a> {
             events: Vec::new(),
             queue: Vec::new(),
             open_windows: Vec::new(),
+            replacing: Vec::new(),
         };
         handler.resolve(&mut exec, player, command)?;
         exec.drain_triggers()?;
@@ -106,7 +112,10 @@ impl<'a> Exec<'a> {
             }
         };
         used.insert(pick);
-        for next in hooks.replace(&rt.replacements()[pick], &e, self)? {
+        self.replacing.push(used.clone());
+        let replaced = hooks.replace(&rt.replacements()[pick], &e, self);
+        self.replacing.pop();
+        for next in replaced? {
             self.pipeline(next, &mut used.clone())?;
         }
         Ok(())
@@ -268,7 +277,8 @@ impl Ctx for Exec<'_> {
     }
 
     fn emit(&mut self, e: Event) -> Result<(), Halt> {
-        self.pipeline(e, &mut BTreeSet::new())
+        let mut used = self.replacing.last().cloned().unwrap_or_default();
+        self.pipeline(e, &mut used)
     }
 
     fn window(&mut self, id: &WindowId) -> Result<(), Halt> {

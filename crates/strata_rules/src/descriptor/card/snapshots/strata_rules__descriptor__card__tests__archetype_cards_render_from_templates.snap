@@ -1,0 +1,22 @@
+---
+source: crates/strata_rules/src/descriptor/card/tests.rs
+expression: "rendered.join(\"\\n\")"
+---
+{to} add {amount} to their {stat}.
+  => Adjacent friendly soldier figures add 1 to their defense.
+After {after}ing, roll the d20; on {at_least} or more, {effect}.
+  => After attacking, roll the d20; on 16 or more, this figure may take 1 extra attack action.
+Add {amount} to {stat} while {when}.
+  => Add 1 to attack while higher than the target.
+{when}, roll the d20; on {at_least} or more, {effect}.
+  => During a ranged attack, roll the d20; on 17 or more, the attack deals no wounds.
+{when}, after the defense roll: {effect}.
+  => During a melee attack, after the defense roll: the attacker takes 1 wound for each block beyond the hits.
+Ignores {ignores}.
+  => Ignores elevation, figures and stop_terrain.
+Before or after this unit's turn, you may activate {with}.
+  => Before or after this unit's turn, you may activate your soldier figures.
+Instead of attacking, choose {targets:sel}: {effect}.
+  => Instead of attacking, choose friendly figures within 1 of this figure: remove up to 2 wounds from the target.
+{who:sel} cannot be targeted. {{Braces}} stay.
+  => This figure cannot be targeted. {Braces} stay.

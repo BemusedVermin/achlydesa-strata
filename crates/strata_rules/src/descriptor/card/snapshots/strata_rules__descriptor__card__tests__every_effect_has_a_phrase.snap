@@ -1,0 +1,38 @@
+---
+source: crates/strata_rules/src/descriptor/card/tests.rs
+expression: phrases(&all)
+---
+Map({"eff": Str("wound")})
+  => place 1 wound on the target
+Map({"amount": Int(2), "eff": Str("wound"), "who": Map({"adjacent_to": Str("self"), "sel": Str("enemies")})})
+  => place 2 wounds on adjacent enemy figures
+Map({"amount": Map({"stat": Str("attack"), "val": Str("stat")}), "eff": Str("wound")})
+  => place wounds equal to the attack of this figure on the target
+Map({"amount": Int(2), "eff": Str("heal")})
+  => remove up to 2 wounds from the target
+Map({"eff": Str("place"), "within": Int(3)})
+  => place the target on an empty space within 3 of this figure
+Map({"eff": Str("place"), "of": Str("target"), "who": Str("self"), "within": Int(1)})
+  => place this figure on an empty space within 1 of the target
+Map({"eff": Str("remove")})
+  => remove the target from the game
+Map({"eff": Str("move"), "up_to": Int(1)})
+  => move the target up to 1 space
+Map({"eff": Str("move"), "up_to": Int(2), "who": Map({"adjacent_to": Str("self"), "sel": Str("enemies")})})
+  => move adjacent enemy figures up to 2 spaces
+Map({"eff": Str("grant_slot"), "slot": Str("attack")})
+  => this figure may take 1 extra attack action
+Map({"count": Int(2), "eff": Str("grant_slot"), "slot": Str("move")})
+  => this figure may take 2 extra move actions
+Map({"eff": Str("add_marker"), "marker": Str("stunned")})
+  => place 1 stunned marker on the target
+Map({"eff": Str("add_marker"), "marker": Str("stunned"), "rounds": Int(1)})
+  => place 1 stunned marker on the target until the end of the round
+Map({"count": Int(2), "eff": Str("add_marker"), "marker": Str("burning"), "rounds": Int(3)})
+  => place 2 burning markers on the target for 3 rounds
+Map({"eff": Str("take_control")})
+  => take control of the target
+Map({"eff": Str("cancel_wounds")})
+  => the attack deals no wounds
+Map({"eff": Str("excess_blocks_wound_attacker")})
+  => the attacker takes 1 wound for each block beyond the hits

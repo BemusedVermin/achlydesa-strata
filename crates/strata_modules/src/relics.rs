@@ -4,9 +4,9 @@
 //! spot (`claim = "ends_move_on"`), its anchor or a rear cell alike, so one large figure can hold
 //! several spots. A `while_occupied` relic follows its occupant: its abilities are attached to
 //! the occupant's army while some cell of theirs covers it and detached the moment that cell
-//! leaves, the figure is destroyed or its controller loses it. An `on_claim` relic runs its
-//! effect once, for the first player to end a move on it. A face-down relic is turned up when it
-//! is claimed.
+//! leaves, the figure is destroyed or removed, or its controller loses it. An `on_claim` relic
+//! runs its effect once, for the first player to end a move on it. A face-down relic is turned up
+//! when it is claimed.
 
 use std::collections::BTreeMap;
 
@@ -28,7 +28,12 @@ const OCCUPANT_ARMY: &str = "occupant_army";
 /// The name the driver is registered under.
 const DRIVE: &str = "core:relics.drive";
 /// The events after which who stands on a relic may have changed.
-const WATCHED: [&str; 3] = ["figure_moved", "figure_destroyed", "control_changed"];
+const WATCHED: [&str; 4] = [
+    "figure_moved",
+    "figure_destroyed",
+    "figure_removed",
+    "control_changed",
+];
 
 /// The relics slot.
 pub struct Relics;
@@ -69,7 +74,7 @@ impl RuleModule for Relics {
 struct Drive;
 
 impl NativeLogic for Drive {
-    fn run(&self, ctx: &mut dyn Ctx, env: &dyn NativeEnv, event: &Event) -> Result<(), Halt> {
+    fn run(&self, ctx: &mut dyn Ctx, env: &dyn NativeEnv, _: &Event) -> Result<(), Halt> {
         for index in 0..ctx.state().relics.len() {
             let id = RelicId(index as u32);
             let def = env.relic(ctx.state().relics[index].def);
@@ -79,7 +84,7 @@ impl NativeLogic for Drive {
             let occupant = occupant(ctx.state(), id);
             match def.mode {
                 RelicMode::WhileOccupied => follow(ctx, id, &def, occupant)?,
-                RelicMode::OnClaim => claim_once(ctx, env, id, &def, occupant, event)?,
+                RelicMode::OnClaim => claim_once(ctx, env, id, &def, occupant)?,
             }
         }
         Ok(())
@@ -135,14 +140,14 @@ fn follow(
     Ok(())
 }
 
-/// Claims an unclaimed `on_claim` relic for its occupant and runs its effect.
+/// Claims an unclaimed `on_claim` relic for its occupant and runs its effect for the claim, so
+/// the figure on the relic is the effect's `self` and `target`, whichever event set it off.
 fn claim_once(
     ctx: &mut dyn Ctx,
     env: &dyn NativeEnv,
     relic: RelicId,
     def: &RelicDef,
     occupant: Option<PlayerId>,
-    event: &Event,
 ) -> Result<(), Halt> {
     let Some(player) = occupant.filter(|_| ctx.state().relics[relic.index()].holder.is_none())
     else {
@@ -150,7 +155,7 @@ fn claim_once(
     };
     claim(ctx, relic, player)?;
     match &def.effect {
-        Some(effect) => env.run_effect(ctx, effect, event),
+        Some(effect) => env.run_effect(ctx, effect, &Event::RelicClaimed { relic, by: player }),
         None => Ok(()),
     }
 }

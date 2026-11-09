@@ -15,7 +15,7 @@
 //! The attack pauses at four windows: `combat.before_attack_roll`, `combat.before_defense_roll`,
 //! `combat.after_defense_roll` and `combat.after_wounds`. While it runs, the attack in progress
 //! is the variable `attack` of `core:combat`, which reactions read with `ctx.combat.current()`
-//! and change with `ctx.combat.set { ... }`. If the attacker leaves play in one of the first three
+//! and change with `ctx.combat.set { ... }` and `ctx.combat.cancel()`. If the attacker leaves play in one of the first three
 //! windows, the attack ends there, with no further rolls and no wounds. Once it ends, the custom
 //! event `attack` carries the final record. Special attacks resolve through
 //! `ctx.combat.attack { ... }`.
@@ -30,7 +30,8 @@ use std::sync::{Arc, OnceLock};
 use strata_kernel::{ModuleId, SlotId, Sym, Value, WindowId};
 use strata_model::{ConfigField, FigureId, GameState};
 use strata_rules::{
-    ConfigSchema, Ctx, Halt, LuaApi, ModuleError, NativeAction, NativeEnv, Registrar, RuleModule,
+    AttackView, ConfigSchema, Ctx, Halt, LuaApi, ModuleError, NativeAction, NativeEnv, Registrar,
+    RuleModule,
 };
 
 pub use self::resolve::{ATTACK_EVENT, RECORD};
@@ -109,6 +110,16 @@ impl Rules {
         }
         Ok(found)
     }
+}
+
+/// The attack in progress in `state`, as descriptors such as `cond.attack_kind` see it.
+pub fn attack_view(state: &GameState) -> Option<AttackView> {
+    let record = resolve::Record::from_value(state.vars.get(&resolve::record_key())?).ok()?;
+    Some(AttackView {
+        attacker: record.attacker,
+        target: record.target,
+        ranged: record.ranged,
+    })
 }
 
 /// The ordinary attack, on the `attack` slot.
@@ -206,7 +217,7 @@ impl RuleModule for CombatModule {
             ACTION,
             Box::new(Attack(rules.clone())),
         );
-        let functions = ["attack", "targets", "preview", "current", "set"];
+        let functions = ["attack", "targets", "preview", "current", "set", "cancel"];
         let functions = functions.map(Sym::new).to_vec();
         r.lua_api_native("combat", LuaApi { functions }, Box::new(api::Api(rules)));
         Ok(())

@@ -8,9 +8,9 @@ use strata_model::{
     Answer, Command, DieDef, DieKind, Event, FigureId, FigureStatus, GameState, RulesetDef,
     ScenarioDef, UnitDef,
 };
-use strata_rules::event_kind;
+use strata_rules::{event_figure, event_kind};
 
-use super::run::{event_figure, status_name};
+use super::run::status_name;
 use super::{MatchRig, PackTests};
 use crate::replay::{Replay, ReplayError, ReplayRecord};
 use crate::setup::SetupError;

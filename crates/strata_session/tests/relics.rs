@@ -54,6 +54,24 @@ fn an_on_claim_relic_runs_its_effect() {
 }
 
 #[test]
+fn removing_the_occupant_releases_the_relic_and_its_grants() {
+    let reports = run();
+    let name = "removing the occupant releases";
+    let found = reports.iter().find(|r| r.name.starts_with(name));
+    let found = found.unwrap_or_else(|| panic!("no test `{name}`:\n{}", summary(&reports)));
+    assert!(found.outcome.is_ok(), "{}", summary(&reports));
+    let released = |e: &&Event| matches!(e, Event::RelicReleased(_));
+    assert_eq!(found.events.iter().filter(released).count(), 1);
+    let detached = |e: &&Event| matches!(e, Event::AbilityDetached { .. });
+    assert_eq!(found.events.iter().filter(detached).count(), 1);
+}
+
+#[test]
+fn an_on_claim_effect_acts_for_the_figure_on_the_relic() {
+    passes("an on-claim effect acts for the figure on the relic");
+}
+
+#[test]
 fn a_rear_cell_claims_a_relic_and_releases_it_on_leaving() {
     passes("a rear cell claims a relic");
 }

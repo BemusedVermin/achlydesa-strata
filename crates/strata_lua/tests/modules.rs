@@ -89,9 +89,16 @@ rule_module {
 rule_module {
   id = 'natives',
   register = function(r)
-    r.modifier { query = 'q', layer = 'add', when = { cond = 'adjacent', to = 'self' }, value = 1 }
+    r.modifier { query = 'q', layer = 'add', when = { cond = 'engaged', who = 'self' }, value = 1 }
     r.action { id = 'shove', slots = {}, targets = 'enemies', resolve = function() end }
     r.trigger { event = 'wounds_applied', filter = true, effect = function() end }
+  end,
+}
+
+rule_module {
+  id = 'bad_effect',
+  register = function(r)
+    r.trigger { event = 'wounds_applied', effect = { eff = 'heel' } }
   end,
 }
 
@@ -145,7 +152,13 @@ struct Host {
 }
 
 impl RuleHost for Host {
-    fn eval(&self, _: &GameState, d: &Descriptor, _: &Value) -> Result<Value, LogicError> {
+    fn eval(
+        &self,
+        _: &GameState,
+        d: &Descriptor,
+        _: &Value,
+        _: &Value,
+    ) -> Result<Value, LogicError> {
         match d.0.get("sel").and_then(Value::as_str) {
             Ok("enemies") => Ok(Value::List(vec![Value::Int(2)])),
             Ok(_) => Ok(Value::List(vec![Value::Int(3), Value::Int(1)])),
@@ -569,6 +582,18 @@ fn a_bad_registration_is_a_module_error() {
 }
 
 #[test]
+fn an_unknown_native_descriptor_is_a_module_error_when_it_registers() {
+    let (_dir, packs) = pack();
+    let error = module("bad_effect", &packs).register(&mut Registrar::default(), &map(&[]));
+    let ModuleError::Invalid(message) = error.unwrap_err();
+    assert!(message.contains("r.trigger"), "{message}");
+    assert!(
+        message.contains("`effect`: unknown descriptor `eff.heel`"),
+        "{message}"
+    );
+}
+
+#[test]
 fn a_runaway_script_rejects_the_command() {
     let (_dir, w) = world(0, &["loops"]);
     let (outcome, ..) = run_wound(&w);
@@ -602,8 +627,8 @@ fn plain_data_in_a_registration_is_native_logic() {
     let native = |value: Value| Some(Logic::Native(Descriptor(value)));
     let modifier = &w.rt.modifiers()[0];
     let adjacent = map(&[
-        ("cond", Value::Str(Sym::new("adjacent"))),
-        ("to", Value::Str(Sym::new("self"))),
+        ("cond", Value::Str(Sym::new("engaged"))),
+        ("who", Value::Str(Sym::new("self"))),
     ]);
     assert_eq!(modifier.when, native(adjacent));
     assert_eq!(Some(modifier.value.clone()), native(Value::Int(1)));

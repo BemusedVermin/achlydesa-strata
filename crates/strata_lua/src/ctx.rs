@@ -22,12 +22,14 @@ const MAX_DICE: i64 = 1024;
 
 /// What `ctx` needs from the application that owns the content registry.
 pub trait RuleHost: Send + Sync {
-    /// Evaluates a native descriptor, such as a selector, for `subject`.
+    /// Evaluates a native descriptor, such as a selector, for `subject` (`self`) with `context`
+    /// (`target`).
     fn eval(
         &self,
         state: &GameState,
         descriptor: &Descriptor,
         subject: &Value,
+        context: &Value,
     ) -> Result<Value, LogicError>;
     /// Runs the query `name` with every modifier applied, such as `stat` with `[figure, "defense"]`.
     fn query(&self, state: &GameState, name: &str, args: &[Value]) -> Result<Value, LogicError>;
@@ -89,6 +91,11 @@ pub trait RuleHost: Send + Sync {
     }
     /// The volume of a figure on the board: its footprint cells and hit zone.
     fn volume(&self, _state: &GameState, _figure: FigureId) -> Option<strata_rules::FigureVolume> {
+        None
+    }
+    /// The game as native descriptors see it, which native effects select from. `None` when the
+    /// host cannot provide one, so native effects fail.
+    fn world<'a>(&'a self, _state: &'a GameState) -> Option<Box<dyn strata_rules::World + 'a>> {
         None
     }
     /// Calls `name` of the namespace a module exported with `Registrar::lua_api`.
@@ -194,7 +201,9 @@ impl<'a> Frame<'a> {
             "select" => {
                 let selector = Descriptor(field("selector")?.clone());
                 let subject = args.get("subject").cloned().unwrap_or_default();
-                let found = self.host.eval(ctx.state(), &selector, &subject);
+                let found = self
+                    .host
+                    .eval(ctx.state(), &selector, &subject, &Value::Nil);
                 match found.map_err(|e| Halt::reject(e.0))? {
                     Value::List(mut ids) => {
                         ids.sort();

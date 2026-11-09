@@ -34,6 +34,8 @@ rule_module {
           ctx.units.heal(p.figure, p.amount)
         elseif p.op == 'destroy' then
           ctx.units.destroy(p.figure)
+        elseif p.op == 'remove' then
+          ctx.units.remove(p.figure)
         elseif p.op == 'reroll' then
           local roll = ctx.dice.pool('combat', p.figure, 'attack'):reroll(0, 1)
           ctx.vars('units:harness').hits = roll:count('hit')
@@ -46,6 +48,18 @@ ruleset {
   id = 'rs', name = 'Units',
   slots = { units = { id = 'core:units' } },
   addons = {{ id = 'toy:driver' }, { id = 'units:harness' }},
+}
+-- `exile`: a figure that would be destroyed is removed instead.
+rule_module {
+  id = 'exile',
+  register = function(r)
+    r.replacement { event = 'figure_destroyed', replace = { eff = 'remove' } }
+  end,
+}
+ruleset {
+  id = 'rs_exile', name = 'Units with exile',
+  slots = { units = { id = 'core:units' } },
+  addons = {{ id = 'toy:driver' }, { id = 'units:harness' }, { id = 'units:exile' }},
 }
 
 local function board()
@@ -98,6 +112,23 @@ test {
   steps = {
     op('wound', 1, 1), expect.figure('p1.test_squad#1', 'destroyed'),
     op('destroy', 2), expect.event('unit_removed'),
+  },
+}
+test {
+  id = 'remove', name = 'a removed figure leaves play without being destroyed',
+  ruleset = 'rs', place = board(),
+  steps = {
+    op('remove', 1), expect.event('figure_removed', { figure = 'p1.test_squad#1' }),
+    expect.figure('p1.test_squad#1', 'removed'),
+    op('remove', 2), expect.event('unit_removed'), expect.figure('p1.test_squad#2', 'removed'),
+  },
+}
+test {
+  id = 'exile', name = 'a destruction replaced by a removal removes the unit once',
+  ruleset = 'rs_exile', place = board(),
+  steps = {
+    op('destroy', 1), expect.figure('p1.test_squad#1', 'removed'),
+    op('destroy', 2), expect.figure('p1.test_squad#2', 'removed'), expect.event('unit_removed'),
   },
 }
 test {

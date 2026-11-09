@@ -2,10 +2,10 @@
 
 use std::collections::BTreeSet;
 
-use strata_kernel::{Space, Sym, Value};
+use strata_kernel::{Hex, Space, Sym, Value};
 use strata_model::{Descriptor, FigureId, PlayerId};
 
-use super::{Base, Cmp, Cond, Sel, Val, compile};
+use super::{AttackKind, Base, Cmp, Cond, Node, Sel, Val, compile};
 use crate::query::{EvalCtx, LogicError, LogicEvaluator};
 
 /// What descriptors may ask about the game. Implemented over the state and the content registry.
@@ -34,6 +34,29 @@ pub trait World: Send + Sync {
     }
     /// The name of the innermost active phase.
     fn phase(&self) -> Sym;
+    /// Whether a figure on the board is engaged. Worlds without an engagement service fail.
+    fn engaged(&self, _figure: FigureId) -> Result<bool, LogicError> {
+        Err(LogicError("no engagement service is running".into()))
+    }
+    /// The attack in progress, if any.
+    fn attack(&self) -> Option<AttackView> {
+        None
+    }
+    /// The levels of the standable surfaces at `hex`, bottom to top; empty off the board.
+    fn levels(&self, _hex: Hex) -> Vec<u32> {
+        Vec::new()
+    }
+}
+
+/// The attack in progress, as descriptors see it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct AttackView {
+    /// The attacking figure.
+    pub attacker: FigureId,
+    /// The figure attacked.
+    pub target: FigureId,
+    /// Whether the target is beyond adjacency.
+    pub ranged: bool,
 }
 
 /// Evaluates `Logic::Native` descriptors against a [`World`].
@@ -49,6 +72,9 @@ pub struct NativeEvaluator<'a> {
 enum Subject {
     Figure(FigureId),
     Space(Space),
+    /// No subject, as for a hook nothing owns: descriptors that need `self` fail, while `target`
+    /// and those that ask only the board still work.
+    None,
 }
 
 fn fail<T>(msg: impl Into<String>) -> Result<T, LogicError> {
@@ -58,13 +84,9 @@ fn fail<T>(msg: impl Into<String>) -> Result<T, LogicError> {
 impl LogicEvaluator for NativeEvaluator<'_> {
     fn eval(&self, descriptor: &Descriptor, cx: &EvalCtx<'_>) -> Result<Value, LogicError> {
         let node = compile(descriptor).map_err(|e| LogicError(e.to_string()))?;
-        let subject = self.subject(cx.subject)?;
-        let run = Run {
-            world: self.world,
-            subject,
-        };
+        let run = self.run(cx)?;
         Ok(match &node {
-            super::Node::Sel(s) => {
+            Node::Sel(s) => {
                 let ids = run.select(s)?;
                 Value::List(
                     ids.into_iter()
@@ -72,16 +94,40 @@ impl LogicEvaluator for NativeEvaluator<'_> {
                         .collect(),
                 )
             }
-            super::Node::Cond(c) => Value::Bool(run.cond(c)?),
-            super::Node::Val(v) => Value::Int(run.val(v)?),
+            Node::Cond(c) => Value::Bool(run.cond(c)?),
+            Node::Val(v) => Value::Int(run.val(v)?),
+            Node::Eff(_) => return fail("an effect has no value; it runs through `run_effect`"),
         })
     }
 }
 
 impl NativeEvaluator<'_> {
+    /// The figures `sel` selects, sorted by ID.
+    pub fn select(&self, sel: &Sel, cx: &EvalCtx<'_>) -> Result<Vec<FigureId>, LogicError> {
+        Ok(self.run(cx)?.select(sel)?.into_iter().collect())
+    }
+
+    /// The value of `val`.
+    pub fn value(&self, val: &Val, cx: &EvalCtx<'_>) -> Result<i64, LogicError> {
+        self.run(cx)?.val(val)
+    }
+
+    fn run(&self, cx: &EvalCtx<'_>) -> Result<Run<'_>, LogicError> {
+        let target = match cx.context {
+            Value::Int(n) => u32::try_from(*n).ok().map(FigureId),
+            _ => None,
+        };
+        Ok(Run {
+            world: self.world,
+            subject: self.subject(cx.subject)?,
+            target,
+        })
+    }
+
     fn subject(&self, value: &Value) -> Result<Subject, LogicError> {
         let coord = |key| value.get(key).and_then(Value::as_int).ok();
         match value {
+            Value::Nil => Ok(Subject::None),
             Value::Int(n) => match u32::try_from(*n) {
                 Ok(id) => Ok(Subject::Figure(FigureId(id))),
                 Err(_) => fail("subject figure ID out of range"),
@@ -103,13 +149,16 @@ impl NativeEvaluator<'_> {
 struct Run<'a> {
     world: &'a dyn World,
     subject: Subject,
+    target: Option<FigureId>,
 }
 
 impl Run<'_> {
     fn figure(&self) -> Result<FigureId, LogicError> {
         match self.subject {
             Subject::Figure(f) => Ok(f),
-            Subject::Space(_) => fail("this descriptor needs a figure as its subject"),
+            Subject::Space(_) | Subject::None => {
+                fail("this descriptor needs a figure as its subject")
+            }
         }
     }
 
@@ -120,6 +169,7 @@ impl Run<'_> {
                 .world
                 .location(f)
                 .map_or_else(|| fail(format!("figure {} is not on the board", f.0)), Ok),
+            Subject::None => fail("this descriptor needs a subject"),
         }
     }
 
@@ -128,6 +178,7 @@ impl Run<'_> {
         let mut out: BTreeSet<FigureId> = match s.base {
             Base::Own => BTreeSet::from([self.figure()?]),
             Base::Occupant => w.occupant(self.space()?).into_iter().collect(),
+            Base::Target => self.target.into_iter().collect(),
             base => {
                 let me = self.figure()?;
                 let mine = w.controller(me);
@@ -155,6 +206,15 @@ impl Run<'_> {
         }
         if let Some(from) = &s.in_los {
             self.seen(&mut out, from)?;
+        }
+        if let Some(want) = s.engaged {
+            let mut kept = BTreeSet::new();
+            for f in out {
+                if w.engaged(f)? == want {
+                    kept.insert(f);
+                }
+            }
+            out = kept;
         }
         Ok(out)
     }
@@ -254,6 +314,23 @@ impl Run<'_> {
                     && diffs
                         .try_fold(true, |acc, d: Result<i64, LogicError>| Ok(acc && d? >= *by))?
             }
+            Cond::Engaged(who) => {
+                let who = self.select(who)?;
+                let mut all = !who.is_empty();
+                for f in &who {
+                    all = all && self.world.engaged(*f)?;
+                }
+                all
+            }
+            Cond::InLos { from, to } => {
+                let mut seen = self.select(to)?;
+                self.seen(&mut seen, from)?;
+                !seen.is_empty()
+            }
+            Cond::AttackKind(kind) => self
+                .world
+                .attack()
+                .is_some_and(|a| a.ranged == (*kind == AttackKind::Ranged)),
         })
     }
 
