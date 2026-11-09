@@ -1,7 +1,7 @@
 //! The [`RuleHost`] a pack test runs under: content lookups, native descriptors, stat queries
 //! and rigged dice.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use crate::cards::{AbilityLine, CardSource, FigureLine, StatLine, UnitCard};
@@ -179,26 +179,35 @@ impl Host {
         self.rig.lock().unwrap().next = 0;
     }
 
-    /// The modifiers of attached abilities that reach `figure`: those owned by its controller,
-    /// its unit, or both.
-    fn granted(&self, state: &GameState, figure: FigureId) -> Vec<SourcedModifier> {
-        let Some(fig) = state.figures.get(figure.index()) else {
-            return Vec::new();
-        };
+    /// The modifiers of attached abilities for a query about `subject`, asked with the figure
+    /// `context`, if any. Every modifier of an ability that reaches the subject joins. For a pair
+    /// query, the abilities that reach the context figure join too, but only their modifiers that
+    /// have a `select`: such a modifier applies only where its selector, which sees the context,
+    /// says so, while one without a selector is about its owner's own figures (design §6.6).
+    fn granted(
+        &self,
+        state: &GameState,
+        subject: FigureId,
+        context: Option<FigureId>,
+    ) -> Vec<SourcedModifier> {
+        let own = reaching(state, subject);
+        let other = context.filter(|c| *c != subject);
+        let theirs = other.map(|c| reaching(state, c)).unwrap_or_default();
         let mut found = Vec::new();
-        for instance in &state.abilities {
-            let reaches = match instance.owner {
-                AbilityOwner::Player(p) => p == fig.controller,
-                AbilityOwner::Unit(u) => u == fig.unit,
-                AbilityOwner::Relic(_) => false,
+        for (at, instance) in state.abilities.iter().enumerate() {
+            let selected_only = match (own.contains(&at), theirs.contains(&at)) {
+                (true, _) => false,
+                (false, true) => true,
+                (false, false) => continue,
             };
-            let named = reaches.then(|| self.registry.ability_with_name(instance.def));
-            let Some((ability, name)) = named.flatten() else {
+            let Some((ability, name)) = self.registry.ability_with_name(instance.def) else {
                 continue;
             };
+            let source = Sym::new(&name);
             let modifiers = ability.modifiers.iter();
+            let modifiers = modifiers.filter(|m| !selected_only || m.select.is_some());
             found.extend(modifiers.map(|m| SourcedModifier {
-                source: Sym::new(&name),
+                source: source.clone(),
                 priority: 0,
                 def: m.clone(),
             }));
@@ -235,25 +244,25 @@ impl Host {
             subject: Value::Int(i64::from(figure.0)),
             context: Value::Nil,
         };
-        self.ask_trace(state, figure, &query)
+        self.ask_trace(state, (figure, None), &query)
     }
 
-    /// Resolves `query` against the state with every modifier applied.
+    /// Resolves `query` about the figure `pair.0` against the state with every modifier
+    /// applied. `pair.1` is the figure in the query's context, for a pair query.
     fn ask<Q: Query>(
         &self,
         state: &GameState,
-        figure: FigureId,
+        pair: (FigureId, Option<FigureId>),
         query: &Q,
     ) -> Result<Q::Output, LogicError> {
-        self.ask_trace(state, figure, query)
-            .map(|(output, _)| output)
+        self.ask_trace(state, pair, query).map(|(output, _)| output)
     }
 
     /// Resolves `query` like [`Host::ask`], with how it was reached.
     fn ask_trace<Q: Query>(
         &self,
         state: &GameState,
-        figure: FigureId,
+        (figure, context): (FigureId, Option<FigureId>),
         query: &Q,
     ) -> Result<(Q::Output, QueryTrace), LogicError> {
         let fail = LogicError;
@@ -262,7 +271,7 @@ impl Host {
         let world = StateWorld { host: self, state };
         let evaluator = NativeEvaluator { world: &world };
         let mut modifiers = self.modifiers.clone();
-        modifiers.extend(self.granted(state, figure));
+        modifiers.extend(self.granted(state, figure, context));
         let asked = rules.with_state(|scripts| {
             let logics = Logics {
                 evaluator: &evaluator,
@@ -309,7 +318,9 @@ impl RuleHost for Host {
                     context: context.clone(),
                 };
                 let figure = FigureId(subject.as_int().map_err(asked)? as u32);
-                self.ask(state, figure, &query).map(Value::Bool)
+                let other = context.as_int().ok().and_then(|n| u32::try_from(n).ok());
+                self.ask(state, (figure, other.map(FigureId)), &query)
+                    .map(Value::Bool)
             }
             _ => Err(LogicError(format!(
                 "the harness cannot answer query `{name}`"
@@ -428,6 +439,23 @@ impl RuleHost for Host {
             "the harness has no `ctx.{namespace}.{name}`"
         )))
     }
+}
+
+/// The positions in `state.abilities` of the instances that reach `figure`: those owned by its
+/// controller or its unit.
+fn reaching(state: &GameState, figure: FigureId) -> BTreeSet<usize> {
+    let Some(fig) = state.figures.get(figure.index()) else {
+        return BTreeSet::new();
+    };
+    let reaches = |owner: AbilityOwner| match owner {
+        AbilityOwner::Player(p) => p == fig.controller,
+        AbilityOwner::Unit(u) => u == fig.unit,
+        AbilityOwner::Relic(_) => false,
+    };
+    let all = state.abilities.iter().enumerate();
+    all.filter(|(_, a)| reaches(a.owner))
+        .map(|(at, _)| at)
+        .collect()
 }
 
 /// The game as descriptors see it: the state, with units and terrain from the registry.
@@ -649,14 +677,14 @@ impl MoveWorld for StateMove<'_> {
             subject: Value::Int(i64::from(figure.0)),
             context: self.step(terrain, dz),
         };
-        self.host.ask(self.state, figure, &query)
+        self.host.ask(self.state, (figure, None), &query)
     }
 
     fn can_climb(&self, figure: FigureId, terrain: DefId, dz: i32) -> Result<bool, LogicError> {
         let subject = Value::Int(i64::from(figure.0));
         self.host.ask(
             self.state,
-            figure,
+            (figure, None),
             &VoteQuery::can_climb(subject, self.step(terrain, dz)),
         )
     }
@@ -668,8 +696,11 @@ impl MoveWorld for StateMove<'_> {
                 .map(|n| Value::Int(i64::from(n)))
                 .to_vec(),
         );
-        self.host
-            .ask(self.state, figure, &VoteQuery::can_enter(subject, at))
+        self.host.ask(
+            self.state,
+            (figure, None),
+            &VoteQuery::can_enter(subject, at),
+        )
     }
 
     fn provokes_reprisal(

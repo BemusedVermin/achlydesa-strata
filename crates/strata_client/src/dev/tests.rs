@@ -25,7 +25,9 @@ fn the_inspector_marks_lua_steps_and_names_the_traced_figure() {
     let def = inspection(&view, &Inspected(Some((unit, "DEF".into())))).unwrap();
     let figure = view.cards[0].figures[0].figure.0;
     assert_eq!(def.lines()[0], format!("defense of figure {figure}"));
-    assert_eq!(def.lines()[2], "+1 from rs (Lua) = 3");
+    // The printed ability is named by its display name, the ruleset by its own.
+    assert_eq!(def.lines()[2], "+1 from Shieldwall (native) = 3");
+    assert_eq!(def.lines()[3], "+1 from rs (Lua) = 4");
     assert_eq!(def.lua_steps(), 1);
 }
 

@@ -44,8 +44,8 @@ pub fn pack_identities(registry: &ContentRegistry) -> Vec<PackIdentity> {
     registry.pack_identities().iter().map(identity).collect()
 }
 
-/// Builds the state a match starts from: army lists deployed into reserve, relics put on their
-/// spots, and the scenario's map compiled.
+/// Builds the state a match starts from: army lists deployed into reserve with their units'
+/// printed abilities attached, relics put on their spots, and the scenario's map compiled.
 pub fn build_match(
     registry: &ContentRegistry,
     setup: MatchSetup,
@@ -146,13 +146,20 @@ fn deploy(
         let (def_id, def) = find::<UnitDef>(registry, pack, name)
             .ok_or_else(|| SetupError(format!("army: unknown unit `{name}`")))?;
         for copy in 0..entry.copies {
-            add_unit(state, def_id, def, owner, copy);
+            add_unit(state, def_id, def, owner, copy)?;
         }
     }
     Ok(())
 }
 
-fn add_unit(state: &mut GameState, def_id: DefId, def: &UnitDef, owner: PlayerId, copy: u8) {
+/// Adds one unit, its figures in reserve, and attaches its printed abilities.
+fn add_unit(
+    state: &mut GameState,
+    def_id: DefId,
+    def: &UnitDef,
+    owner: PlayerId,
+    copy: u8,
+) -> Result<(), SetupError> {
     let unit = UnitId(state.units.len() as u32);
     let mut figures = Vec::new();
     for entry in &def.figures {
@@ -177,4 +184,22 @@ fn add_unit(state: &mut GameState, def_id: DefId, def: &UnitDef, owner: PlayerId
         figures,
         ..UnitState::default()
     });
+    attach_printed(state, unit, def)
 }
+
+/// Attaches the printed abilities of `unit`, whose definition is `def`, by applying their
+/// `AbilityAttached` events. Called once, when the unit enters the state (see
+/// [`strata_model::printed`]).
+pub(crate) fn attach_printed(
+    state: &mut GameState,
+    unit: UnitId,
+    def: &UnitDef,
+) -> Result<(), SetupError> {
+    for event in state.printed_ability_events(unit, def) {
+        state.apply(&event).map_err(|e| SetupError(e.to_string()))?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests;

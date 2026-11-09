@@ -26,7 +26,7 @@ fn army() -> Option<ArmyList> {
 }
 
 /// The first view of a match on the `cards` fixture, whose ruleset adds 1 to every defense from
-/// a Lua function.
+/// a Lua function and whose soldiers' printed Shieldwall adds 1 more.
 pub(crate) fn launched_view() -> PlayerView {
     let root = env!("CARGO_MANIFEST_DIR");
     let handle = launch(LaunchSpec {
@@ -52,7 +52,7 @@ fn a_stat_modified_by_an_aura_shows_its_modified_value() {
     let models = card_models(&launched_view());
     let card = &models[0];
     let stat = |label: &str| card.stats.iter().find(|s| s.label == label).unwrap();
-    assert_eq!((stat("DEF").value, stat("DEF").tone), (3, Tone::Buffed));
+    assert_eq!((stat("DEF").value, stat("DEF").tone), (4, Tone::Buffed));
     assert_eq!((stat("ATK").value, stat("ATK").tone), (3, Tone::Plain));
     assert_eq!(card.abilities[0].text, "Adds 1 to defense.");
 }

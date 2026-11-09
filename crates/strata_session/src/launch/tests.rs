@@ -123,7 +123,7 @@ fn first_view(spec: LaunchSpec) -> PlayerView {
 }
 
 #[test]
-fn a_card_shows_a_stat_as_the_aura_modifies_it() {
+fn a_card_shows_a_stat_as_the_aura_and_printed_ability_modify_it() {
     let view = first_view(cards_spec());
     let card = view.cards.first().expect("a card per unit");
     assert_eq!(view.cards.len(), view.state.units.len());
@@ -131,7 +131,8 @@ fn a_card_shows_a_stat_as_the_aura_modifies_it() {
     assert_eq!(card.kind, "squad");
     let stat = |label: &str| card.stats.iter().find(|s| s.label == label).unwrap();
     assert_eq!((stat("ATK").base, stat("ATK").value), (3, 3));
-    assert_eq!((stat("DEF").base, stat("DEF").value), (2, 3));
+    // The ruleset's aura and the printed Shieldwall, attached at setup, each add 1.
+    assert_eq!((stat("DEF").base, stat("DEF").value), (2, 4));
     let labels: Vec<&str> = card.stats.iter().map(|s| s.label.as_str()).collect();
     assert_eq!(labels, ["ATK", "DEF"]);
     let alive: Vec<(bool, u32)> = card.figures.iter().map(|f| (f.alive, f.wounds)).collect();
@@ -188,11 +189,17 @@ fn a_card_stat_carries_the_trace_that_explains_it() {
         [
             format!("defense of figure {figure}").as_str(),
             "Base 2",
-            "+1 from rs (Lua) = 3",
+            "+1 from cards:test_soldier/abilities/1 (native) = 3",
+            "+1 from rs (Lua) = 4",
             "Clamped to 0..9",
-            "Result 3"
+            "Result 4"
         ]
     );
+    // With the view's names, the inspector shows the ability's display name.
+    let named = inspection.named(&view.names);
+    assert_eq!(named.lines()[2], "+1 from Shieldwall (native) = 3");
+    assert_eq!(named.steps[0].id, "cards:test_soldier/abilities/1");
+    assert_eq!(named.lines()[3], "+1 from rs (Lua) = 4");
 }
 
 /// The `command` fixture: player 0 has one soldier and player 1 none. The match allows the

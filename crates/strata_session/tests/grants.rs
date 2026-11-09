@@ -3,14 +3,14 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use strata_kernel::{DefId, ModuleId, SlotId, Value};
+use strata_kernel::{DefId, ModuleId, SlotId, Sym, Value};
 use strata_model::{AbilityKey, AbilityOwner, Command, Event, PlayerId, UnitId};
 use strata_rules::{CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, Registrar, RuleModule};
 use strata_session::pack_test::{PackTests, TestReport, summary};
 
 /// Handles `attach` and `detach`: `{ what, owner }` names an ability record (`sharp`) or a
-/// relic's first grant (`fury`) and the player it goes on, or a unit's first ability (`drill`)
-/// and the unit.
+/// relic's first grant (`fury`) and the player it goes on, or the veteran's first printed
+/// ability (`drill`) and the unit. Handles `probe` by emitting its payload as a `probe` event.
 struct Grants(&'static str);
 
 impl CommandHandler for Grants {
@@ -22,6 +22,10 @@ impl CommandHandler for Grants {
         let Command::Custom { payload, .. } = command else {
             return Err(Halt::reject("not a custom command"));
         };
+        if self.0 == "probe" {
+            let (id, payload) = (Sym::new("probe"), payload.clone());
+            return ctx.emit(Event::Custom { id, payload });
+        }
         let owner = payload.get("owner").and_then(Value::as_int).unwrap_or(0);
         let player = AbilityOwner::Player(PlayerId(owner as u8));
         let (def, owner) = match payload.get("what").and_then(Value::as_str) {
@@ -34,9 +38,10 @@ impl CommandHandler for Grants {
             ),
             Ok("drill") => {
                 let unit = AbilityOwner::Unit(UnitId(owner as u32));
+                // Units are numbered in name order: guard, soldier, veteran.
                 (
                     AbilityKey::Unit {
-                        unit: DefId(0),
+                        unit: DefId(2),
                         index: 0,
                     },
                     unit,
@@ -75,6 +80,7 @@ impl RuleModule for GrantModule {
     fn register(&self, r: &mut Registrar, _: &Value) -> Result<(), ModuleError> {
         r.command(Grants("attach"));
         r.command(Grants("detach"));
+        r.command(Grants("probe"));
         Ok(())
     }
 }
@@ -99,8 +105,14 @@ fn a_relic_grant_applies_only_to_the_army_it_is_attached_to() {
 }
 
 #[test]
-fn a_unit_ability_is_found_by_its_unit_and_index() {
-    let reports = run("a unit ability");
+fn a_printed_unit_ability_applies_with_no_manual_attach() {
+    let reports = run("a printed unit ability");
+    assert!(reports[0].outcome.is_ok(), "{}", summary(&reports));
+}
+
+#[test]
+fn a_pair_query_gathers_the_context_figures_selected_modifiers() {
+    let reports = run("a pair query");
     assert!(reports[0].outcome.is_ok(), "{}", summary(&reports));
 }
 
@@ -114,5 +126,6 @@ fn detaching_an_ability_that_is_not_attached_is_refused() {
 #[test]
 fn running_twice_gives_identical_hashes() {
     assert_eq!(run("an attached ability"), run("an attached ability"));
-    assert_eq!(run("a unit ability"), run("a unit ability"));
+    assert_eq!(run("a printed unit ability"), run("a printed unit ability"));
+    assert_eq!(run("a pair query"), run("a pair query"));
 }

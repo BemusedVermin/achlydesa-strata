@@ -10,9 +10,10 @@ use strata_model::{
 };
 
 use super::host::find;
+use crate::setup::attach_printed;
 
 /// Builds the state a test starts from, for the ruleset `ruleset`. A placement with no spaces
-/// leaves its unit in reserve.
+/// leaves its unit in reserve. Each unit's printed abilities are attached, as at match setup.
 pub(super) fn build(
     registry: &ContentRegistry,
     pack: &str,
@@ -85,6 +86,7 @@ pub(super) fn build(
             });
         }
         state.units.push(unit_state);
+        attach_printed(&mut state, unit, def).map_err(|e| format!("place: {e}"))?;
     }
     Ok(state)
 }

@@ -17,6 +17,7 @@ pub mod footprint;
 pub mod ids;
 pub mod map;
 pub mod pack_test;
+pub mod printed;
 pub mod relic;
 pub mod ruleset;
 pub mod scenario;

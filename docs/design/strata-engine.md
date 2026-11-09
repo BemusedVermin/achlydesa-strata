@@ -349,6 +349,8 @@ Stats are never stored as current values. They are computed by queries, which is
 
 This is where the hot-path design lives. A modifier's condition, selector and value are usually *descriptors*: tagged tables such as `cond.adjacent { to = "self" }` or `sel.allies { trait = "soldier" }`, which the Rust evaluator handles natively and the AI can read. Any of those fields also accepts a plain Lua function, which is the slow path for cases no descriptor covers. Because archetypes (section 8) are built from descriptors, most queries never enter Lua.
 
+A query about a figure gathers the modifiers of every ability that reaches it: those owned by its unit or its controller. A pair query, whose context is another figure (`is_engaged`, `provokes_reprisal`, `can_target`), also gathers the modifiers of the abilities that reach the context figure, but only those with a selector; that selector sees the context and decides whether the modifier applies. A modifier without a selector is about its owner's own figures.
+
 Results are memoized within a resolution step and invalidated whenever an event applies.
 
 ### 6.7 Triggers, replacements and windows
@@ -693,6 +695,8 @@ pub enum Logic {
 ```
 
 `Logic` puts the fast and slow paths into the type system. Coverage stats (section 8.6) simply count the two variants.
+
+A unit's printed abilities are attached as `AbilityKey::Unit` instances owned by the unit, through `AbilityAttached` events, when the unit enters the match state: at setup, or by whatever adds a unit later, such as reinforcements. They belong to the unit rather than its figures, so deploying from reserve, a figure dying and a figure being restored neither attach nor detach them, and an entry already attached to the unit is never attached again.
 
 ### 10.6 Relics
 
