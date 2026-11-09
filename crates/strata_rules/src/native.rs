@@ -1,6 +1,6 @@
 //! Rust logic that a registered trigger runs in place of a Lua script.
 
-use strata_kernel::{DefId, Sym};
+use strata_kernel::{DefId, Hex, Space, Sym};
 use strata_model::{
     Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureId, GameState, Logic,
     PlayerId, RelicDef,
@@ -8,6 +8,7 @@ use strata_model::{
 
 use crate::engine::{Ctx, Halt};
 use crate::flow::PhaseTree;
+use crate::movement::Reach;
 use crate::query::LogicError;
 
 /// The most dice one pool may hold.
@@ -39,6 +40,14 @@ pub trait NativeEnv: Send + Sync {
     fn marker(&self, _name: &str) -> Option<DefId> {
         None
     }
+    /// The start zone and deployment order of `player`'s scenario slot.
+    fn deployment(&self, _state: &GameState, _player: PlayerId) -> Option<DeploySlot> {
+        None
+    }
+    /// Whether a figure can stand at `space`: it is a standable surface of the board.
+    fn standable(&self, _space: Space) -> bool {
+        false
+    }
     /// The relic with this definition ID.
     fn relic(&self, _id: DefId) -> Option<RelicDef> {
         None
@@ -47,11 +56,24 @@ pub trait NativeEnv: Send + Sync {
     fn run_effect(&self, _ctx: &mut dyn Ctx, _effect: &Logic, _event: &Event) -> Result<(), Halt> {
         Ok(())
     }
+    /// Every space `figure` can reach, as the ruleset's `movement` module defines it.
+    fn reachable(&self, _state: &GameState, _figure: FigureId) -> Result<Vec<Reach>, LogicError> {
+        Err(LogicError("the ruleset has no `movement` module".into()))
+    }
     /// Results that replace the next roll of `count` dice named `die`, for tests that rig the
     /// dice, as in the script host. `None` leaves the roll to the command's random stream.
     fn forced_roll(&self, _die: &str, _count: usize) -> Option<Result<Vec<u32>, String>> {
         None
     }
+}
+
+/// Where a player may deploy and when their turn to place comes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DeploySlot {
+    /// Position in the deployment order; lower places first.
+    pub order: u8,
+    /// The columns of the player's start zone.
+    pub zone: Vec<Hex>,
 }
 
 /// The environment of a runner that has no content: every question fails.

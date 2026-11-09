@@ -30,6 +30,7 @@ fn mv(figure: u32, q: i32) -> Event {
         figure: FigureId(figure),
         to: Space::new(q, 0, 0),
         rotation: Rotation::from_steps(2),
+        path: Vec::new(),
     }
 }
 

@@ -12,7 +12,8 @@ use strata_model::{
     ReplacementDef, ScriptRef, TriggerDef,
 };
 use strata_rules::{
-    ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, PhaseTree, RulesRuntime,
+    ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, PhaseTree, Reach,
+    RulesRuntime,
 };
 
 use crate::convert::{from_lua, lua_to_value, value_to_lua};
@@ -211,12 +212,23 @@ impl NativeEnv for LuaRules {
         self.host.marker(name)
     }
 
+    fn deployment(&self, state: &GameState, player: PlayerId) -> Option<strata_rules::DeploySlot> {
+        self.host.deployment(state, player)
+    }
+
+    fn standable(&self, space: strata_kernel::Space) -> bool {
+        self.host.standable(space)
+    }
+
     fn relic(&self, id: DefId) -> Option<strata_model::RelicDef> {
         self.host.relic(id)
     }
 
     fn run_effect(&self, ctx: &mut dyn Ctx, effect: &Logic, event: &Event) -> Result<(), Halt> {
         self.value(effect, ctx, &with_event(event)).map(drop)
+    }
+    fn reachable(&self, state: &GameState, figure: FigureId) -> Result<Vec<Reach>, LogicError> {
+        self.host.reachable(state, figure)
     }
 
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
