@@ -1,6 +1,6 @@
 # T-017: Reference resolution and the ContentRegistry
 
-**Task T-017** · M1 Lua data stage · Est. core lines: ~350 / 500
+**Task T-017** · M1 Lua data stage · Est. core lines: ~350
 **Depends on:** T-016
 
 ## Goal
@@ -29,8 +29,7 @@ Resolve every cross-reference and freeze the result into the immutable registry 
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

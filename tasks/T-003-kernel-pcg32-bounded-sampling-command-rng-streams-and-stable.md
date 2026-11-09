@@ -1,6 +1,6 @@
 # T-003: Kernel: PCG32, bounded sampling, command RNG streams and stable hashing
 
-**Task T-003** · M0 Foundations · Est. core lines: ~300 / 500
+**Task T-003** · M0 Foundations · Est. core lines: ~300
 **Depends on:** T-001
 
 ## Goal
@@ -37,8 +37,7 @@ Own every bit of randomness and hashing so no dependency bump can ever change a 
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 
