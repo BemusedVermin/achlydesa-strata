@@ -24,7 +24,9 @@ pub use human::HumanController;
 pub use launch::{LaunchSpec, launch};
 pub use names::Names;
 pub use random::RandomController;
-pub use replay::{Replay, ReplayError, ReplayRecord, SNAPSHOT_EVERY, Snapshot};
+pub use replay::{
+    REPLAY_FORMAT, Replay, ReplayError, ReplayRecord, SNAPSHOT_EVERY, Snapshot, engine_version,
+};
 pub use replay_text::dump;
 pub use session::{Session, SessionError};
 pub use setup::{MatchBuild, SetupError, build_match, pack_identities};
