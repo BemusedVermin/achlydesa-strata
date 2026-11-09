@@ -17,8 +17,8 @@ use strata_model::{
 };
 use strata_rules::{
     Ctx, DeploySlot, Engagement, EngagementMemo, EvalCtx, FigureVolume, Halt, LineOfSight,
-    LogicError, LogicEvaluator, Logics, LosWorld, MoveWorld, Movement, NativeEvaluator, Query,
-    QueryEngine, QueryTrace, Reach, SourcedModifier, StatBounds, StatQuery, TerrainRules,
+    LogicError, LogicEvaluator, Logics, LosResult, LosWorld, MoveWorld, Movement, NativeEvaluator,
+    Query, QueryEngine, QueryTrace, Reach, SourcedModifier, StatBounds, StatQuery, TerrainRules,
     VoteQuery, World, passable_cells,
 };
 
