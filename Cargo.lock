@@ -5213,7 +5213,9 @@ dependencies = [
  "glam",
  "strata_content",
  "strata_kernel",
+ "strata_lua",
  "strata_model",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

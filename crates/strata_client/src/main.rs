@@ -7,6 +7,7 @@ use bevy_egui::EguiPlugin;
 use clap::Parser;
 use strata_session::{LaunchSpec, launch};
 
+mod assets;
 mod dev;
 mod input;
 mod plugins;

@@ -8,6 +8,9 @@ pub const LEVEL_HEIGHT: f32 = 0.325;
 
 const SQRT_3: f32 = 1.732_050_8;
 
+/// World width of a hex across its flats, which is what a pack's `hex_width_px` measures.
+pub const HEX_WIDTH: f32 = SQRT_3;
+
 /// How hexes are laid out on the ground plane.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Orientation {
@@ -19,6 +22,24 @@ pub enum Orientation {
 }
 
 impl Orientation {
+    /// The angle of hex direction 0 from the `+x` axis toward `+z`, in radians. Each further
+    /// direction (and each step of [`strata_kernel::Rotation`]) adds 60 degrees.
+    pub fn first_direction_angle(self) -> f32 {
+        match self {
+            Self::Pointy => 0.0,
+            Self::Flat => std::f32::consts::FRAC_PI_6,
+        }
+    }
+
+    /// The width a lone hex covers along the screen's horizontal at camera step 0: across the
+    /// flats for pointy hexes, corner to corner for flat ones.
+    pub fn hex_span(self) -> f32 {
+        match self {
+            Self::Pointy => SQRT_3,
+            Self::Flat => 2.0,
+        }
+    }
+
     /// The orientation a map names, `pointy` or `flat`; anything else draws pointy.
     pub fn from_name(name: &str) -> Self {
         if name == "flat" {

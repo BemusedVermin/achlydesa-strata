@@ -173,6 +173,26 @@ fn the_board_arrives_first_and_matches_the_map() {
 }
 
 #[test]
+fn the_board_carries_the_assets_and_how_each_figure_is_drawn() {
+    let handle = launch(spec("duel", Some("toy_rust")));
+    let Ok(SimMessage::Board(info)) = handle.recv_timeout(WAIT) else {
+        panic!("expected the board first");
+    };
+    assert_eq!(info.assets, [], "the toy pack has no `assets.lua`");
+    assert_eq!(
+        info.looks.len(),
+        2,
+        "one look per figure entry of each unit"
+    );
+    for look in &info.looks {
+        assert_eq!(look.pack.as_str(), "toy");
+        assert_eq!(look.hit_zone, (0, 12));
+        assert_eq!(look.footprint, [strata_kernel::Hex::ORIGIN]);
+        assert_eq!((look.visual.as_ref(), look.color.as_ref()), (None, None));
+    }
+}
+
+#[test]
 fn a_card_stat_carries_the_trace_that_explains_it() {
     let view = first_view(cards_spec());
     let def = view.cards[0]

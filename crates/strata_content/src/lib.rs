@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 mod abilities;
+mod assets;
 mod defs;
 mod discover;
 mod error;
@@ -16,6 +17,10 @@ mod registry;
 mod resolve;
 mod stages;
 
+pub use assets::{
+    ASSET_CONSTRUCTORS, ASSET_GLOBALS, ASSETS_FILE, Declaration, Declarations, PackAssets,
+    read_pack_assets,
+};
 pub use defs::RegistryDefs;
 pub use discover::discover_packs;
 pub use error::PackError;

@@ -9,6 +9,8 @@ use strata_render::{ClientBoard, FeatureNames, RemovedFeatures};
 use strata_scene::{Orientation, SceneBoard};
 use strata_session::{PlayerView, SimHandle, SimMessage};
 
+use crate::assets::BoardLooks;
+
 /// The running simulation. Dropping it stops the thread.
 #[derive(Resource)]
 pub struct Sim(pub SimHandle);
@@ -104,6 +106,11 @@ fn drain_sim(
             }
             SimMessage::Board(info) => {
                 let orientation = Orientation::from_name(info.orientation.as_str());
+                commands.insert_resource(BoardLooks {
+                    orientation,
+                    assets: info.assets,
+                    looks: info.looks,
+                });
                 commands.insert_resource(FeatureNames(info.features));
                 commands.insert_resource(ClientBoard(SceneBoard {
                     board: info.board,

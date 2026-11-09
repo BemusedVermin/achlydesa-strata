@@ -53,6 +53,17 @@ impl IsoView {
         self.zoom = (self.zoom as i32 + by).clamp(1, MAX_ZOOM as i32) as u32;
     }
 
+    /// The yaw step nearest the drawn yaw, 0 to 5; what billboards pick their frames by.
+    pub fn yaw_step(&self) -> u32 {
+        ((self.yaw / YAW_STEP).round() as i32).rem_euclid(6) as u32
+    }
+
+    /// The unit vector pointing to the screen's right, along the ground.
+    pub fn right(&self) -> Vec3 {
+        let (sin_y, cos_y) = self.yaw.sin_cos();
+        Vec3::new(cos_y, 0.0, -sin_y)
+    }
+
     /// Eases the drawn yaw toward the chosen step along the shorter way round.
     pub fn ease(&mut self, dt: f32) {
         let target = self.step as f32 * YAW_STEP;
@@ -67,11 +78,7 @@ impl IsoView {
     /// Moves the focus by `right` and `forward` units along the ground, as seen at the current yaw.
     pub fn pan(&mut self, right: f32, forward: f32) {
         let (sin_y, cos_y) = self.yaw.sin_cos();
-        self.focus += Vec3::new(
-            right * cos_y - forward * sin_y,
-            0.0,
-            -right * sin_y - forward * cos_y,
-        );
+        self.focus += self.right() * right - Vec3::new(sin_y, 0.0, cos_y) * forward;
     }
 
     /// The eye position, `DISTANCE` away from the focus.
