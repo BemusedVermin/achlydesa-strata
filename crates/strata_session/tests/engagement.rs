@@ -180,3 +180,13 @@ fn running_twice_gives_identical_reports_and_hashes() {
         summary(&reports)
     );
 }
+
+#[test]
+fn an_is_engaged_modifier_engages_one_way_only() {
+    // The figure with the modifier is engaged with the enemy a level up, so leaving it provokes.
+    assert_eq!(rolls(&passed("an is_engaged modifier")), 1);
+    // Asked with the enemy as the subject, the modifier does not apply: it walks away freely.
+    let report = passed("the is_engaged modifier is the figure's own");
+    assert_eq!(rolls(&report), 0);
+    assert_eq!(moves(&report), 1);
+}
