@@ -8,6 +8,7 @@ use clap::Parser;
 use strata_session::{LaunchSpec, launch};
 
 mod dev;
+mod input;
 mod plugins;
 mod sim_link;
 mod ui;

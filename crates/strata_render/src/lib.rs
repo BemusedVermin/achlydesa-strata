@@ -6,10 +6,11 @@
 #![warn(missing_docs)]
 
 mod camera;
+mod input;
 mod plugins;
 
 pub use camera::{CameraPlugin, ClientBoard, HoveredSpace, IsoCamera, IsoCameraMarker};
+pub use input::{BoardHighlights, InputPlugin, SpaceClicked};
 pub use plugins::{
-    BoardPlugin, FigurePlugin, InputPlugin, OcclusionPlugin, PlaybackPlugin, PreviewPlugin,
-    RenderPlugins,
+    BoardPlugin, FigurePlugin, OcclusionPlugin, PlaybackPlugin, PreviewPlugin, RenderPlugins,
 };
