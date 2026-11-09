@@ -4,19 +4,23 @@
 //! command, in the order of their scenario slots' `deploy_order`, round and round. A player with
 //! nothing left to place is skipped. A placement puts every figure of one of the player's
 //! reserve units on a standable, empty surface inside the player's start zone; a figure with a
-//! larger footprint needs every cell of it there. Each cell stands where the movement module
-//! would stand it, headroom included, so a figure is never placed where it could not move (see
-//! `NativeEnv::cells`). When the last unit is down the module emits `deployment_done`.
+//! larger footprint, turned the way the payload asks, needs every cell of it there. Each cell
+//! stands where the movement module would stand it, headroom included, so a figure is never
+//! placed where it could not move (see `NativeEnv::cells`). When the last unit is down the
+//! module emits `deployment_done`.
 //!
-//! The payload is `{ unit = <unit id>, at = { { q, r, z }, ... } }`: one space per figure, in
-//! the order the unit lists its figures. Figures face the default way.
+//! The payload is `{ unit = <unit id>, at = { { q, r, z, o }, ... } }`: one anchor space and
+//! rotation per figure, in the order the unit lists its figures, with `o` optional and `0` by
+//! default. It is the slot's command contract, which any replacement module accepts; see
+//! [`payload`]. [`check_unit`] is the validator, shared with anything that lists legal
+//! placements, and [`deploying`] says whose turn it is.
 
-use std::collections::BTreeSet;
+pub mod payload;
+pub mod placement;
 
-use strata_kernel::{ModuleId, Rotation, SlotId, Space, Sym, Value};
+use strata_kernel::{ModuleId, SlotId, Sym, Value};
 use strata_model::{
-    Command, Descriptor, Event, FigureId, FigureStatus, GameState, Logic, PlayerId, TriggerDef,
-    UnitId, VarKey,
+    Command, Descriptor, Event, FigureStatus, GameState, Logic, PlayerId, TriggerDef, VarKey,
 };
 use strata_rules::{
     CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, NativeEnv, NativeLogic, Registrar,
@@ -24,6 +28,9 @@ use strata_rules::{
 };
 
 use crate::toy::no_config;
+
+pub use payload::{PLACE_UNIT, PlaceUnit, Spot};
+pub use placement::{Misplaced, check_placement, check_unit};
 
 /// The custom event emitted once every unit has been placed.
 pub const DEPLOYMENT_DONE: &str = "deployment_done";
@@ -73,7 +80,7 @@ struct Place;
 
 impl CommandHandler for Place {
     fn kind(&self) -> &str {
-        "place_unit"
+        PLACE_UNIT
     }
 
     fn resolve(&self, ctx: &mut dyn Ctx, player: PlayerId, command: &Command) -> Result<(), Halt> {
@@ -119,32 +126,28 @@ fn seating(state: &GameState, env: &dyn NativeEnv) -> Result<Vec<PlayerId>, Halt
     Ok(seats.into_iter().map(|(_, player)| player).collect())
 }
 
-/// The reading of one `place_unit` payload.
-struct Placement {
-    player: PlayerId,
-    unit: UnitId,
-    at: Vec<Space>,
+/// The player whose turn it is to place a unit with `place_unit`.
+///
+/// `None` once the game has started, when nobody has a unit left in reserve, or when some
+/// player has no start zone. The driver enforces this order, so the UI, the AI and tests can ask
+/// it instead of working it out themselves.
+pub fn deploying(state: &GameState, env: &dyn NativeEnv) -> Option<PlayerId> {
+    if state.flow.round > 0 {
+        return None;
+    }
+    let seats = seating(state, env).ok()?;
+    let start = state.vars.get(&cursor_key()).and_then(|v| v.as_int().ok());
+    let start = start.unwrap_or(0) as usize;
+    let mut order = (0..seats.len()).map(|i| seats[(start + i) % seats.len()]);
+    order.find(|player| waiting(state, *player))
 }
 
-fn parse(payload: &Value) -> Result<Placement, Halt> {
-    let bad = |e: strata_kernel::ValueError| Halt::reject(format!("place_unit: {e}"));
-    let int = |v: &Value| v.as_int().map_err(bad);
-    let player = int(payload.get("player").map_err(bad)?)?;
-    let unit = int(payload.get("unit").map_err(bad)?)?;
-    let mut at = Vec::new();
-    for cell in payload.get("at").and_then(Value::as_list).map_err(bad)? {
-        let cell = cell.as_list().map_err(bad)?;
-        let [q, r, z] = cell else {
-            return Err(Halt::reject("place_unit: each space is { q, r, z }"));
-        };
-        let z = u32::try_from(int(z)?).map_err(|_| Halt::reject("place_unit: z is negative"))?;
-        at.push(Space::new(int(q)? as i32, int(r)? as i32, z));
-    }
-    Ok(Placement {
-        player: PlayerId(player as u8),
-        unit: UnitId(unit as u32),
-        at,
-    })
+/// Reads a `place_unit` payload with the `player` the command handler added.
+fn parse(payload: &Value) -> Result<(PlayerId, PlaceUnit), Halt> {
+    let player = payload.get("player").and_then(Value::as_int);
+    let player = player.map_err(|e| Halt::reject(format!("place_unit: {e}")))?;
+    let put = PlaceUnit::from_value(payload).map_err(Halt::reject)?;
+    Ok((PlayerId(player as u8), put))
 }
 
 /// Checks a placement against the turn order, the unit and the board, then carries it out.
@@ -155,32 +158,28 @@ impl NativeLogic for Drive {
         let Event::Custom { payload, .. } = event else {
             return Ok(());
         };
-        let placement = parse(payload)?;
+        let (player, put) = parse(payload)?;
         let state = ctx.state();
         if state.flow.round > 0 {
             return Err(Halt::reject("deployment is over: the game has started"));
         }
         let seats = seating(state, env)?;
-        let start = state.vars.get(&cursor_key()).and_then(|v| v.as_int().ok());
-        let start = start.unwrap_or(0) as usize;
-        let turn = (0..seats.len())
-            .map(|i| (start + i) % seats.len())
-            .find(|i| waiting(state, seats[*i]));
-        if turn.map(|i| seats[i]) != Some(placement.player) {
+        if deploying(state, env) != Some(player) {
             return Err(Halt::reject("it is not your turn to deploy"));
         }
-        let figures = check_unit(state, &placement)?;
-        let bodies = check_spaces(state, env, &placement, &figures)?;
-        for ((figure, to), body) in figures.into_iter().zip(&placement.at).zip(bodies) {
+        let bodies = check_unit(state, env, player, &put);
+        let bodies = bodies.map_err(|e| Halt::reject(e.to_string()))?;
+        for ((figure, cells), spot) in bodies.into_iter().zip(&put.at) {
             ctx.emit(Event::FigureMoved {
                 figure,
-                to: *to,
-                rotation: Rotation::default(),
+                to: spot.anchor,
+                rotation: spot.rotation,
                 path: Vec::new(),
-                cells: body,
+                cells,
             })?;
         }
-        let next = (turn.unwrap_or(0) + 1) % seats.len();
+        let seat = seats.iter().position(|p| *p == player).unwrap_or(0);
+        let next = (seat + 1) % seats.len();
         let value = Value::Int(next as i64);
         ctx.emit(Event::VarSet {
             key: cursor_key(),
@@ -197,57 +196,5 @@ impl NativeLogic for Drive {
     }
 }
 
-/// The figures of the placed unit, which must be the player's and waiting in reserve.
-fn check_unit(state: &GameState, put: &Placement) -> Result<Vec<FigureId>, Halt> {
-    let unit = state.units.get(put.unit.index());
-    let unit = unit.filter(|u| u.owner == put.player);
-    let unit = unit.ok_or_else(|| Halt::reject("that is not your unit"))?;
-    let reserve = |f: &&FigureId| state.figures[f.index()].status == FigureStatus::Reserve;
-    if unit.figures.iter().filter(reserve).count() != unit.figures.len() {
-        return Err(Halt::reject("that unit is already on the board"));
-    }
-    if put.at.len() != unit.figures.len() {
-        let (want, got) = (unit.figures.len(), put.at.len());
-        return Err(Halt::reject(format!(
-            "the unit has {want} figures, not {got}"
-        )));
-    }
-    Ok(unit.figures.clone())
-}
-
-/// Every figure's body, with its anchor where the placement puts it, must stand on standable,
-/// empty surfaces of the player's start zone, and no two bodies may share a space. Returns the
-/// spaces each figure covers.
-fn check_spaces(
-    state: &GameState,
-    env: &dyn NativeEnv,
-    put: &Placement,
-    figures: &[FigureId],
-) -> Result<Vec<Vec<Space>>, Halt> {
-    let slot = env.deployment(state, put.player);
-    let slot = slot.ok_or_else(|| Halt::reject("you have no start zone"))?;
-    let mut used = BTreeSet::new();
-    let mut bodies = Vec::new();
-    for (figure, anchor) in figures.iter().zip(&put.at) {
-        let fits = |space: &Space| -> Result<(), Halt> {
-            if !slot.zone.contains(&space.hex()) {
-                return Err(Halt::reject("that space is outside your start zone"));
-            }
-            if !env.standable(*space) {
-                return Err(Halt::reject("a figure cannot stand there"));
-            }
-            Ok(())
-        };
-        fits(anchor)?;
-        let body = env.cells(state, *figure, *anchor, Rotation::default());
-        let body = body.ok_or_else(|| Halt::reject("a figure cannot stand there"))?;
-        for space in &body {
-            fits(space)?;
-            if state.occupant(*space).is_some() || !used.insert(*space) {
-                return Err(Halt::reject("that space is occupied"));
-            }
-        }
-        bodies.push(body);
-    }
-    Ok(bodies)
-}
+#[cfg(test)]
+mod tests;

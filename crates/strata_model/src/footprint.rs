@@ -92,6 +92,9 @@ impl FootprintDef {
             let found = near.into_iter().find(|s| fits(Space::at(hex, s.z), s))?;
             placed.push((Space::at(hex, found.z), *found));
         }
+        // Every cell is within `spread` of the anchor, so this only refuses a shape with cells
+        // on both sides of the anchor's level, which takes three cells or more: a two-cell
+        // footprint never reaches it.
         let levels = placed.iter().map(|(s, _)| s.z);
         let (low, high) = (levels.clone().min()?, levels.max()?);
         (high - low <= spread).then_some(placed)
