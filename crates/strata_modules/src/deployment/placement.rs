@@ -1,5 +1,6 @@
 //! Whether a placement is legal: the validator `place_unit` runs, shared with anything that
-//! lists legal placements.
+//! lists legal placements. [`check_unit`] checks a whole placement; [`check_placement`] checks
+//! one figure of it.
 
 use std::collections::BTreeSet;
 use std::fmt;
@@ -47,6 +48,8 @@ impl fmt::Display for Misplaced {
         }
     }
 }
+
+impl std::error::Error for Misplaced {}
 
 /// The spaces `figure` would cover if `player` placed it with its anchor on `anchor`, turned by
 /// `rotation`.

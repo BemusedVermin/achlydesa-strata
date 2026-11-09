@@ -1,8 +1,12 @@
 use proptest::prelude::*;
-use strata_kernel::{Rotation, Space, Sym, Value};
-use strata_model::UnitId;
+use strata_kernel::{DefId, Rotation, Space, Sym, Value};
+use strata_model::{
+    DieKind, FigureId, FigureState, FigureStatus, GameState, PlayerId, PlayerState, UnitId,
+    UnitState,
+};
+use strata_rules::{DeploySlot, LogicError, NativeEnv};
 
-use super::{PlaceUnit, Spot};
+use super::{PlaceUnit, Spot, cursor_key, deploying};
 
 fn payload(spots: Vec<Vec<i64>>) -> Value {
     let at = spots
@@ -69,4 +73,66 @@ proptest! {
         let put = PlaceUnit { unit: UnitId(unit), at: at.collect() };
         prop_assert_eq!(PlaceUnit::from_value(&put.to_value()), Ok(put));
     }
+}
+
+/// Gives each player the start-zone slot at its index in `orders`; `None` means no start zone.
+struct Slots(Vec<Option<u8>>);
+
+impl NativeEnv for Slots {
+    fn stat(&self, _: &GameState, _: FigureId, stat: &str) -> Result<i64, LogicError> {
+        Err(LogicError(format!("no stat `{stat}`")))
+    }
+    fn die(&self, _: &str) -> Option<(DefId, DieKind)> {
+        None
+    }
+    fn deployment(&self, _: &GameState, player: PlayerId) -> Option<DeploySlot> {
+        let order = (*self.0.get(usize::from(player.0))?)?;
+        let zone = Vec::new();
+        Some(DeploySlot { order, zone })
+    }
+}
+
+/// One one-figure unit in reserve per entry of `owners`, owned by that player, among `players`.
+fn reserves(players: usize, owners: &[u8]) -> GameState {
+    let figure = FigureState {
+        status: FigureStatus::Reserve,
+        ..FigureState::default()
+    };
+    let units = (0u32..).zip(owners).map(|(i, owner)| UnitState {
+        owner: PlayerId(*owner),
+        figures: vec![FigureId(i)],
+        ..UnitState::default()
+    });
+    GameState {
+        players: vec![PlayerState::default(); players],
+        units: units.collect(),
+        figures: vec![figure; owners.len()],
+        ..GameState::default()
+    }
+}
+
+#[test]
+fn the_deploying_player_follows_slot_order_and_the_cursor() {
+    // Player 1's slot places first.
+    let env = Slots(vec![Some(1), Some(0)]);
+    let mut state = reserves(2, &[0, 1, 1]);
+    assert_eq!(deploying(&state, &env), Some(PlayerId(1)));
+    state.vars.insert(cursor_key(), Value::Int(1));
+    assert_eq!(deploying(&state, &env), Some(PlayerId(0)));
+    // Player 0 has placed everything, so the turn passes back to player 1.
+    state.figures[0].status = FigureStatus::OnBoard;
+    assert_eq!(deploying(&state, &env), Some(PlayerId(1)));
+    state.figures[1].status = FigureStatus::OnBoard;
+    state.figures[2].status = FigureStatus::OnBoard;
+    assert_eq!(deploying(&state, &env), None, "nothing is left to place");
+}
+
+#[test]
+fn nobody_deploys_once_the_game_has_started_or_without_a_start_zone() {
+    let mut state = reserves(2, &[0, 1]);
+    assert_eq!(deploying(&state, &Slots(vec![Some(0), None])), None);
+    let env = Slots(vec![Some(0), Some(1)]);
+    assert_eq!(deploying(&state, &env), Some(PlayerId(0)));
+    state.flow.round = 1;
+    assert_eq!(deploying(&state, &env), None);
 }

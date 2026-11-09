@@ -12,8 +12,8 @@
 //! The payload is `{ unit = <unit id>, at = { { q, r, z, o }, ... } }`: one anchor space and
 //! rotation per figure, in the order the unit lists its figures, with `o` optional and `0` by
 //! default. It is the slot's command contract, which any replacement module accepts; see
-//! [`payload`]. [`placement::check_placement`] is the validator, shared with anything that
-//! lists legal placements.
+//! [`payload`]. [`check_unit`] is the validator, shared with anything that lists legal
+//! placements, and [`deploying`] says whose turn it is.
 
 pub mod payload;
 pub mod placement;
@@ -126,6 +126,22 @@ fn seating(state: &GameState, env: &dyn NativeEnv) -> Result<Vec<PlayerId>, Halt
     Ok(seats.into_iter().map(|(_, player)| player).collect())
 }
 
+/// The player whose turn it is to place a unit with `place_unit`.
+///
+/// `None` once the game has started, when nobody has a unit left in reserve, or when some
+/// player has no start zone. The driver enforces this order, so the UI, the AI and tests can ask
+/// it instead of working it out themselves.
+pub fn deploying(state: &GameState, env: &dyn NativeEnv) -> Option<PlayerId> {
+    if state.flow.round > 0 {
+        return None;
+    }
+    let seats = seating(state, env).ok()?;
+    let start = state.vars.get(&cursor_key()).and_then(|v| v.as_int().ok());
+    let start = start.unwrap_or(0) as usize;
+    let mut order = (0..seats.len()).map(|i| seats[(start + i) % seats.len()]);
+    order.find(|player| waiting(state, *player))
+}
+
 /// Reads a `place_unit` payload with the `player` the command handler added.
 fn parse(payload: &Value) -> Result<(PlayerId, PlaceUnit), Halt> {
     let player = payload.get("player").and_then(Value::as_int);
@@ -148,12 +164,7 @@ impl NativeLogic for Drive {
             return Err(Halt::reject("deployment is over: the game has started"));
         }
         let seats = seating(state, env)?;
-        let start = state.vars.get(&cursor_key()).and_then(|v| v.as_int().ok());
-        let start = start.unwrap_or(0) as usize;
-        let turn = (0..seats.len())
-            .map(|i| (start + i) % seats.len())
-            .find(|i| waiting(state, seats[*i]));
-        if turn.map(|i| seats[i]) != Some(player) {
+        if deploying(state, env) != Some(player) {
             return Err(Halt::reject("it is not your turn to deploy"));
         }
         let bodies = check_unit(state, env, player, &put);
@@ -167,7 +178,8 @@ impl NativeLogic for Drive {
                 cells,
             })?;
         }
-        let next = (turn.unwrap_or(0) + 1) % seats.len();
+        let seat = seats.iter().position(|p| *p == player).unwrap_or(0);
+        let next = (seat + 1) % seats.len();
         let value = Value::Int(next as i64);
         ctx.emit(Event::VarSet {
             key: cursor_key(),

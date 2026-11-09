@@ -239,6 +239,8 @@ A ruleset fills a fixed set of named slots, each with one module, and then adds 
 | `army` | Army legality: points, uniqueness, copies | `core:army` |
 | `victory` | Evaluating victory conditions | `core:victory` |
 
+The `deployment` slot's command contract, the `place_unit` payload, is in §11.2.
+
 Add-on modules have no slot. They only add hooks, such as a morale check or a reinforcement phase.
 
 ### 6.2 The module contract
@@ -782,7 +784,7 @@ Players deploy in `deploy_order`, one unit at a time, with the `place_unit` cust
 { unit = 3, at = { { 0, 0, 1, 2 }, { 1, 1, 1 } } }   -- unit id; one { q, r, z, o } per figure
 ```
 
-`at` lists one spot per figure, in the order the unit lists its figures: the anchor space (q, r, z) and the footprint's rotation o from 0 to 5 (§7.3). A missing o means 0. `core:deployment` accepts a placement only when every cell of every rotated footprint is in the player's start zone, stands on a standable surface the figure fits on as movement would stand it, and is free of other figures, this placement's included. The same check, `check_placement`, serves any list of legal placements.
+`at` lists one spot per figure, in the order the unit lists its figures: the anchor space (q, r, z) and the footprint's rotation o from 0 to 5 (§7.3). A missing o means 0. `core:deployment` accepts a placement only when every cell of every rotated footprint is in the player's start zone, stands on a standable surface the figure fits on as movement would stand it, and is free of other figures, this placement's included. The same check, `check_unit`, serves any list of legal placements: it runs `check_placement` on each figure and also refuses figures of one placement that share a space. `deploying` gives whose turn it is.
 
 ### 11.3 Format
 
