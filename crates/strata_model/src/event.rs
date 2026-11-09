@@ -31,6 +31,9 @@ pub enum Event {
         to: Space,
         /// Its new rotation.
         rotation: Rotation,
+        /// The spaces walked, excluding the start and ending at `to`; empty for a placement.
+        #[serde(default)]
+        path: Vec<Space>,
     },
     /// Dice were rolled. Presentation and triggers only; no state changes.
     DiceRolled {
