@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use strata_model::{FigureId, GameState, UnitId};
+use strata_rules::QueryTrace;
 
 use crate::names::Names;
 
@@ -16,6 +17,9 @@ pub struct StatLine {
     pub base: i64,
     /// The value after every modifier.
     pub value: i64,
+    /// How `value` was reached, for the rules inspector; `None` when the stat could not be
+    /// queried and shows its printed value.
+    pub trace: Option<QueryTrace>,
 }
 
 /// One ability on a card.

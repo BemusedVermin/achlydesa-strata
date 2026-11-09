@@ -17,8 +17,8 @@ use strata_model::{
 };
 use strata_rules::{
     Ctx, DeploySlot, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics,
-    LosWorld, MoveWorld, Movement, NativeEvaluator, Query, QueryEngine, Reach, SourcedModifier,
-    StatBounds, StatQuery, TerrainRules, VoteQuery, World,
+    LosWorld, MoveWorld, Movement, NativeEvaluator, Query, QueryEngine, QueryTrace, Reach,
+    SourcedModifier, StatBounds, StatQuery, TerrainRules, VoteQuery, World,
 };
 
 impl CardSource for Host {
@@ -148,12 +148,13 @@ impl Host {
             );
             let base = i64::from(*printed);
             let bare = name.split_once(':').map_or(name, |(_, bare)| bare);
-            let queried = figure.and_then(|f| self.stat(state, *f, bare).ok());
+            let queried = figure.and_then(|f| self.stat_trace(state, *f, bare).ok());
             let label = stat_def.abbrev.as_ref().unwrap_or(&stat_def.name);
             let line = StatLine {
                 label: label.0.clone(),
                 base,
-                value: queried.unwrap_or(base),
+                value: queried.as_ref().map_or(base, |(value, _)| *value),
+                trace: queried.map(|(_, trace)| trace),
             };
             stats.push((stat_def.order, line));
         }
@@ -228,6 +229,16 @@ impl Host {
         figure: FigureId,
         stat: &str,
     ) -> Result<i64, LogicError> {
+        self.stat_trace(state, figure, stat).map(|(value, _)| value)
+    }
+
+    /// A figure's stat after every modifier, with how it was reached.
+    fn stat_trace(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        stat: &str,
+    ) -> Result<(i64, QueryTrace), LogicError> {
         let fail = LogicError;
         let (stat_id, _) = find::<StatDef>(&self.registry, &self.pack, stat)
             .ok_or_else(|| fail(format!("unknown stat `{stat}`")))?;
@@ -240,7 +251,7 @@ impl Host {
             subject: Value::Int(i64::from(figure.0)),
             context: Value::Nil,
         };
-        self.ask(state, figure, &query)
+        self.ask_trace(state, figure, &query)
     }
 
     /// Resolves `query` against the state with every modifier applied.
@@ -250,6 +261,17 @@ impl Host {
         figure: FigureId,
         query: &Q,
     ) -> Result<Q::Output, LogicError> {
+        self.ask_trace(state, figure, query)
+            .map(|(output, _)| output)
+    }
+
+    /// Resolves `query` like [`Host::ask`], with how it was reached.
+    fn ask_trace<Q: Query>(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        query: &Q,
+    ) -> Result<(Q::Output, QueryTrace), LogicError> {
         let fail = LogicError;
         let rules = self.rules.get().and_then(Weak::upgrade);
         let rules = rules.ok_or_else(|| fail("the rules are not running".into()))?;
@@ -262,7 +284,7 @@ impl Host {
                 evaluator: &evaluator,
                 scripts,
             };
-            QueryEngine::new(&modifiers, &self.bounds, logics).query(query)
+            QueryEngine::new(&modifiers, &self.bounds, logics).trace(query)
         });
         let asked = asked.map_err(|_| fail("the script state failed".into()))?;
         asked.map_err(|e| fail(e.to_string()))

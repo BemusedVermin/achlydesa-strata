@@ -1,7 +1,7 @@
 //! Modifiers collected for one query, in a registration-independent order.
 
 use strata_kernel::{Sym, Value};
-use strata_model::{ModifierDef, ModifierLayer};
+use strata_model::{Logic, ModifierDef, ModifierLayer};
 
 use super::logic::{EvalCtx, Logics, QueryError};
 
@@ -24,6 +24,16 @@ pub(crate) struct Applied {
     pub source: Sym,
     pub value: Value,
     pub overrides: bool,
+    pub scripted: bool,
+}
+
+impl SourcedModifier {
+    /// Whether any of its selector, condition or value calls into Lua.
+    pub fn scripted(&self) -> bool {
+        let script = |l: &Logic| matches!(l, Logic::Script(_));
+        let def = &self.def;
+        def.select.iter().chain(&def.when).any(script) || script(&def.value)
+    }
 }
 
 pub(crate) fn layer_rank(layer: ModifierLayer) -> u8 {
@@ -70,6 +80,7 @@ pub(crate) fn collect(
             source: m.source.clone(),
             value: logics.eval(&m.def.value, &cx)?,
             overrides: m.def.overrides,
+            scripted: m.scripted(),
         });
     }
     out.sort_by(|a, b| {

@@ -41,7 +41,10 @@ impl Query for StatQuery {
                 source_id: a.source.clone(),
                 error,
             })?;
-            steps.push(TraceStep::from(a));
+            steps.push(TraceStep {
+                after: Some(value),
+                ..TraceStep::from(a)
+            });
         }
         let result = value.clamp(i64::from(bounds.min), i64::from(bounds.max));
         let trace = QueryTrace {
@@ -51,6 +54,7 @@ impl Query for StatQuery {
             base: Value::Int(self.base),
             steps,
             unclamped: Some(value),
+            bounds: Some(bounds),
             result: Value::Int(result),
         };
         Ok((result, trace))
