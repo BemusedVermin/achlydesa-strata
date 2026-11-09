@@ -10,6 +10,7 @@ use crate::defs::EditorDefs;
 use crate::fairness::{Fairness, StartZone};
 use crate::finding::{Finding, FindingKind, Severity};
 use crate::standing::standable_spaces;
+use crate::tally::tally;
 
 /// Zones whose names start with this are start zones, as in the design's `start_a`.
 pub const START_ZONE_PREFIX: &str = "start_";
@@ -92,41 +93,24 @@ fn check_inventory(map: &MapDef, defs: &impl EditorDefs, findings: &mut Vec<Find
     overruns(features, &inventory.features, feature, findings);
 }
 
-/// What a name counts against: its definition, or the name itself when it does not resolve.
-type Key<'a> = Result<DefId, &'a Sym>;
-
 /// Reports each definition in `placed` used more often than `caps` allows, at the anchors using
-/// it. Names are compared by what `resolve` makes of them, so `grass` and `pack:grass` are one
-/// tile; the finding names it as the map first spells it.
+/// it. The finding names it as the map first spells it.
 fn overruns<'a>(
     placed: impl Iterator<Item = (&'a Sym, Hex)>,
     caps: &'a BTreeMap<Sym, u32>,
     resolve: impl Fn(&Sym) -> Option<DefId>,
     findings: &mut Vec<Finding>,
 ) {
-    let key = |name: &'a Sym| -> Key<'a> { resolve(name).ok_or(name) };
-    let mut available: BTreeMap<Key<'a>, u32> = BTreeMap::new();
-    for (name, &cap) in caps {
-        *available.entry(key(name)).or_default() += cap;
-    }
-    let mut uses: BTreeMap<Key<'a>, (&Sym, Vec<Hex>)> = BTreeMap::new();
-    for (name, at) in placed {
-        uses.entry(key(name))
-            .or_insert((name, Vec::new()))
-            .1
-            .push(at);
-    }
-    for (key, (name, cells)) in uses {
-        let available = available.get(&key).copied().unwrap_or(0);
-        let used = u32::try_from(cells.len()).unwrap_or(u32::MAX);
-        if used > available {
-            let name = name.clone();
+    for count in tally(placed, caps, resolve).into_values() {
+        let Some(name) = count.name else { continue };
+        let used = u32::try_from(count.uses.len()).unwrap_or(u32::MAX);
+        if used > count.available {
             let kind = FindingKind::InventoryOverrun {
-                name,
+                name: name.clone(),
                 used,
-                available,
+                available: count.available,
             };
-            findings.push(Finding::new(kind, cells));
+            findings.push(Finding::new(kind, count.uses));
         }
     }
 }

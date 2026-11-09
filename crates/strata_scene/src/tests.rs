@@ -186,6 +186,22 @@ fn rays_that_miss_pick_nothing() {
 }
 
 #[test]
+fn a_level_pick_finds_open_ground_from_every_yaw() {
+    for orientation in ORIENTATIONS {
+        for step in 0..6 {
+            for (hex, z) in [(Hex::new(20, -7), 0), (Hex::new(-3, 9), 3)] {
+                let (origin, dir) = view_ray(step, surface_point(orientation, hex, z));
+                let picked = pick_level(orientation, origin, dir, z);
+                assert_eq!(picked, Some(hex), "{orientation:?} yaw {step}");
+            }
+        }
+        let up = pick_level(orientation, Vec3::ZERO, Vec3::Y, 0);
+        let below = pick_level(orientation, Vec3::new(0.0, -1.0, 0.0), -Vec3::Y, 0);
+        assert_eq!((up, below), (None, None));
+    }
+}
+
+#[test]
 fn yaw_eases_the_short_way_round() {
     let mut camera = camera_at(0);
     camera.turn(-1);

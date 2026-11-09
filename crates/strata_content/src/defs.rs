@@ -30,6 +30,11 @@ impl<R: Borrow<ContentRegistry>, P: AsRef<str>> RegistryDefs<R, P> {
         self.registry.borrow()
     }
 
+    /// Returns the pack names are resolved from.
+    pub fn pack(&self) -> &str {
+        self.pack.as_ref()
+    }
+
     /// Returns the `T` that `name` refers to, as [`ContentRegistry::lookup`] resolves it.
     pub fn lookup<T: Def>(&self, name: &Sym) -> Option<(DefId, &T)> {
         self.registry()

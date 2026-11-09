@@ -5,9 +5,20 @@ terrain { id = 'water', name = 'Water', standable = false }
 tile { id = 'grass_1', name = 'Grass', terrain = 'grass', thickness = 1, shape = {{ q = 0, r = 0 }} }
 tile { id = 'water_1', name = 'Water', terrain = 'water', thickness = 1, shape = {{ q = 0, r = 0 }} }
 tile { id = 'hill_2', name = 'Hill', terrain = 'grass', thickness = 2, shape = {{ q = 0, r = 0 }} }
+tile {
+  id = 'grass_2', name = 'Grass pair', terrain = 'grass', thickness = 1,
+  shape = {{ q = 0, r = 0 }, { q = 1, r = 0 }},
+}
 feature {
   id = 'tree', name = 'Tree', blocks_los = true,
   cells = {{ at = { q = 0, r = 0 }, segments = {{ from = 0, to = 2 }} }},
+}
+feature {
+  id = 'wall', name = 'Wall', blocks_los = true,
+  cells = {
+    { at = { q = 0, r = 0 }, segments = {{ from = 0, to = 1 }} },
+    { at = { q = 1, r = 0 }, segments = {{ from = 0, to = 1 }} },
+  },
 }
 -- One key is written with its pack, to check that counts compare definitions, not spellings.
 inventory {

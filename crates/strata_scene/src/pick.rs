@@ -1,7 +1,7 @@
 //! Picking: the space under the cursor, found by walking a ray through the compiled board.
 
 use glam::Vec3;
-use strata_kernel::Space;
+use strata_kernel::{Hex, Space};
 use strata_model::board::CompiledBoard;
 
 use super::layout::{LEVEL_HEIGHT, Orientation};
@@ -49,4 +49,17 @@ pub fn pick(board: &SceneBoard, origin: Vec3, direction: Vec3) -> Option<Space> 
         }
     }
     None
+}
+
+/// Finds the hex where the ray comes down through level `z`, terrain or not.
+///
+/// The editor uses this to place on open ground, where [`pick`] finds nothing, and to aim at a
+/// locked level. A ray that is not heading down, or starts below the level, finds nothing.
+pub fn pick_level(orientation: Orientation, origin: Vec3, direction: Vec3, z: u32) -> Option<Hex> {
+    let height = z as f32 * LEVEL_HEIGHT;
+    if direction.y >= 0.0 || origin.y < height {
+        return None;
+    }
+    let p = origin + direction * ((height - origin.y) / direction.y);
+    Some(orientation.hex_at(p.x, p.z))
 }

@@ -22,13 +22,12 @@ macro_rules! skeleton {
 }
 
 skeleton! {
-    /// The map editor.
-    EditorPlugin,
     /// Resolves visual keys to files, with fallbacks.
     AssetsPlugin,
 }
 
-/// Adds the rendering plugins and every shell plugin.
+/// Adds the rendering plugins and every shell plugin a match needs. The editor runs on its own
+/// instead, with [`EditorPlugin`](crate::editor::EditorPlugin).
 pub struct ClientPlugins;
 
 impl Plugin for ClientPlugins {
@@ -37,7 +36,6 @@ impl Plugin for ClientPlugins {
             RenderPlugins,
             UiPlugin,
             PlayerInputPlugin,
-            EditorPlugin,
             AssetsPlugin,
             DevPlugin,
         ));

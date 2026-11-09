@@ -101,9 +101,20 @@ enum Step {
     Relic(u8, Option<(i32, i32)>),
     Name(String),
     Entry(u8, Option<i64>),
+    /// Several steps as one [`Edit::Batch`], each resolved against the map the ones before it
+    /// leave.
+    Batch(Vec<Step>),
 }
 
+/// Any step, including batches nested up to three deep.
 fn step() -> impl Strategy<Value = Step> {
+    single().prop_recursive(3, 24, 6, |inner| {
+        prop::collection::vec(inner, 0..6).prop_map(Step::Batch)
+    })
+}
+
+/// A step that is not a batch.
+fn single() -> impl Strategy<Value = Step> {
     let c = -4..4i32;
     let cells = prop::collection::vec((c.clone(), c.clone()), 0..5);
     prop_oneof![
@@ -167,6 +178,20 @@ fn resolve(step: &Step, map: &MapDef) -> Option<Edit> {
             key: format!("k{k}").into(),
             value: v.map(Value::Int),
         }),
+        Step::Batch(steps) => {
+            // Resolve each step against a scratch copy that has the earlier ones applied. An
+            // edit that fails there stays in, so the whole batch must fail and roll back.
+            let mut scratch = map.clone();
+            let mut edits = Vec::new();
+            for step in steps {
+                let Some(edit) = resolve(step, &scratch) else {
+                    continue;
+                };
+                let _ = edit.clone().apply(&mut scratch);
+                edits.push(edit);
+            }
+            Edit::Batch(edits)
+        }
     })
 }
 
@@ -179,9 +204,13 @@ proptest! {
         let mut snapshots = vec![original.clone()];
         for step in &steps {
             let Some(edit) = resolve(step, doc.map()) else { continue };
+            let before = doc.map().clone();
             if doc.apply(edit).is_ok() {
                 applied += 1;
                 snapshots.push(doc.map().clone());
+            } else {
+                // A failed edit, a batch that fails part way included, changes nothing.
+                prop_assert_eq!(doc.map(), &before);
             }
         }
         // Undo walks back through every intermediate state, not only the first.
