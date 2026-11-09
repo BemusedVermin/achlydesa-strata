@@ -1,9 +1,17 @@
-//! `ctx.movement`: `reachable(figure)` lists where a figure may stop, `move(figure, q, r, z)`
+//! `ctx.movement`: `reachable(figure)` lists where a figure may stop, `move(figure, q, r, z, o)`
 //! walks it there.
+//!
+//! A figure with a one-cell footprint is listed as `{ q, r, z }` and moved without `o`, since it
+//! keeps its rotation. A larger footprint can reach a space in several rotations, so it is listed
+//! as `{ q, r, z, o }`; `move` without `o` takes the cheapest rotation, the lowest on a tie. A
+//! move that ends in a fall emits `figure_fell` with `{ figure, levels }`, the levels dropped.
 
-use strata_kernel::{Space, Value, ValueError};
+use strata_kernel::{Rotation, Space, Sym, Value, ValueError};
 use strata_model::{Event, FigureId};
 use strata_rules::{ApiHandler, Ctx, Halt, NativeEnv, Reach};
+
+/// The custom event emitted when a move ends in a fall.
+pub const FIGURE_FELL: &str = "figure_fell";
 
 /// Runs the functions of the `movement` namespace.
 pub struct Api;
@@ -34,6 +42,39 @@ fn space(args: &[Value]) -> Result<Space, Halt> {
     Ok(Space::new(coord(1)?, coord(2)?, z))
 }
 
+/// The rotation named by the optional fifth argument.
+fn rotation(args: &[Value]) -> Result<Option<Rotation>, Halt> {
+    let Some(given) = args.get(4) else {
+        return Ok(None);
+    };
+    let steps = given
+        .as_int()
+        .map_err(|e| Halt::reject(format!("move: {e}")))?;
+    let steps = u8::try_from(steps).ok().and_then(Rotation::new);
+    steps
+        .map(Some)
+        .ok_or_else(|| Halt::reject("move: a rotation is 0 to 5"))
+}
+
+/// A reachable stop as scripts see it.
+fn listed(reach: &Reach) -> Value {
+    let s = reach.space;
+    let mut at = vec![s.q, s.r, s.z as i32];
+    if reach.cells.len() > 1 {
+        at.push(i32::from(reach.rotation.steps()));
+    }
+    Value::List(at.into_iter().map(|n| Value::Int(i64::from(n))).collect())
+}
+
+/// The stop `move` asked for: the given rotation, or else the cheapest one.
+fn chosen(reach: Vec<Reach>, to: Space, turn: Option<Rotation>) -> Option<Reach> {
+    let mut hits = stops(reach).into_iter().filter(|r| r.space == to);
+    match turn {
+        Some(turn) => hits.find(|r| r.rotation == turn),
+        None => hits.min_by_key(|r| (r.cost, r.rotation)),
+    }
+}
+
 /// The spaces a figure may stop on: reachable and not occupied.
 fn stops(reach: Vec<Reach>) -> Vec<Reach> {
     reach.into_iter().filter(|r| !r.occupied).collect()
@@ -52,32 +93,35 @@ impl ApiHandler for Api {
             .reachable(ctx.state(), who)
             .map_err(|e| Halt::reject(e.0))?;
         match name {
-            "reachable" => {
-                let at = |s: Space| {
-                    Value::List(
-                        vec![s.q, s.r, s.z as i32]
-                            .into_iter()
-                            .map(|n| Value::Int(i64::from(n)))
-                            .collect(),
-                    )
-                };
-                Ok(Value::List(
-                    stops(reach).iter().map(|r| at(r.space)).collect(),
-                ))
-            }
+            "reachable" => Ok(Value::List(stops(reach).iter().map(listed).collect())),
             "move" => {
                 let to = space(args)?;
-                let found = stops(reach).into_iter().find(|r| r.space == to);
+                let found = chosen(reach, to, rotation(args)?);
                 let found =
                     found.ok_or_else(|| Halt::reject("that figure cannot reach that space"))?;
-                let rotation = ctx.state().figures[who.index()].rotation;
+                let state = ctx.state();
+                let from = state.figures[who.index()].location;
+                let before = found.path.iter().rev().nth(1).copied().or(from);
                 let moved = Event::FigureMoved {
                     figure: who,
                     to,
-                    rotation,
+                    rotation: found.rotation,
                     path: found.path,
                 };
-                ctx.emit(moved).map(|()| Value::Nil)
+                ctx.emit(moved)?;
+                if !found.falls {
+                    return Ok(Value::Nil);
+                }
+                let levels = before.map_or(0, |b| b.z.saturating_sub(to.z));
+                let payload = [
+                    (Sym::new("figure"), Value::Int(i64::from(who.0))),
+                    (Sym::new("levels"), Value::Int(i64::from(levels))),
+                ];
+                let fell = Event::Custom {
+                    id: Sym::new(FIGURE_FELL),
+                    payload: Value::Map(payload.into()),
+                };
+                ctx.emit(fell).map(|()| Value::Nil)
             }
             other => Err(Halt::reject(format!("ctx.movement has no `{other}`"))),
         }
