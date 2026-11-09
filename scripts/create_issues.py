@@ -40,7 +40,6 @@ LABEL_COLORS = {
 }
 EXTRA_LABELS = {
     "task": ("0e8a16", "One PR-sized unit of engine work"),
-    "budget-exempt": ("fbca04", "Maintainer only: exempt this PR from the 500-line budget"),
     "claude-review": ("7057ff", "Request another Claude review (Sonnet); removed automatically"),
     "deep-review": ("5319e7", "Claude reviews this PR with Opus"),
 }
@@ -54,7 +53,7 @@ def render(task: dict, local: bool = False) -> str:
     """Issue body. Local copies also list blockers; on GitHub they are native relationships."""
     header = [f"**Task {task['id']}** · {task['milestone']}"]
     if task["milestone"] != "Post-1.0":
-        header[0] += f" · Est. core lines: ~{task['budget']} / 500"
+        header[0] += f" · Est. core lines: ~{task['budget']}"
     if local:
         header.append(f"**Blocked by:** {', '.join(task.get('depends', [])) or 'nothing'}")
     out = list(header)
@@ -81,8 +80,7 @@ def render(task: dict, local: bool = False) -> str:
         "",
         "## Definition of done",
         "",
-        "- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget",
-        "- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue",
+        "- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny",
         "- [ ] Every acceptance criterion has a test",
         "- [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`",
         "",

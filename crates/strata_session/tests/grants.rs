@@ -3,13 +3,14 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use strata_kernel::{DefId, ModuleId, SlotId, Sym, Value};
-use strata_model::{AbilityOwner, Command, Event, PlayerId};
+use strata_kernel::{DefId, ModuleId, SlotId, Value};
+use strata_model::{AbilityKey, AbilityOwner, Command, Event, PlayerId, UnitId};
 use strata_rules::{CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, Registrar, RuleModule};
 use strata_session::pack_test::{PackTests, TestReport, summary};
 
-/// Handles `attach` and `detach`: `{ what, owner }` names an ability (`sharp`) or a relic's
-/// first grant (`fury`) and the player it goes on.
+/// Handles `attach` and `detach`: `{ what, owner }` names an ability record (`sharp`) or a
+/// relic's first grant (`fury`) and the player it goes on, or a unit's first ability (`drill`)
+/// and the unit.
 struct Grants(&'static str);
 
 impl CommandHandler for Grants {
@@ -22,14 +23,28 @@ impl CommandHandler for Grants {
             return Err(Halt::reject("not a custom command"));
         };
         let owner = payload.get("owner").and_then(Value::as_int).unwrap_or(0);
-        let owner = AbilityOwner::Player(PlayerId(owner as u8));
-        let relic = payload.get("what").and_then(Value::as_str) == Ok("fury");
-        let def = DefId(0);
-        let params = if relic {
-            [(Sym::new("grant"), Value::Int(0))].into()
-        } else {
-            Default::default()
+        let player = AbilityOwner::Player(PlayerId(owner as u8));
+        let (def, owner) = match payload.get("what").and_then(Value::as_str) {
+            Ok("fury") => (
+                AbilityKey::Relic {
+                    relic: DefId(0),
+                    index: 0,
+                },
+                player,
+            ),
+            Ok("drill") => {
+                let unit = AbilityOwner::Unit(UnitId(owner as u32));
+                (
+                    AbilityKey::Unit {
+                        unit: DefId(0),
+                        index: 0,
+                    },
+                    unit,
+                )
+            }
+            _ => (AbilityKey::Def(DefId(0)), player),
         };
+        let params = Default::default();
         match self.0 {
             "attach" => ctx.emit(Event::AbilityAttached { def, owner, params }),
             _ => ctx.emit(Event::AbilityDetached { def, owner }),
@@ -84,6 +99,12 @@ fn a_relic_grant_applies_only_to_the_army_it_is_attached_to() {
 }
 
 #[test]
+fn a_unit_ability_is_found_by_its_unit_and_index() {
+    let reports = run("a unit ability");
+    assert!(reports[0].outcome.is_ok(), "{}", summary(&reports));
+}
+
+#[test]
 fn detaching_an_ability_that_is_not_attached_is_refused() {
     let reports = run("detaching an ability");
     let failure = reports[0].outcome.as_ref().unwrap_err();
@@ -93,4 +114,5 @@ fn detaching_an_ability_that_is_not_attached_is_refused() {
 #[test]
 fn running_twice_gives_identical_hashes() {
     assert_eq!(run("an attached ability"), run("an attached ability"));
+    assert_eq!(run("a unit ability"), run("a unit ability"));
 }

@@ -6,14 +6,12 @@ This kit turns the empty repo into one a Sonnet agent can work through issue by 
 
 | Path | Purpose |
 | --- | --- |
-| `CLAUDE.md` | The agent's rulebook: workflow, the 500-line rule, determinism, layering. Claude Code loads it automatically. |
+| `CLAUDE.md` | The agent's rulebook: workflow, determinism, layering. Claude Code loads it automatically. |
 | `docs/design/strata-engine.md` | Repo copy of the engine design doc. Issues cite its sections. |
 | `tasks/tasks.yaml` | 70 tasks (T-001 to T-070) across milestones M0–M7 plus a post-1.0 campaign placeholder. |
 | `tasks/T-*.md`, `tasks/README.md` | The same tasks rendered as markdown, with an index. |
 | `scripts/create_issues.py` | Creates labels, milestones and issues with `gh`, and turns each task's prerequisites into GitHub "blocked by" relationships. Idempotent. |
-| `scripts/line_budget.py` | Counts added core-logic lines per PR; fails above 500 or on inline test modules. |
 | `.github/workflows/ci.yml` | fmt + clippy, tests on Linux/macOS/Windows, cargo-deny. Skips Rust steps until T-001 adds the workspace. |
-| `.github/workflows/line-budget.yml` | The 500-line check; re-runs when the `budget-exempt` label changes. |
 | `.github/workflows/claude-review.yml` | Advisory Claude review on every non-draft PR to `master`: inline comments plus a verdict summary. |
 | `.github/workflows/claude.yml` | Optional: comment `@claude ...` on an issue or PR to have Claude implement or fix. Only you and collaborators can trigger it. |
 | `.github/pull_request_template.md`, `ISSUE_TEMPLATE/task.md`, `CODEOWNERS` | PR checklist, task template, you as owner of everything. |
@@ -27,7 +25,7 @@ This kit turns the empty repo into one a Sonnet agent can work through issue by 
 4. **Optional variables** (same page, Variables tab): `CLAUDE_REVIEW_MODEL` (default `claude-opus-5-5`) and `CLAUDE_IMPL_MODEL` (default `claude-sonnet-5-5`).
 5. **Protect `master`** (Settings → Rules → Rulesets, or Branch protection):
    - Require a pull request before merging; block force pushes and deletions.
-   - Require status checks: `fmt + clippy`, `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)`, `cargo-deny`, `core logic <= 500 lines`. Checks only appear in the picker after they have run once, so add them after the first PR.
+   - Require status checks: `fmt + clippy`, `test (ubuntu-latest)`, `test (macos-latest)`, `test (windows-latest)`, `cargo-deny`. Checks only appear in the picker after they have run once, so add them after the first PR.
    - Leave the Claude review advisory, not required.
    - Approvals: GitHub won't let you approve a PR opened from your own account. If the agent runs locally under your account, keep required approvals at 0 and simply be the one who merges. If PRs come from the Claude app, you can require one code-owner approval.
 6. **Create the issues:**

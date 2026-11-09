@@ -12,10 +12,11 @@ use strata_model::{
     ReplacementDef, ScriptRef, TriggerDef,
 };
 use strata_rules::{
-    ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, PhaseTree, RulesRuntime,
+    ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, PhaseTree, Reach,
+    RulesRuntime,
 };
 
-use crate::convert::{lua_to_value, value_to_lua};
+use crate::convert::{from_lua, lua_to_value, value_to_lua};
 use crate::ctx::{Args, Frame, Namespaces, RuleHost};
 use crate::data::PackSource;
 use crate::runtime::{ModuleBinding, RuntimeLua};
@@ -211,12 +212,23 @@ impl NativeEnv for LuaRules {
         self.host.marker(name)
     }
 
+    fn deployment(&self, state: &GameState, player: PlayerId) -> Option<strata_rules::DeploySlot> {
+        self.host.deployment(state, player)
+    }
+
+    fn standable(&self, space: strata_kernel::Space) -> bool {
+        self.host.standable(space)
+    }
+
     fn relic(&self, id: DefId) -> Option<strata_model::RelicDef> {
         self.host.relic(id)
     }
 
     fn run_effect(&self, ctx: &mut dyn Ctx, effect: &Logic, event: &Event) -> Result<(), Halt> {
         self.value(effect, ctx, &with_event(event)).map(drop)
+    }
+    fn reachable(&self, state: &GameState, figure: FigureId) -> Result<Vec<Reach>, LogicError> {
+        self.host.reachable(state, figure)
     }
 
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
@@ -253,7 +265,7 @@ impl HookRunner for LuaRules {
             return Err(Halt::reject("native replacements need the native runner"));
         };
         let frame = Frame::new(ctx, self);
-        let finish = |lua: &Lua, v: LuaValue| lua.from_value::<Vec<Event>>(v);
+        let finish = |lua: &Lua, v: LuaValue| from_lua::<Vec<Event>>(lua, v);
         self.with_state(|rt| frame.invoke(rt, script, &with_event(event), finish))?
     }
 

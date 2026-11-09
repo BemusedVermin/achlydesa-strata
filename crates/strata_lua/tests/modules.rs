@@ -85,6 +85,29 @@ rule_module {
     r.trigger { event = 'wounds_applied', effect = function() while true do end end }
   end,
 }
+
+rule_module {
+  id = 'natives',
+  register = function(r)
+    r.modifier { query = 'q', layer = 'add', when = { cond = 'adjacent', to = 'self' }, value = 1 }
+    r.action { id = 'shove', slots = {}, targets = 'enemies', resolve = function() end }
+    r.trigger { event = 'wounds_applied', filter = true, effect = function() end }
+  end,
+}
+
+rule_module {
+  id = 'two_faults',
+  register = function(r)
+    r.modifier { query = 'q', layer = 'sideways', value = 1, override = 'yes', when = 'x', zz = 1 }
+  end,
+}
+
+rule_module {
+  id = 'two_bad_natives',
+  register = function(r)
+    r.modifier { query = 'q', layer = 'add', value = 1, when = { a = 1.5, b = function() end } }
+  end,
+}
 "#;
 
 fn pack() -> (tempfile::TempDir, Vec<PackSource>) {
@@ -571,4 +594,53 @@ fn a_runtime_state_must_run_register_to_find_registered_functions() {
             )
             .is_err()
     );
+}
+
+#[test]
+fn plain_data_in_a_registration_is_native_logic() {
+    let (_dir, w) = world(0, &["natives"]);
+    let native = |value: Value| Some(Logic::Native(Descriptor(value)));
+    let modifier = &w.rt.modifiers()[0];
+    let adjacent = map(&[
+        ("cond", Value::Str(Sym::new("adjacent"))),
+        ("to", Value::Str(Sym::new("self"))),
+    ]);
+    assert_eq!(modifier.when, native(adjacent));
+    assert_eq!(Some(modifier.value.clone()), native(Value::Int(1)));
+    let action = &w.rt.actions()[0];
+    assert_eq!(action.targets, native(Value::Str(Sym::new("enemies"))));
+    assert!(matches!(action.resolve, Logic::Script(_)));
+    let trigger = &w.rt.triggers()[0];
+    assert_eq!(trigger.filter, native(Value::Bool(true)));
+}
+
+#[test]
+fn a_bad_registration_reports_the_same_error_in_every_fresh_state() {
+    let (_dir, packs) = pack();
+    let message = || {
+        let error = module("two_faults", &packs).register(&mut Registrar::default(), &map(&[]));
+        let ModuleError::Invalid(message) = error.unwrap_err();
+        message
+    };
+    let first = message();
+    assert!(first.contains("r.modifier"), "{first}");
+    for _ in 0..16 {
+        assert_eq!(message(), first);
+    }
+}
+
+#[test]
+fn a_native_descriptor_with_two_faults_reports_the_same_one_in_every_fresh_state() {
+    let (_dir, packs) = pack();
+    let message = || {
+        let module = module("two_bad_natives", &packs);
+        let error = module.register(&mut Registrar::default(), &map(&[]));
+        let ModuleError::Invalid(message) = error.unwrap_err();
+        message
+    };
+    let first = message();
+    assert!(first.contains("a number is not plain data"), "{first}");
+    for _ in 0..16 {
+        assert_eq!(message(), first);
+    }
 }

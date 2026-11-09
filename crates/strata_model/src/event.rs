@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use strata_kernel::{DefId, Rotation, Space, StableHash, Sym, Value};
 
+use crate::ability_key::AbilityKey;
 use crate::ids::{FigureId, PlayerId, RelicId, UnitId, VarKey};
 use crate::state::{AbilityOwner, Token};
 
@@ -31,6 +32,9 @@ pub enum Event {
         to: Space,
         /// Its new rotation.
         rotation: Rotation,
+        /// The spaces walked, excluding the start and ending at `to`; empty for a placement.
+        #[serde(default)]
+        path: Vec<Space>,
     },
     /// Dice were rolled. Presentation and triggers only; no state changes.
     DiceRolled {
@@ -115,12 +119,9 @@ pub enum Event {
     /// A relic was turned face up.
     RelicRevealed(RelicId),
     /// An ability instance was attached to a unit, player or relic.
-    ///
-    /// An `ability` record is named by `def`. A relic's granted ability has the relic as `def`
-    /// and the position in its `grants.abilities` as the `grant` param.
     AbilityAttached {
-        /// The ability, or the relic whose grant this is.
-        def: DefId,
+        /// The ability definition.
+        def: AbilityKey,
         /// What it is attached to.
         owner: AbilityOwner,
         /// Parameters resolved at attach time.
@@ -128,8 +129,8 @@ pub enum Event {
     },
     /// The first matching ability instance was removed from its owner.
     AbilityDetached {
-        /// The ability, or the relic whose grant this is.
-        def: DefId,
+        /// The ability definition.
+        def: AbilityKey,
         /// What it was attached to.
         owner: AbilityOwner,
     },

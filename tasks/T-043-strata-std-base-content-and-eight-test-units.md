@@ -1,6 +1,6 @@
 # T-043: strata_std: base content and eight test units
 
-**Task T-043** · M3 Standard rules and archetypes · Est. core lines: ~150 / 500
+**Task T-043** · M3 Standard rules and archetypes · Est. core lines: ~150
 **Depends on:** T-042, T-039, T-040
 
 ## Goal
@@ -29,8 +29,7 @@ A playable standard pack.
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

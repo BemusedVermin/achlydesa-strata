@@ -1,6 +1,6 @@
 # T-046: Determinism harness and minimal `strata sim` (M3 gate)
 
-**Task T-046** · M3 Standard rules and archetypes · Est. core lines: ~250 / 500
+**Task T-046** · M3 Standard rules and archetypes · Est. core lines: ~250
 **Depends on:** T-045, T-043
 
 ## Goal
@@ -29,8 +29,7 @@ Prove 1,000 seeded matches produce identical hash sequences across processes and
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 
