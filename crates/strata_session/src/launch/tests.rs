@@ -58,7 +58,7 @@ fn a_launched_match_plays_the_commands_the_client_sends() {
     );
     assert!(matches!(
         handle.recv_timeout(WAIT),
-        Ok(SimMessage::Finished)
+        Ok(SimMessage::Finished(None))
     ));
     assert_eq!(handle.shutdown(), Ok(()));
 }
@@ -72,7 +72,7 @@ fn launching_twice_with_the_same_commands_gives_the_same_hash() {
         while let Ok(message) = handle.recv_timeout(WAIT) {
             match message {
                 SimMessage::View(view) => last = Some(view.state.hash()),
-                SimMessage::Finished => break,
+                SimMessage::Finished(_) => break,
                 _ => {}
             }
         }

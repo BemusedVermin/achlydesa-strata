@@ -99,11 +99,7 @@ impl Host {
     /// back to the printed values when there is none or the query fails.
     fn card(&self, state: &GameState, id: UnitId, unit: &UnitState) -> Option<UnitCard> {
         let def = self.registry.get::<UnitDef>(unit.def)?;
-        let alive = |f: &FigureId| {
-            let figure = state.figures.get(f.index());
-            let live = [FigureStatus::OnBoard, FigureStatus::Reserve];
-            figure.is_some_and(|f| live.contains(&f.status))
-        };
+        let alive = |f: &FigureId| state.in_play(*f);
         let wound = find::<MarkerDef>(&self.registry, &self.pack, "wound").map(|(id, _)| id);
         let figure_line = |f: &FigureId| {
             let markers = state.figures.get(f.index()).map(|s| s.markers.as_slice());
@@ -364,15 +360,35 @@ impl RuleHost for Host {
         find::<MarkerDef>(&self.registry, &self.pack, name).map(|(id, _)| id)
     }
 
+    fn points(&self, unit: DefId) -> Option<i64> {
+        let def = self.registry.get::<UnitDef>(unit)?;
+        crate::army::printed_points(&self.registry, &self.pack, def)
+    }
+
+    /// A match without seats has no scenario: a pack test that names none seats nobody, and
+    /// its setup's scenario handle is only a default.
+    fn scenario(&self, state: &GameState) -> Option<&ScenarioDef> {
+        let setup = &state.setup;
+        if setup.players.is_empty() {
+            return None;
+        }
+        self.registry.get::<ScenarioDef>(setup.scenario)
+    }
+
+    fn zone(&self, state: &GameState, name: &str) -> Option<Vec<Hex>> {
+        let scenario = RuleHost::scenario(self, state)?;
+        let (_, map) = find::<MapDef>(&self.registry, &self.pack, scenario.map.as_str())?;
+        map.zones.get(name).cloned()
+    }
+
     fn deployment(&self, state: &GameState, player: PlayerId) -> Option<DeploySlot> {
         let setup = &state.setup;
-        let scenario = self.registry.get::<ScenarioDef>(setup.scenario)?;
+        let scenario = RuleHost::scenario(self, state)?;
         let seat = setup.players.get(player.index())?;
         let slot = scenario.slots.iter().find(|s| s.id == seat.slot)?;
-        let (_, map) = find::<MapDef>(&self.registry, &self.pack, scenario.map.as_str())?;
         Some(DeploySlot {
             order: slot.deploy_order,
-            zone: map.zones.get(&slot.start)?.clone(),
+            zone: RuleHost::zone(self, state, slot.start.as_str())?,
         })
     }
 

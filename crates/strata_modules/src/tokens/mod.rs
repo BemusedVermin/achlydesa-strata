@@ -13,8 +13,8 @@ use std::sync::OnceLock;
 
 use strata_kernel::{DefId, ModuleId, SlotId, Sym, Value};
 use strata_model::{
-    Command, ConfigField, Descriptor, Event, FigureStatus, GameState, Logic, PlayerId, Token,
-    TokenChoice, TriggerDef, UnitId, VarKey, Visibility,
+    Command, ConfigField, Descriptor, Event, GameState, Logic, PlayerId, Token, TokenChoice,
+    TriggerDef, UnitId, VarKey, Visibility,
 };
 use strata_rules::{
     ActivationGate, Anchor, CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, NativeEnv,
@@ -125,11 +125,7 @@ fn nth_turn(state: &GameState, turn: u32) -> u32 {
 }
 
 fn is_live(state: &GameState, unit: usize) -> bool {
-    let live = |f: &strata_model::FigureId| {
-        let status = state.figures.get(f.index()).map(|f| f.status);
-        matches!(status, Some(FigureStatus::Reserve | FigureStatus::OnBoard))
-    };
-    state.units[unit].figures.iter().any(live)
+    state.unit_in_play(&state.units[unit])
 }
 
 /// Lets only the unit that holds the revealed token of the current turn act.

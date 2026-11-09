@@ -252,7 +252,7 @@ impl GameState {
     fn live_figure(&self, id: FigureId) -> Result<&FigureState, ApplyError> {
         let fig = self.figure(id)?;
         match fig.status {
-            FigureStatus::Reserve | FigureStatus::OnBoard => Ok(fig),
+            status if status.in_play() => Ok(fig),
             status => Err(ApplyError::WrongStatus(id, status)),
         }
     }

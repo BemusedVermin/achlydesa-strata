@@ -19,6 +19,7 @@ use names::answer_fits;
 
 use crate::flow::{Flow, TokenRules};
 use crate::runtime::RulesRuntime;
+use crate::victory::{MatchResult, Victory};
 
 /// Drives a game: owns the committed state and the command log.
 pub struct Engine<'a> {
@@ -57,10 +58,21 @@ impl<'a> Engine<'a> {
         &self.log
     }
 
-    /// Submits `command` for `player`. Rejected while a decision is pending.
+    /// How the match ended, as the `victory` slot's module reports it; `None` while it goes on or
+    /// without such a module.
+    pub fn result(&self) -> Option<MatchResult> {
+        let victory = self.rt.service::<dyn Victory>()?;
+        victory.result(&self.state)
+    }
+
+    /// Submits `command` for `player`. Rejected while a decision is pending or once the match is
+    /// over.
     pub fn submit(&mut self, player: PlayerId, command: Command) -> Outcome {
         if self.state.pending.is_some() {
             return rejected("a decision is pending");
+        }
+        if self.result().is_some() {
+            return rejected("the match is over");
         }
         self.run(player, command, Vec::new())
     }
@@ -80,8 +92,12 @@ impl<'a> Engine<'a> {
         self.run(pending.player, pending.command, tape)
     }
 
-    /// Commands `player` may legally submit; empty until [`Engine::with_flow`] is called.
+    /// Commands `player` may legally submit; empty until [`Engine::with_flow`] is called, and
+    /// once the match is over.
     pub fn legal_commands(&self, player: PlayerId) -> Vec<Command> {
+        if self.result().is_some() {
+            return Vec::new();
+        }
         match &self.flow {
             Some(flow) => flow.legal_commands(self.rt, self.hooks.env(), &self.state, player),
             None => Vec::new(),
@@ -94,7 +110,8 @@ impl<'a> Engine<'a> {
     /// because the session submits every command as the active player.
     pub fn token_choice(&self, player: PlayerId) -> Option<TokenChoice> {
         let rules = self.rt.service::<dyn TokenRules>()?;
-        if self.state.pending.is_some() || self.state.flow.active != player {
+        let idle = self.state.pending.is_some() || self.result().is_some();
+        if idle || self.state.flow.active != player {
             return None;
         }
         rules.choice(&self.state, player)

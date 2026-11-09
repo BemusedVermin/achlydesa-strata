@@ -272,6 +272,28 @@ impl NativeEnv for LuaRules {
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
         self.host.forced_roll(die, count)
     }
+
+    fn points(&self, unit: DefId) -> Option<i64> {
+        self.host.points(unit)
+    }
+
+    fn scenario(&self, state: &GameState) -> Option<&strata_model::ScenarioDef> {
+        self.host.scenario(state)
+    }
+
+    fn zone(&self, state: &GameState, name: &str) -> Option<Vec<strata_kernel::Hex>> {
+        self.host.zone(state, name)
+    }
+
+    fn call_logic(&self, ctx: &mut dyn Ctx, logic: &Logic, args: &[Value]) -> Result<Value, Halt> {
+        let args = |lua: &Lua| {
+            let values = args.iter().map(|a| value_to_lua(lua, a));
+            values
+                .collect::<Result<_, _>>()
+                .map_err(mlua::Error::external)
+        };
+        self.value(logic, ctx, &args)
+    }
 }
 
 impl HookRunner for LuaRules {

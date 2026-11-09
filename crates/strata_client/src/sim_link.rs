@@ -117,8 +117,14 @@ fn drain_sim(
                 }
                 view.0 = Some(latest);
             }
-            SimMessage::Finished => {
-                info!("the match finished");
+            SimMessage::Finished(result) => {
+                match result {
+                    Some(result) => info!(
+                        "the match ended by {} (winners {:?})",
+                        result.condition, result.winners
+                    ),
+                    None => info!("the match finished"),
+                }
                 *status = SimStatus::Finished;
             }
             SimMessage::Error(error) => {

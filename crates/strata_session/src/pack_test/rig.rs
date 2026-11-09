@@ -12,7 +12,7 @@ use strata_rules::{
 use super::PackTests;
 use super::host::Host;
 use super::run::Rulesets;
-use crate::setup::{SetupError, build_match};
+use crate::setup::{SetupError, build_match, check_victory};
 
 /// The rules of a setup's ruleset, running against the match it builds.
 pub struct MatchRig {
@@ -34,9 +34,11 @@ impl MatchRig {
             .name::<RulesetDef>(setup.ruleset)
             .ok_or_else(|| err("the ruleset is not in the registry".into()))?
             .to_owned();
+        let scenario_id = setup.scenario;
         let built = build_match(registry, setup)?;
         let rulesets = Rulesets { tests, pack };
         let rt = resolve(&name, &rulesets, &tests.catalog).map_err(|e| err(e.to_string()))?;
+        check_victory(registry, &rt, scenario_id)?;
         let modifiers = rt.modifiers().iter().map(|m| SourcedModifier {
             source: Sym::new(&name),
             priority: 0,

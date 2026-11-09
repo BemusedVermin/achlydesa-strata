@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 pub mod activation;
+pub mod army;
 pub mod combat;
 pub mod deployment;
 pub mod engagement;
@@ -16,6 +17,7 @@ mod shared;
 pub mod tokens;
 pub mod toy;
 pub mod units;
+pub mod victory;
 
 use strata_rules::RuleModule;
 
@@ -34,5 +36,7 @@ pub fn native_modules() -> Vec<Box<dyn RuleModule>> {
         Box::new(engagement::EngagementModule),
         Box::new(deployment::Deployment),
         Box::new(combat::CombatModule),
+        Box::new(army::Army),
+        Box::new(victory::VictoryModule),
     ]
 }

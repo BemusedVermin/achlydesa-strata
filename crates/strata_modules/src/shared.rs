@@ -1,8 +1,22 @@
 //! Small helpers that more than one module of this crate needs.
 
-use strata_kernel::{Sym, Value};
+use strata_kernel::{Sym, Value, ValueError};
 use strata_model::{DieKind, FigureId, FigureState};
 use strata_rules::{Halt, NativeEnv};
+
+/// The names under `key` of a descriptor, written as one string or a list of them. A missing
+/// key, nil or an empty table lists none.
+pub(crate) fn names(descriptor: &Value, key: &str) -> Result<Vec<Sym>, ValueError> {
+    match descriptor.get(key) {
+        Err(_) | Ok(Value::Nil) => Ok(Vec::new()),
+        Ok(Value::Map(map)) if map.is_empty() => Ok(Vec::new()),
+        Ok(Value::Str(one)) => Ok(vec![one.clone()]),
+        Ok(list) => {
+            let items = list.as_list()?.iter();
+            items.map(|v| v.as_str().map(Sym::new)).collect()
+        }
+    }
+}
 
 /// The figure's ID as query subjects, script values and action arguments carry it.
 pub(crate) fn id_value(figure: FigureId) -> Value {

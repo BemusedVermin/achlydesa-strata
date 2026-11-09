@@ -92,6 +92,30 @@ pub enum Step {
         /// The decision's prompt.
         prompt: Sym,
     },
+    /// Checks how the match ended, through the `victory` slot's module.
+    ExpectResult {
+        /// The condition that ended it; `None` if the match must still be going on.
+        #[serde(default)]
+        condition: Option<Sym>,
+        /// Every winning player; empty for a draw.
+        #[serde(default)]
+        winners: Vec<PlayerId>,
+    },
+    /// Checks an army list against a format's and a scenario's army rules, through the `army`
+    /// slot's module.
+    ExpectArmy {
+        /// Name of the army list.
+        army: Sym,
+        /// Name of the format whose rules apply.
+        #[serde(default)]
+        format: Option<Sym>,
+        /// Name of the scenario whose rules apply.
+        #[serde(default)]
+        scenario: Option<Sym>,
+        /// The rule each violation came from, in order: the format's, then the scenario's.
+        #[serde(default)]
+        violations: Vec<Sym>,
+    },
     /// A player secretly puts tokens from their hand on unit cards.
     PlaceTokens {
         /// The player placing them.
