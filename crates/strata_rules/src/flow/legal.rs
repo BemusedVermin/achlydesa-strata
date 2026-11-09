@@ -6,6 +6,7 @@ use strata_model::{Command, FigureStatus, GameState, PlayerId, UnitId};
 use super::action::ActionRunner;
 use super::activation::ActivationRules;
 use super::tree::PhaseTree;
+use crate::native::NativeActions;
 use crate::runtime::RulesRuntime;
 
 /// Decides which units a player may activate now. A module provides it as a service; without one,
@@ -41,6 +42,7 @@ impl Flow<'_> {
         match &s.flow.activation {
             None => self.activations(rt, s, player),
             Some(act) => {
+                let runner = NativeActions::new(rt, Some(self.runner), self.runner.native_env());
                 let mut out = Vec::new();
                 for &figure in &s.units[act.unit.index()].figures {
                     let fig = &s.figures[figure.index()];
@@ -52,7 +54,7 @@ impl Flow<'_> {
                             continue;
                         }
                         let args = match def.targets {
-                            Some(_) => self.runner.targets(def, figure, s).unwrap_or_default(),
+                            Some(_) => runner.targets(def, figure, s).unwrap_or_default(),
                             None => vec![Value::Nil],
                         };
                         out.extend(args.into_iter().map(|args| Command::Action {

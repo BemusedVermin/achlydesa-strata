@@ -7,7 +7,7 @@ use std::sync::Arc;
 use strata_kernel::{ModuleId, SlotId, Sym, Value, WindowId};
 use strata_model::{ActionDef, ModifierDef, ReactionDef, ReplacementDef, TriggerDef};
 
-use crate::native::NativeLogic;
+use crate::native::{NativeAction, NativeLogic};
 use crate::registrar::{Anchor, ApiHandler, CommandHandler, LuaApi, PhaseDef, Registrar, Service};
 
 /// Every registration of a resolved ruleset. It is plain data shared by all threads.
@@ -88,6 +88,11 @@ impl RulesRuntime {
     /// The Rust logic registered as `name`, if any module provided it.
     pub fn native(&self, name: &str) -> Option<&dyn NativeLogic> {
         self.reg.natives.get(name).map(|n| &**n)
+    }
+
+    /// The Rust action registered as `name`, if any module provided it.
+    pub fn native_action(&self, name: &str) -> Option<&dyn NativeAction> {
+        self.reg.native_actions.get(name).map(|n| &**n)
     }
 
     /// Every exported namespace with its API, in name order.

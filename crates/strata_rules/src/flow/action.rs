@@ -5,6 +5,7 @@ use strata_model::{ActionDef, Command, FigureId, FigureStatus, GameState, Player
 
 use super::activation::ActivationRules;
 use crate::engine::{Ctx, Halt};
+use crate::native::{NativeEnv, NoEnv};
 
 /// Evaluates the targeting and resolver logic of actions.
 ///
@@ -25,6 +26,10 @@ pub trait ActionRunner: Send + Sync {
         args: &Value,
         ctx: &mut dyn Ctx,
     ) -> Result<(), Halt>;
+    /// What native actions may ask of the content; by default nothing.
+    fn native_env(&self) -> &dyn NativeEnv {
+        &NoEnv
+    }
 }
 
 /// Runs a `Command::Action` for `player`. An action's `DefId` is its index in `actions`.

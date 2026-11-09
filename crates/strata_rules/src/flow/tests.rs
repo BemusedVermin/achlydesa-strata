@@ -507,3 +507,41 @@ fn without_a_gate_every_unit_of_the_player_may_be_activated() {
         [Command::ActivateUnit(UnitId(0))]
     );
 }
+
+/// A native action whose only target is 7.
+struct Strike;
+
+impl crate::native::NativeAction for Strike {
+    fn targets(
+        &self,
+        _: &GameState,
+        _: &dyn crate::native::NativeEnv,
+        _: FigureId,
+    ) -> Result<Vec<Value>, Halt> {
+        Ok(vec![Value::Int(7)])
+    }
+
+    fn resolve(
+        &self,
+        _: &mut dyn Ctx,
+        _: &dyn crate::native::NativeEnv,
+        _: FigureId,
+        _: &Value,
+    ) -> Result<(), Halt> {
+        Ok(())
+    }
+}
+
+#[test]
+fn legal_commands_list_native_actions_with_their_own_targets() {
+    let rules = rules(OrderingPolicy::AllFiguresPerStep);
+    let mut rt = runtime(&rules);
+    rt.reg
+        .native_action("strike", &["move"], "t.strike", Box::new(Strike));
+    let runner = Runner(rules.clone());
+    let mut engine = into_turns(&rt, &runner, &rules);
+    committed(engine.submit(PlayerId(0), Command::ActivateUnit(UnitId(0))));
+    let legal = engine.legal_commands(PlayerId(0));
+    assert!(legal.contains(&hit(0, 3, 7)), "{legal:?}");
+    assert!(legal.contains(&walk(0)) && !legal.contains(&hit(0, 3, 1)));
+}

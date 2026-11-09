@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use strata_content::RegistryDefs;
-use strata_kernel::DefId;
+use strata_kernel::{DefId, Value};
 use strata_lua::{LuaRules, ModuleBinding};
 use strata_model::board::compile;
 use strata_model::{
@@ -19,6 +19,9 @@ use super::host::{Host, find};
 use super::report::Failure;
 use super::{PackTests, state};
 use crate::setup::place_relics;
+
+/// The action `act.attack` takes.
+const ATTACK: &str = "attack";
 
 /// Finds a test's rulesets by name, preferring its own pack.
 pub(super) struct Rulesets<'a> {
@@ -229,6 +232,26 @@ impl PackTests {
                     };
                     let player = engine.state().figures[found.index()].controller;
                     events = settle(engine.submit(player, command), action.as_str()).map_err(at)?;
+                    log.extend(events.iter().cloned());
+                }
+                Step::Attack {
+                    figure: handle,
+                    target,
+                    rig,
+                } => {
+                    let found = figure(handle).map_err(at)?;
+                    let target = figure(target).map_err(at)?;
+                    let position = rt.actions().iter().position(|a| a.id.as_str() == ATTACK);
+                    let position =
+                        position.ok_or_else(|| at("the ruleset has no `attack`".into()))?;
+                    host.set_rig(rig.clone());
+                    let command = Command::Action {
+                        figure: found,
+                        action: DefId(position as u32),
+                        args: Value::Int(i64::from(target.0)),
+                    };
+                    let player = engine.state().figures[found.index()].controller;
+                    events = settle(engine.submit(player, command), ATTACK).map_err(at)?;
                     log.extend(events.iter().cloned());
                 }
                 Step::Answer(answer) => {

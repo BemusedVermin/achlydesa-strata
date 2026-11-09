@@ -111,4 +111,15 @@ pub enum Step {
         /// The player ending it.
         player: PlayerId,
     },
+    /// The attacker takes the ruleset's `attack` action against the target, submitted by the
+    /// player who controls the attacker.
+    Attack {
+        /// The attacker's handle.
+        figure: String,
+        /// The target's handle.
+        target: String,
+        /// The faces to force: the attack roll, then the defense roll.
+        #[serde(default)]
+        rig: Vec<Vec<Sym>>,
+    },
 }
