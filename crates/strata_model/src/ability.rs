@@ -77,6 +77,17 @@ pub enum ModifierLayer {
     Final,
 }
 
+/// Which figure of a pair query an ability's modifier is gathered for (design §6.6).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, StableHash)]
+#[serde(rename_all = "lowercase")]
+pub enum ModifierSide {
+    /// Queries about a figure the ability reaches.
+    #[default]
+    Subject,
+    /// Pair queries whose context figure the ability reaches, such as being targeted.
+    Context,
+}
+
 /// Changes the result of a query.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 #[serde(deny_unknown_fields)]
@@ -96,6 +107,9 @@ pub struct ModifierDef {
     /// Whether a boolean vote beats `deny`.
     #[serde(default, rename = "override")]
     pub overrides: bool,
+    /// Which side of a pair query an ability gathers it from. Ruleset modifiers ignore it.
+    #[serde(default)]
+    pub on: ModifierSide,
 }
 
 /// Something a figure can do with activation slots.

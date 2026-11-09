@@ -257,3 +257,67 @@ fn unusable_footprint_shapes_are_refused_by_name() {
             .starts_with("t/data.lua:5: move: footprint `t:long_snake`")
     );
 }
+
+/// A unit printing one ability with `scope`.
+fn unit_with_scope(id: &str, scope: &str) -> String {
+    format!(
+        r#"
+unit {{
+    id = '{id}', name = 'U', kind = 'squad', rarity = 'common', stats = {{}},
+    figures = {{{{
+        id = 'f', count = 1, footprint = 'one', height = 1,
+        los = {{ target = 10, hit_zone = {{0, 12}}, samples = {{'center'}} }},
+    }}}},
+    abilities = {{
+        {{ name = 'Fine', text = 'Unit.', scope = 'unit' }},
+        {{ name = 'Wide', text = 'Too wide.', scope = '{scope}' }},
+    }},
+}}
+"#
+    )
+}
+
+#[test]
+fn printed_abilities_scoped_beyond_the_unit_are_refused_naming_211() {
+    let footprint = "footprint { id = 'one', name = 'One', cells = {{ q = 0, r = 0 }}, move = 'rigid', max_spread = 1 }\n";
+    let mut data = footprint.to_owned();
+    for scope in ["army", "holder", "occupant", "figure"] {
+        data.push_str(&unit_with_scope(&format!("u_{scope}"), scope));
+    }
+    let errors = run(&data).expect_err("wide scopes must not freeze");
+    assert_eq!(errors.len(), 3, "{errors:#?}");
+    for scope in ["army", "holder", "occupant"] {
+        let named = format!("unit `t:u_{scope}`");
+        let error = errors.iter().find(|e| e.message.contains(&named));
+        let error = error.unwrap_or_else(|| panic!("no error for `{scope}` in {errors:#?}"));
+        assert_eq!(error.field_path, "abilities/2/scope");
+        assert!(
+            error.message.contains(&format!("scope `{scope}`")),
+            "{error}"
+        );
+        assert!(error.message.contains("#211"), "{error}");
+        assert!(error.message.contains("`Wide`"), "{error}");
+    }
+}
+
+#[test]
+fn a_modifier_names_its_side_and_defaults_to_the_subject() {
+    let data = r#"
+ability {
+    id = 'slippery', name = 'Slippery', text = 'Hard to target.', scope = 'unit',
+    modifiers = {
+        { query = 'can_target', layer = 'set', value = function() end, on = 'context' },
+        { query = 'attack', layer = 'add', value = 1 },
+    },
+}
+"#;
+    let records = run(data).unwrap();
+    let FrozenDef::Ability(ability) = &records[0].def else {
+        panic!("not an ability: {:?}", records[0].def);
+    };
+    let sides: Vec<_> = ability.modifiers.iter().map(|m| m.on).collect();
+    use strata_model::ModifierSide;
+    assert_eq!(sides, [ModifierSide::Context, ModifierSide::Subject]);
+    let bad = errors(&data.replace("'context'", "'target'"));
+    assert!(bad.contains("modifiers/1/on"), "{bad}");
+}

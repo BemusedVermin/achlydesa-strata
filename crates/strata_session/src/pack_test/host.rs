@@ -12,8 +12,8 @@ use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::CompiledBoard;
 use strata_model::{
     AbilityOwner, Descriptor, DieDef, DieKind, FigureDef, FigureDefRef, FigureId, FigureStatus,
-    FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef, StatDef,
-    TerrainDef, UnitDef, UnitId, UnitState,
+    FootprintDef, GameState, MapDef, MarkerDef, ModifierDef, ModifierSide, PlayerId, RelicDef,
+    ScenarioDef, StatDef, TerrainDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
     Ctx, DeploySlot, Engagement, EngagementMemo, EvalCtx, FigureVolume, Halt, LineOfSight,
@@ -59,6 +59,8 @@ pub(crate) struct Host {
     los: Option<Arc<dyn LineOfSight>>,
     movement: Option<Arc<dyn Movement>>,
     engagement: Option<Arc<dyn Engagement>>,
+    /// The vote keys whose context is a figure (design §6.6).
+    pair_queries: BTreeSet<Sym>,
     rig: Mutex<Rig>,
     /// Set once the ruleset's phases are known.
     pub(crate) names: OnceLock<Arc<Names>>,
@@ -89,6 +91,7 @@ impl Host {
             los: None,
             movement: None,
             engagement: None,
+            pair_queries: VoteQuery::PAIR_KEYS.iter().map(|k| Sym::new(k)).collect(),
             rig: Mutex::default(),
             names: OnceLock::new(),
             rules: OnceLock::new(),
@@ -169,6 +172,13 @@ impl Host {
         self
     }
 
+    /// Treats the votes `keys` as pair queries, whose integer context is a figure. Without this
+    /// only the core pair queries are.
+    pub(crate) fn with_pair_queries(mut self, keys: BTreeSet<Sym>) -> Self {
+        self.pair_queries = keys;
+        self
+    }
+
     /// Forces the dice of the next command and counts its rolls from the first.
     pub(super) fn set_rig(&self, rolls: Vec<Vec<Sym>>) {
         *self.rig.lock().unwrap() = Rig { rolls, next: 0 };
@@ -180,10 +190,11 @@ impl Host {
     }
 
     /// The modifiers of attached abilities for a query about `subject`, asked with the figure
-    /// `context`, if any. Every modifier of an ability that reaches the subject joins. For a pair
-    /// query, the abilities that reach the context figure join too, but only their modifiers that
-    /// have a `select`: such a modifier applies only where its selector, which sees the context,
-    /// says so, while one without a selector is about its owner's own figures (design §6.6).
+    /// `context` for a pair query. A modifier is on one side (design §6.6): one `on` the subject,
+    /// the default, joins when its ability reaches the subject; one `on = "context"` joins only
+    /// a pair query whose context figure its ability reaches. So "enemies cannot target me"
+    /// changes who may target the owner, never whom the owner may target. When the subject is
+    /// the context, both sides join, each modifier once.
     fn granted(
         &self,
         state: &GameState,
@@ -191,21 +202,22 @@ impl Host {
         context: Option<FigureId>,
     ) -> Vec<SourcedModifier> {
         let own = reaching(state, subject);
-        let other = context.filter(|c| *c != subject);
-        let theirs = other.map(|c| reaching(state, c)).unwrap_or_default();
+        let theirs = context.map(|c| reaching(state, c)).unwrap_or_default();
         let mut found = Vec::new();
         for (at, instance) in state.abilities.iter().enumerate() {
-            let selected_only = match (own.contains(&at), theirs.contains(&at)) {
-                (true, _) => false,
-                (false, true) => true,
-                (false, false) => continue,
-            };
+            let sides = (own.contains(&at), theirs.contains(&at));
+            if sides == (false, false) {
+                continue;
+            }
             let Some((ability, name)) = self.registry.ability_with_name(instance.def) else {
                 continue;
             };
+            let joins = |m: &&ModifierDef| match m.on {
+                ModifierSide::Subject => sides.0,
+                ModifierSide::Context => sides.1,
+            };
             let source = Sym::new(&name);
-            let modifiers = ability.modifiers.iter();
-            let modifiers = modifiers.filter(|m| !selected_only || m.select.is_some());
+            let modifiers = ability.modifiers.iter().filter(joins);
             found.extend(modifiers.map(|m| SourcedModifier {
                 source: source.clone(),
                 priority: 0,
@@ -213,6 +225,17 @@ impl Host {
             }));
         }
         found
+    }
+
+    /// The context figure of `query`, if it is a pair query asked with a figure that exists.
+    /// Any other vote's context is an input, even when it is an integer.
+    fn pair_context(&self, state: &GameState, query: &VoteQuery) -> Option<FigureId> {
+        if !self.pair_queries.contains(&query.key) {
+            return None;
+        }
+        let n = query.context.as_int().ok()?;
+        let figure = FigureId(u32::try_from(n).ok()?);
+        state.figures.get(figure.index()).map(|_| figure)
     }
 
     /// A figure's stat after every modifier.
@@ -318,9 +341,8 @@ impl RuleHost for Host {
                     context: context.clone(),
                 };
                 let figure = FigureId(subject.as_int().map_err(asked)? as u32);
-                let other = context.as_int().ok().and_then(|n| u32::try_from(n).ok());
-                self.ask(state, (figure, other.map(FigureId)), &query)
-                    .map(Value::Bool)
+                let other = self.pair_context(state, &query);
+                self.ask(state, (figure, other), &query).map(Value::Bool)
             }
             _ => Err(LogicError(format!(
                 "the harness cannot answer query `{name}`"
@@ -751,3 +773,6 @@ impl MoveWorld for StateMove<'_> {
         Ok(!owed.is_empty())
     }
 }
+
+#[cfg(test)]
+mod tests;

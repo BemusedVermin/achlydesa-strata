@@ -25,7 +25,8 @@ fn state_with_unit(def: DefId) -> GameState {
 #[test]
 fn each_printed_entry_is_attached_to_the_unit_by_its_index() {
     let state = state_with_unit(DefId(7));
-    let events = state.printed_ability_events(UnitId(0), &unit_with(2));
+    let def = unit_with(2);
+    let events = state.printed_ability_events(UnitId(0), |_| Some(&def));
     let keys: Vec<_> = events
         .iter()
         .map(|e| match e {
@@ -49,20 +50,37 @@ fn applying_the_events_twice_attaches_each_entry_once() {
     let mut state = state_with_unit(DefId(7));
     let def = unit_with(2);
     for _ in 0..2 {
-        for event in state.printed_ability_events(UnitId(0), &def) {
+        for event in state.printed_ability_events(UnitId(0), |_| Some(&def)) {
             state.apply(&event).unwrap();
         }
     }
     assert_eq!(state.abilities.len(), 2);
-    assert!(state.printed_ability_events(UnitId(0), &def).is_empty());
+    assert!(
+        state
+            .printed_ability_events(UnitId(0), |_| Some(&def))
+            .is_empty()
+    );
 }
 
 #[test]
 fn a_unit_the_state_does_not_have_gets_nothing() {
     let state = GameState::default();
-    assert!(
-        state
-            .printed_ability_events(UnitId(3), &unit_with(1))
-            .is_empty()
-    );
+    let def = unit_with(1);
+    let events = state.printed_ability_events(UnitId(3), |_| Some(&def));
+    assert!(events.is_empty());
+}
+
+#[test]
+fn the_definition_is_looked_up_by_the_units_recorded_def() {
+    let state = state_with_unit(DefId(7));
+    let def = unit_with(1);
+    let mut asked = None;
+    let events = state.printed_ability_events(UnitId(0), |id| {
+        asked = Some(id);
+        Some(&def)
+    });
+    assert_eq!(asked, Some(DefId(7)));
+    assert_eq!(events.len(), 1);
+    // A definition the lookup does not know attaches nothing.
+    assert!(state.printed_ability_events(UnitId(0), |_| None).is_empty());
 }

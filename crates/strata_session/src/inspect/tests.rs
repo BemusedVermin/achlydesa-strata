@@ -43,6 +43,7 @@ fn modifier(query: &str, layer: ModifierLayer, source: &str, value: Logic) -> So
             when: None,
             value,
             overrides: false,
+            on: Default::default(),
         },
     }
 }

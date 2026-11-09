@@ -1,13 +1,14 @@
 //! The finished, immutable rules runtime.
 
 use std::any::TypeId;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use strata_kernel::{ModuleId, SlotId, Sym, Value, WindowId};
 use strata_model::{ActionDef, ModifierDef, ReactionDef, ReplacementDef, TriggerDef};
 
 use crate::native::{NativeAction, NativeLogic};
+use crate::query::VoteQuery;
 use crate::registrar::{Anchor, ApiHandler, CommandHandler, LuaApi, PhaseDef, Registrar, Service};
 
 /// Every registration of a resolved ruleset. It is plain data shared by all threads.
@@ -77,6 +78,13 @@ impl RulesRuntime {
     /// Declared windows.
     pub fn windows(&self) -> &[WindowId] {
         &self.reg.windows
+    }
+
+    /// The keys of every pair query: the core ones in [`VoteQuery::PAIR_KEYS`] and any a
+    /// module declared with [`Registrar::pair_query`].
+    pub fn pair_queries(&self) -> BTreeSet<Sym> {
+        let core = VoteQuery::PAIR_KEYS.iter().map(|k| Sym::new(k));
+        core.chain(self.reg.pair_queries.iter().cloned()).collect()
     }
 
     /// The provider of service `S`, if any module registered one.

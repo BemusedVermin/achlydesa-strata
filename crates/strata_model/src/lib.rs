@@ -29,7 +29,7 @@ pub mod vocab;
 
 pub use ability::{
     AbilityDef, ActionDef, ArchetypeInfo, Descriptor, Logic, ModifierDef, ModifierLayer,
-    ReactionDef, ReplacementDef, Scope, ScriptRef, TriggerDef, TriggerLimit,
+    ModifierSide, ReactionDef, ReplacementDef, Scope, ScriptRef, TriggerDef, TriggerLimit,
 };
 pub use ability_key::AbilityKey;
 pub use apply::ApplyError;

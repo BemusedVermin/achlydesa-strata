@@ -119,7 +119,9 @@ impl PackTests {
         let engagement = rt.service::<Arc<dyn Engagement>>().cloned();
         let host = Host::new(&self.registry, pack, modifiers.collect(), board);
         let host = host.with_los(los).with_movement(movement);
-        let host = host.with_engagement(engagement);
+        let host = host
+            .with_engagement(engagement)
+            .with_pair_queries(rt.pair_queries());
         let mut start =
             state::build(&self.registry, pack, ruleset_id, def, &host).map_err(setup)?;
         if let Some((scenario_id, scenario)) = scenario {

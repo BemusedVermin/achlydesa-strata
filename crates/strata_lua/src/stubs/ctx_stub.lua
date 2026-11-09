@@ -106,3 +106,4 @@ function Ctx.log(...) end
 ---@field replacement fun(def: table)
 ---@field reaction fun(def: table)
 ---@field window fun(id: string)
+---@field pair_query fun(key: string)

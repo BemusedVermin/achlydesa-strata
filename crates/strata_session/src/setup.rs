@@ -146,7 +146,7 @@ fn deploy(
         let (def_id, def) = find::<UnitDef>(registry, pack, name)
             .ok_or_else(|| SetupError(format!("army: unknown unit `{name}`")))?;
         for copy in 0..entry.copies {
-            add_unit(state, def_id, def, owner, copy)?;
+            add_unit(state, registry, def_id, def, owner, copy)?;
         }
     }
     Ok(())
@@ -155,6 +155,7 @@ fn deploy(
 /// Adds one unit, its figures in reserve, and attaches its printed abilities.
 fn add_unit(
     state: &mut GameState,
+    registry: &ContentRegistry,
     def_id: DefId,
     def: &UnitDef,
     owner: PlayerId,
@@ -184,18 +185,19 @@ fn add_unit(
         figures,
         ..UnitState::default()
     });
-    attach_printed(state, unit, def)
+    attach_printed(state, unit, registry)
 }
 
-/// Attaches the printed abilities of `unit`, whose definition is `def`, by applying their
-/// `AbilityAttached` events. Called once, when the unit enters the state (see
+/// Attaches the printed abilities of `unit`, as its definition in `registry` lists them, by
+/// applying their `AbilityAttached` events. Called once, when the unit enters the state (see
 /// [`strata_model::printed`]).
 pub(crate) fn attach_printed(
     state: &mut GameState,
     unit: UnitId,
-    def: &UnitDef,
+    registry: &ContentRegistry,
 ) -> Result<(), SetupError> {
-    for event in state.printed_ability_events(unit, def) {
+    let events = state.printed_ability_events(unit, |id| registry.get::<UnitDef>(id));
+    for event in events {
         state.apply(&event).map_err(|e| SetupError(e.to_string()))?;
     }
     Ok(())

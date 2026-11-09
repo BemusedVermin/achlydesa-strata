@@ -98,7 +98,7 @@ pub(super) fn build(
             }
         }
         state.units.push(unit_state);
-        attach_printed(&mut state, unit, def).map_err(|e| format!("place: {e}"))?;
+        attach_printed(&mut state, unit, registry).map_err(|e| format!("place: {e}"))?;
     }
     Ok(state)
 }

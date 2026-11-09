@@ -20,6 +20,10 @@ pub struct VoteQuery {
 }
 
 impl VoteQuery {
+    /// The core pair queries: votes whose context is a figure, so the abilities that reach that
+    /// figure may modify them too (design §6.6).
+    pub const PAIR_KEYS: [&'static str; 3] = ["can_target", "is_engaged", "provokes_reprisal"];
+
     fn named(key: &str, default: bool, subject: Value, context: Value) -> Self {
         Self {
             key: Sym::new(key),

@@ -1,7 +1,7 @@
 //! The registration surface modules write into (design §6.2).
 
 use std::any::{Any, TypeId};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use strata_kernel::{Sym, Value, WindowId};
@@ -76,6 +76,7 @@ pub struct Registrar {
     pub(crate) replacements: Vec<ReplacementDef>,
     pub(crate) reactions: Vec<ReactionDef>,
     pub(crate) windows: Vec<WindowId>,
+    pub(crate) pair_queries: BTreeSet<Sym>,
     pub(crate) services: BTreeMap<TypeId, Box<dyn Any + Send + Sync>>,
     pub(crate) lua_apis: BTreeMap<Sym, LuaApi>,
     pub(crate) api_handlers: BTreeMap<Sym, Arc<dyn ApiHandler>>,
@@ -128,6 +129,12 @@ impl Registrar {
         } else {
             self.windows.push(w);
         }
+    }
+
+    /// Declares `key` a pair query: a vote whose context is a figure, so abilities that reach
+    /// that figure may modify it (design §6.6). Declaring a key twice is harmless.
+    pub fn pair_query(&mut self, key: Sym) {
+        self.pair_queries.insert(key);
     }
 
     /// Provides the service `S`. Only one module may provide each service.

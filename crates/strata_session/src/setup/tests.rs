@@ -71,9 +71,9 @@ fn setup_attaches_each_units_printed_abilities_once_while_its_figures_wait_in_re
             .all(|f| f.status == FigureStatus::Reserve)
     );
     // Asking again, as a later lifecycle point would, attaches nothing more.
-    let def = registry.get::<UnitDef>(soldier).unwrap();
     for unit in 0..4 {
-        assert!(state.printed_ability_events(UnitId(unit), def).is_empty());
+        let events = state.printed_ability_events(UnitId(unit), |id| registry.get::<UnitDef>(id));
+        assert!(events.is_empty());
     }
 }
 
