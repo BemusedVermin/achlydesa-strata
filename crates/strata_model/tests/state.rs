@@ -98,6 +98,7 @@ fn commands_and_events_round_trip_through_json() {
         figure: FigureId(0),
         to: Space::new(1, 0, 0),
         rotation: Rotation::from_steps(2),
+        path: Vec::new(),
     };
     let json = serde_json::to_string(&event).unwrap();
     assert_eq!(serde_json::from_str::<Event>(&json).unwrap(), event);

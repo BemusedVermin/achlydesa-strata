@@ -12,12 +12,13 @@ use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::{BoardDefs, CompiledBoard};
 use strata_model::{
     AbilityDef, AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureId, FigureStatus,
-    FootprintDef, GameState, MarkerDef, PlayerId, RelicDef, StatDef, TerrainDef, TileDef, UnitDef,
-    UnitId, UnitState,
+    FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef, StatDef,
+    TerrainDef, TileDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
-    Ctx, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics, LosWorld,
-    NativeEvaluator, QueryEngine, QueryTrace, SourcedModifier, StatBounds, StatQuery, World,
+    Ctx, DeploySlot, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics,
+    LosWorld, MoveWorld, Movement, NativeEvaluator, Query, QueryEngine, QueryTrace, Reach,
+    SourcedModifier, StatBounds, StatQuery, TerrainRules, VoteQuery, World,
 };
 
 impl CardSource for Host {
@@ -80,6 +81,7 @@ pub(crate) struct Host {
     bounds: BTreeMap<Sym, StatBounds>,
     board: Option<CompiledBoard>,
     los: Option<Arc<dyn LineOfSight>>,
+    movement: Option<Arc<dyn Movement>>,
     rig: Mutex<Rig>,
     /// Set once the ruleset's phases are known.
     pub(crate) names: OnceLock<Arc<Names>>,
@@ -94,6 +96,8 @@ impl Host {
         modifiers: Vec<SourcedModifier>,
         board: Option<CompiledBoard>,
     ) -> Self {
+        // Entering a space always costs at least one, whether or not a pack declares the stat.
+        let cost = (Sym::new(MOVE_COST), StatBounds { min: 1, max: 99 });
         let bounds = registry.iter::<StatDef>().flat_map(|(_, id, def)| {
             let bare = id.split_once(':').map_or(id, |(_, name)| name);
             let bounds = StatBounds::from(def);
@@ -103,9 +107,10 @@ impl Host {
             registry: registry.clone(),
             pack: pack.to_owned(),
             modifiers,
-            bounds: bounds.collect(),
+            bounds: std::iter::once(cost).chain(bounds).collect(),
             board,
             los: None,
+            movement: None,
             rig: Mutex::default(),
             names: OnceLock::new(),
             rules: OnceLock::new(),
@@ -171,6 +176,12 @@ impl Host {
     /// Answers `in_los` selectors with the ruleset's line-of-sight service.
     pub(crate) fn with_los(mut self, los: Option<Arc<dyn LineOfSight>>) -> Self {
         self.los = los;
+        self
+    }
+
+    /// Answers `ctx.movement` with the ruleset's movement service.
+    pub(crate) fn with_movement(mut self, movement: Option<Arc<dyn Movement>>) -> Self {
+        self.movement = movement;
         self
     }
 
@@ -254,6 +265,28 @@ impl Host {
             subject: Value::Int(i64::from(figure.0)),
             context: Value::Nil,
         };
+        self.ask_trace(state, figure, &query)
+    }
+
+    /// Resolves `query` against the state with every modifier applied.
+    fn ask<Q: Query>(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        query: &Q,
+    ) -> Result<Q::Output, LogicError> {
+        self.ask_trace(state, figure, query)
+            .map(|(output, _)| output)
+    }
+
+    /// Resolves `query` like [`Host::ask`], with how it was reached.
+    fn ask_trace<Q: Query>(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        query: &Q,
+    ) -> Result<(Q::Output, QueryTrace), LogicError> {
+        let fail = LogicError;
         let rules = self.rules.get().and_then(Weak::upgrade);
         let rules = rules.ok_or_else(|| fail("the rules are not running".into()))?;
         let world = StateWorld { host: self, state };
@@ -265,7 +298,7 @@ impl Host {
                 evaluator: &evaluator,
                 scripts,
             };
-            QueryEngine::new(&modifiers, &self.bounds, logics).trace(&query)
+            QueryEngine::new(&modifiers, &self.bounds, logics).trace(query)
         });
         let asked = asked.map_err(|_| fail("the script state failed".into()))?;
         asked.map_err(|e| fail(e.to_string()))
@@ -301,6 +334,22 @@ impl RuleHost for Host {
         self.stat(state, figure, stat).map(Value::Int)
     }
 
+    fn reachable(&self, state: &GameState, figure: FigureId) -> Result<Vec<Reach>, LogicError> {
+        let service = self.movement.as_ref();
+        let service =
+            service.ok_or_else(|| LogicError("the ruleset has no `movement` module".into()))?;
+        let board = self.board.as_ref();
+        let board = board.ok_or_else(|| LogicError("the match has no board".into()))?;
+        service.reachable(
+            &StateMove {
+                host: self,
+                state,
+                board,
+            },
+            figure,
+        )
+    }
+
     fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
         let (id, def) = find::<DieDef>(&self.registry, &self.pack, name)?;
         Some((id, def.kind.clone()))
@@ -308,6 +357,25 @@ impl RuleHost for Host {
 
     fn marker(&self, name: &str) -> Option<DefId> {
         find::<MarkerDef>(&self.registry, &self.pack, name).map(|(id, _)| id)
+    }
+
+    fn deployment(&self, state: &GameState, player: PlayerId) -> Option<DeploySlot> {
+        let setup = &state.setup;
+        let scenario = self.registry.get::<ScenarioDef>(setup.scenario)?;
+        let seat = setup.players.get(player.index())?;
+        let slot = scenario.slots.iter().find(|s| s.id == seat.slot)?;
+        let (_, map) = find::<MapDef>(&self.registry, &self.pack, scenario.map.as_str())?;
+        Some(DeploySlot {
+            order: slot.deploy_order,
+            zone: map.zones.get(&slot.start)?.clone(),
+        })
+    }
+
+    fn standable(&self, space: Space) -> bool {
+        let surfaces = self.board.as_ref().map(|b| b.surfaces(space.hex()));
+        let surface = surfaces.and_then(|all| all.iter().find(|s| s.z == space.z));
+        let terrain = surface.and_then(|s| self.registry.get::<TerrainDef>(s.terrain));
+        terrain.is_some_and(|t| t.standable)
     }
 
     fn relic(&self, id: DefId) -> Option<RelicDef> {
@@ -465,5 +533,100 @@ impl LosWorld for StateLos<'_> {
             bottom: height(entry.los.hit_zone.0),
             top: height(entry.los.hit_zone.1),
         })
+    }
+}
+
+/// The stat that prices entering a space.
+const MOVE_COST: &str = "move_cost";
+/// The stat that is a figure's allowance for one move.
+const MOVE: &str = "move";
+
+/// What movement reads: the state and board, with terrain and figure sizes from the registry.
+struct StateMove<'a> {
+    host: &'a Host,
+    state: &'a GameState,
+    board: &'a CompiledBoard,
+}
+
+impl StateMove<'_> {
+    /// The terrain's name as modifiers see it, without the pack prefix.
+    fn terrain_name(&self, terrain: DefId) -> Sym {
+        let name = self.host.registry.name::<TerrainDef>(terrain).unwrap_or("");
+        Sym::new(name.split_once(':').map_or(name, |(_, bare)| bare))
+    }
+
+    /// The `{ terrain, dz }` context of a step.
+    fn step(&self, terrain: DefId, dz: i32) -> Value {
+        Value::Map(BTreeMap::from([
+            (Sym::new("terrain"), Value::Str(self.terrain_name(terrain))),
+            (Sym::new("dz"), Value::Int(i64::from(dz))),
+        ]))
+    }
+}
+
+impl MoveWorld for StateMove<'_> {
+    fn board(&self) -> &CompiledBoard {
+        self.board
+    }
+
+    fn location(&self, figure: FigureId) -> Option<Space> {
+        let fig = self.state.figures.get(figure.index())?;
+        fig.location.filter(|_| fig.status == FigureStatus::OnBoard)
+    }
+
+    fn occupant(&self, space: Space) -> Option<FigureId> {
+        self.state.board_changes.occupancy.get(&space).copied()
+    }
+
+    fn height(&self, figure: FigureId) -> u32 {
+        let fig = self.state.figures.get(figure.index());
+        let unit = fig.and_then(|f| self.host.registry.get::<UnitDef>(f.def.unit));
+        let entry = unit
+            .zip(fig)
+            .and_then(|(u, f)| u.figures.iter().find(|e| e.id == f.def.figure));
+        entry.map_or(1, |e| u32::from(e.height))
+    }
+
+    fn allowance(&self, figure: FigureId) -> Result<i64, LogicError> {
+        self.host.stat(self.state, figure, MOVE)
+    }
+
+    fn terrain(&self, terrain: DefId) -> TerrainRules {
+        let def = self.host.registry.get::<TerrainDef>(terrain);
+        let tagged = |tag: &str| def.is_some_and(|d| d.tags.iter().any(|t| t.as_str() == tag));
+        TerrainRules {
+            passable: def.is_some_and(|d| d.standable) && !tagged("impassable"),
+            stops_here: tagged("stops_here"),
+        }
+    }
+
+    fn move_cost(&self, figure: FigureId, terrain: DefId, dz: i32) -> Result<i64, LogicError> {
+        let query = StatQuery {
+            stat: Sym::new(MOVE_COST),
+            base: 1,
+            subject: Value::Int(i64::from(figure.0)),
+            context: self.step(terrain, dz),
+        };
+        self.host.ask(self.state, figure, &query)
+    }
+
+    fn can_climb(&self, figure: FigureId, terrain: DefId, dz: i32) -> Result<bool, LogicError> {
+        let subject = Value::Int(i64::from(figure.0));
+        self.host.ask(
+            self.state,
+            figure,
+            &VoteQuery::can_climb(subject, self.step(terrain, dz)),
+        )
+    }
+
+    fn can_enter(&self, figure: FigureId, to: Space) -> Result<bool, LogicError> {
+        let subject = Value::Int(i64::from(figure.0));
+        let at = Value::List(
+            [to.q, to.r, to.z as i32]
+                .map(|n| Value::Int(i64::from(n)))
+                .to_vec(),
+        );
+        self.host
+            .ask(self.state, figure, &VoteQuery::can_enter(subject, at))
     }
 }
