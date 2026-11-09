@@ -1,5 +1,7 @@
 //! The command loop: asks the right controller, feeds the engine, records the match.
 
+use std::cell::OnceCell;
+
 use strata_model::{Command, Event, GameState, PlayerId, TokenChoice};
 use strata_rules::{Engine, Outcome, RuleViolation};
 
@@ -29,6 +31,9 @@ pub struct Session<'a> {
     engine: Engine<'a>,
     controllers: Vec<Box<dyn Controller>>,
     snapshots: Vec<Snapshot>,
+    /// The legal commands of one player in the committed state, so the view sent out and the
+    /// next step share one evaluation of the action `targets` scripts. Reset on every change.
+    legal: OnceCell<(PlayerId, Vec<Command>)>,
 }
 
 impl<'a> Session<'a> {
@@ -38,6 +43,7 @@ impl<'a> Session<'a> {
             engine,
             controllers,
             snapshots: Vec::new(),
+            legal: OnceCell::new(),
         }
     }
 
@@ -46,9 +52,17 @@ impl<'a> Session<'a> {
         self.engine.state()
     }
 
-    /// The commands `player` may submit now.
+    /// The commands `player` may submit now. The first player asked about after each change is
+    /// remembered, so asking again does not run the `targets` scripts again.
     pub fn legal_commands(&self, player: PlayerId) -> Vec<Command> {
-        self.engine.legal_commands(player)
+        let (cached, legal) = self
+            .legal
+            .get_or_init(|| (player, self.engine.legal_commands(player)));
+        if *cached == player {
+            legal.clone()
+        } else {
+            self.engine.legal_commands(player)
+        }
     }
 
     /// How `player` may place the tokens in hand, if they have any to place.
@@ -75,7 +89,7 @@ impl<'a> Session<'a> {
             None => {
                 let active = state.flow.active;
                 let view = PlayerView::of(state, active);
-                let legal = self.engine.legal_commands(active);
+                let legal = self.legal_commands(active);
                 let seat = self.seat(active)?;
                 let command = seat.choose_command(&view, &legal);
                 if seat.abandoned() {
@@ -84,6 +98,7 @@ impl<'a> Session<'a> {
                 self.engine.submit(active, command)
             }
         };
+        self.legal = OnceCell::new();
         match outcome {
             Outcome::Committed(events) => {
                 self.snapshot();

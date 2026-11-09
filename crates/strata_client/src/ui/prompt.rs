@@ -101,9 +101,9 @@ pub fn decision(ui: &mut egui::Ui, view: &PlayerView, input: &mut DecisionInput)
     input.settle(answer)
 }
 
-/// Draws why the last click did nothing, if it did.
+/// Draws why the last click did nothing, if it did and no answer has gone out since.
 pub fn why(ui: &mut egui::Ui, input: &DecisionInput) {
-    if let Some(why) = input.why {
+    if let Some(why) = input.refusal() {
         ui.colored_label(egui::Color32::LIGHT_RED, why.to_string());
     }
 }

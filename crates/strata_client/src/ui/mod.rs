@@ -108,7 +108,7 @@ fn command_panel(
         } else {
             built = command::command(ui, view, &mut edited);
         }
-        if let Some(why) = edited.why {
+        if let Some(why) = edited.refusal() {
             ui.colored_label(egui::Color32::LIGHT_RED, why.to_string());
         }
     });

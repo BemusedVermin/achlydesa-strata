@@ -20,7 +20,7 @@ pub mod decision;
 pub mod pick;
 pub mod tokens;
 
-pub use command::CommandInput;
+pub use command::{CommandInput, Press};
 
 use decision::{Highlights, Widget};
 use pick::{Pick, Refusal};
@@ -63,6 +63,12 @@ impl DecisionInput {
         let result = widget.click(pick);
         self.why = result.as_ref().err().copied();
         self.settle(result.ok())
+    }
+
+    /// The reason the last click was refused, while it still applies: none once an answer has
+    /// gone out.
+    pub fn refusal(&self) -> Option<Refusal> {
+        self.why.filter(|_| !self.sent)
     }
 
     /// Notes that `answer`, if any, is going out.

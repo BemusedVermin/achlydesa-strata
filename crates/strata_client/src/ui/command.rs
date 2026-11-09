@@ -10,10 +10,10 @@ use strata_model::{Command, UnitId};
 use strata_session::PlayerView;
 
 use super::prompt::figure_label;
-use crate::input::CommandInput;
 use crate::input::builder::{Step, Target};
 use crate::input::pick::Pick;
 use crate::input::tokens::TokenPlacer;
+use crate::input::{CommandInput, Press};
 
 /// What the panel asks for at `step`.
 pub fn step_text(step: Step) -> &'static str {
@@ -53,13 +53,13 @@ fn target_label(view: &PlayerView, target: &Target) -> String {
 pub fn command(ui: &mut egui::Ui, view: &PlayerView, input: &mut CommandInput) -> Option<Command> {
     let step = input.builder.step();
     ui.label(step_text(step));
-    let mut done = None;
+    let mut pressed = None;
     match step {
         Step::Idle | Step::End => {}
         Step::Unit => {
             for unit in input.builder.units() {
                 if ui.button(unit_label(view, unit)).clicked() {
-                    done = input.builder.choose_unit(unit);
+                    pressed = Some(Press::Unit(unit));
                 }
             }
         }
@@ -76,7 +76,7 @@ pub fn command(ui: &mut egui::Ui, view: &PlayerView, input: &mut CommandInput) -
                 let name = view.names.action(action);
                 let name = name.map_or_else(|| format!("Action {}", action.0), str::to_owned);
                 if ui.button(name).clicked() {
-                    done = input.builder.choose_action(action);
+                    pressed = Some(Press::Action(action));
                 }
             }
         }
@@ -93,7 +93,7 @@ pub fn command(ui: &mut egui::Ui, view: &PlayerView, input: &mut CommandInput) -
                 .collect();
             for (i, label) in labels.into_iter().enumerate() {
                 if ui.button(label).clicked() {
-                    done = input.builder.choose_option(i);
+                    pressed = Some(Press::Option(i));
                 }
             }
         }
@@ -101,56 +101,53 @@ pub fn command(ui: &mut egui::Ui, view: &PlayerView, input: &mut CommandInput) -
     ui.horizontal(|ui| {
         let deeper = matches!(step, Step::Action(_) | Step::Target(..));
         if deeper && ui.button("Back").clicked() {
-            input.builder.back();
+            pressed = Some(Press::Back);
         }
         if input.builder.can_end() && ui.button("End activation").clicked() {
-            done = Some(Command::EndActivation);
+            pressed = Some(Press::End);
         }
     });
-    input.settle(done)
+    pressed.and_then(|p| input.press(p))
 }
 
 /// Draws the token placement screen and returns the placement once it is confirmed.
 pub fn tokens(ui: &mut egui::Ui, view: &PlayerView, input: &mut CommandInput) -> Option<Command> {
-    let placer = input.tokens.as_mut()?;
+    let placer = input.tokens.as_ref()?;
     ui.label(
         "Put each token on a different unit. Pick a token, then a unit or one of its figures.",
     );
-    hand(ui, view, placer);
+    let mut pressed = hand(ui, view, placer);
     ui.separator();
-    let mut pressed = None;
-    for unit in placer.units().to_vec() {
+    for &unit in placer.units() {
         if ui.button(unit_label(view, unit)).clicked() {
-            pressed = Some(placer.assign(unit));
+            pressed = Some(Press::Assign(unit));
         }
     }
-    let mut done = None;
     ui.horizontal(|ui| {
         if ui.button("Clear").clicked() {
-            placer.clear();
+            pressed = Some(Press::Clear);
         }
-        let ready = placer.command();
+        let ready = placer.command().is_some();
         if ui
-            .add_enabled(ready.is_some(), egui::Button::new("Place tokens"))
+            .add_enabled(ready, egui::Button::new("Place tokens"))
             .clicked()
         {
-            done = ready;
+            pressed = Some(Press::Place);
         }
     });
-    if let Some(result) = pressed {
-        input.why = result.err();
-    }
-    input.settle(done)
+    pressed.and_then(|p| input.press(p))
 }
 
 /// One row per token of the hand: its label, where it is so far, and a button to select it.
-fn hand(ui: &mut egui::Ui, view: &PlayerView, placer: &mut TokenPlacer) {
+/// Returns the selection pressed, if any.
+fn hand(ui: &mut egui::Ui, view: &PlayerView, placer: &TokenPlacer) -> Option<Press> {
     let rows: Vec<(DefId, Option<UnitId>)> = placer
         .hand()
         .iter()
         .copied()
         .zip(placer.assigned().iter().copied())
         .collect();
+    let mut pressed = None;
     for (i, (kind, unit)) in rows.into_iter().enumerate() {
         let on = unit.map_or_else(|| "in hand".to_owned(), |u| unit_label(view, u));
         let text = format!("{}: {on}", token_label(kind));
@@ -158,7 +155,8 @@ fn hand(ui: &mut egui::Ui, view: &PlayerView, placer: &mut TokenPlacer) {
             .selectable_label(placer.selected() == Some(i), text)
             .clicked()
         {
-            placer.select(i);
+            pressed = Some(Press::Token(i));
         }
     }
+    pressed
 }

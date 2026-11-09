@@ -28,7 +28,8 @@ pub enum BadPlacement {
     /// The placement does not put every token in hand, or the hand is empty.
     #[error("place every token in your hand, once")]
     WholeHand,
-    /// A token goes on a unit that may not take one, or on a unit that already has one.
+    /// A token goes on a unit that may not take one, or on the same unit as another token of this
+    /// placement.
     #[error("each token goes on a different live unit of yours")]
     Unit,
     /// A token placed is not in the hand.

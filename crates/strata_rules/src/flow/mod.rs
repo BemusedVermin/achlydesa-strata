@@ -4,11 +4,13 @@ mod action;
 mod activation;
 mod legal;
 mod phase;
+mod tokens;
 mod tree;
 
 pub use action::{ActionRunner, take_action};
 pub use activation::{ActivationRules, OrderingPolicy};
-pub use legal::{ActivationGate, Flow, TokenRules};
+pub use legal::{ActivationGate, Flow};
+pub use tokens::TokenRules;
 pub use tree::{FlowError, PhaseTree, ROOT};
 
 #[cfg(test)]

@@ -575,12 +575,12 @@ fn window_decisions_replay_identically() {
     assert_eq!(play(), play());
 }
 
-/// Offers player 1 a hand of one decoy for unit 0.
+/// Offers every player a hand of one decoy for unit 0.
 struct OneToken;
 
 impl crate::flow::TokenRules for OneToken {
-    fn choice(&self, _: &GameState, player: PlayerId) -> Option<strata_model::TokenChoice> {
-        (player == PlayerId(1)).then(|| strata_model::TokenChoice {
+    fn choice(&self, _: &GameState, _: PlayerId) -> Option<strata_model::TokenChoice> {
+        Some(strata_model::TokenChoice {
             hand: vec![DefId(0)],
             units: vec![strata_model::UnitId(0)],
         })
@@ -591,19 +591,19 @@ impl crate::flow::TokenRules for OneToken {
 fn the_token_choice_comes_from_the_tokens_service_unless_a_decision_is_pending() {
     let bare = runtime(vec![], vec![], vec![]);
     assert_eq!(
-        Engine::new(&bare, &ToyHooks, state()).token_choice(PlayerId(1)),
+        Engine::new(&bare, &ToyHooks, state()).token_choice(PlayerId(0)),
         None
     );
     let mut rt = runtime(vec![], vec![], vec![]);
     rt.reg
         .service::<dyn crate::flow::TokenRules>(Box::new(OneToken));
     let engine = Engine::new(&rt, &ToyHooks, state());
-    assert_eq!(engine.token_choice(PlayerId(0)), None);
     let offered = engine
-        .token_choice(PlayerId(1))
-        .expect("player 1 has a token");
+        .token_choice(PlayerId(0))
+        .expect("the active player has a token");
     assert_eq!(offered.hand, [DefId(0)]);
     let mut paused = state();
+    paused.flow.active = PlayerId(1);
     paused.pending = Some(PendingDecision {
         decision: Decision {
             prompt: Sym::new("p"),
@@ -616,4 +616,20 @@ fn the_token_choice_comes_from_the_tokens_service_unless_a_decision_is_pending()
     });
     let engine = Engine::new(&rt, &ToyHooks, paused);
     assert_eq!(engine.token_choice(PlayerId(1)), None);
+}
+
+#[test]
+fn only_the_active_player_is_offered_a_token_choice() {
+    let mut rt = runtime(vec![], vec![], vec![]);
+    rt.reg
+        .service::<dyn crate::flow::TokenRules>(Box::new(OneToken));
+    let mut second = state();
+    second.flow.active = PlayerId(1);
+    let engine = Engine::new(&rt, &ToyHooks, second);
+    assert_eq!(
+        engine.token_choice(PlayerId(0)),
+        None,
+        "player 0 waits while player 1 places"
+    );
+    assert!(engine.token_choice(PlayerId(1)).is_some());
 }
