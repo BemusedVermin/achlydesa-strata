@@ -4,7 +4,7 @@ mod export;
 pub(crate) mod host;
 mod report;
 mod rig;
-mod run;
+pub(crate) mod run;
 mod state;
 
 use std::collections::BTreeMap;

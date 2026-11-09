@@ -364,9 +364,25 @@ impl RuleHost for Host {
         find::<MarkerDef>(&self.registry, &self.pack, name).map(|(id, _)| id)
     }
 
+    /// A match without seats has no scenario: a pack test that names none seats nobody, and
+    /// its setup's scenario handle is only a default.
+    fn scenario(&self, state: &GameState) -> Option<&ScenarioDef> {
+        let setup = &state.setup;
+        if setup.players.is_empty() {
+            return None;
+        }
+        self.registry.get::<ScenarioDef>(setup.scenario)
+    }
+
+    fn zone(&self, state: &GameState, name: &str) -> Option<Vec<Hex>> {
+        let scenario = RuleHost::scenario(self, state)?;
+        let (_, map) = find::<MapDef>(&self.registry, &self.pack, scenario.map.as_str())?;
+        map.zones.get(name).cloned()
+    }
+
     fn deployment(&self, state: &GameState, player: PlayerId) -> Option<DeploySlot> {
         let setup = &state.setup;
-        let scenario = self.registry.get::<ScenarioDef>(setup.scenario)?;
+        let scenario = RuleHost::scenario(self, state)?;
         let seat = setup.players.get(player.index())?;
         let slot = scenario.slots.iter().find(|s| s.id == seat.slot)?;
         let (_, map) = find::<MapDef>(&self.registry, &self.pack, scenario.map.as_str())?;

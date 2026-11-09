@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use strata_content::RegistryDefs;
-use strata_kernel::{DefId, Value};
+use strata_kernel::{DefId, Sym, Value};
 use strata_lua::{LuaRules, ModuleBinding};
 use strata_model::board::compile;
 use strata_model::{
@@ -24,9 +24,9 @@ use crate::setup::place_relics;
 const ATTACK: &str = "attack";
 
 /// Finds a test's rulesets by name, preferring its own pack.
-pub(super) struct Rulesets<'a> {
-    pub(super) tests: &'a PackTests,
-    pub(super) pack: &'a str,
+pub(crate) struct Rulesets<'a> {
+    pub(crate) tests: &'a PackTests,
+    pub(crate) pack: &'a str,
 }
 
 impl RulesetSource for Rulesets<'_> {
@@ -297,6 +297,36 @@ impl PackTests {
                     let got = status_name(engine.state().figures[found.index()].status);
                     if got != status.as_str() {
                         return Err(at(format!("{handle}: expected {status}, got {got}")));
+                    }
+                }
+                Step::ExpectResult { condition, winners } => {
+                    let found = engine.result();
+                    let got = found.as_ref().map(|r| (&r.condition, &r.winners));
+                    if got != condition.as_ref().map(|c| (c, winners)) {
+                        let want = condition.as_ref().map(|c| (c, winners));
+                        return Err(at(format!("result: expected {want:?}, got {got:?}")));
+                    }
+                }
+                Step::ExpectArmy {
+                    army,
+                    format,
+                    scenario,
+                    violations,
+                } => {
+                    let found = self.army_check(
+                        pack,
+                        name.as_str(),
+                        army.as_str(),
+                        format.as_ref().map(Sym::as_str),
+                        scenario.as_ref().map(Sym::as_str),
+                    );
+                    let found = found.map_err(at)?;
+                    let got: Vec<&Sym> = found.iter().map(|v| &v.rule).collect();
+                    if got != violations.iter().collect::<Vec<_>>() {
+                        let said: Vec<&str> = found.iter().map(|v| v.message.as_str()).collect();
+                        return Err(at(format!(
+                            "army `{army}`: expected violations {violations:?}, got {said:?}"
+                        )));
                     }
                 }
                 Step::ExpectDecision { prompt } => {

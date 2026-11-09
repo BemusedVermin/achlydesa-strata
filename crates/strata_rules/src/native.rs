@@ -1,9 +1,9 @@
 //! Rust logic that a registered trigger runs in place of a Lua script.
 
-use strata_kernel::{DefId, Hex, Rotation, Space, Sym};
+use strata_kernel::{DefId, Hex, Rotation, Space, Sym, Value};
 use strata_model::{
     Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureDef, FigureDefRef, FigureId,
-    GameState, Logic, PlayerId, RelicDef,
+    GameState, Logic, PlayerId, RelicDef, ScenarioDef,
 };
 
 use crate::engine::{Ctx, Halt};
@@ -112,6 +112,24 @@ pub trait NativeEnv: Send + Sync {
     /// dice, as in the script host. `None` leaves the roll to the command's random stream.
     fn forced_roll(&self, _die: &str, _count: usize) -> Option<Result<Vec<u32>, String>> {
         None
+    }
+    /// The scenario the match is played on. `None` if there is none or the environment cannot
+    /// tell.
+    fn scenario(&self, _state: &GameState) -> Option<&ScenarioDef> {
+        None
+    }
+    /// The columns of the map zone called `name` in the match's scenario.
+    fn zone(&self, _state: &GameState, _name: &str) -> Option<Vec<Hex>> {
+        None
+    }
+    /// Runs `logic`, a Lua function, with `ctx` followed by `args`, and returns its result.
+    fn call_logic(
+        &self,
+        _ctx: &mut dyn Ctx,
+        _logic: &Logic,
+        _args: &[Value],
+    ) -> Result<Value, Halt> {
+        Err(Halt::reject("the environment cannot run scripts"))
     }
 }
 

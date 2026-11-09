@@ -4,6 +4,7 @@
 #![deny(clippy::float_arithmetic)]
 #![warn(missing_docs)]
 
+pub mod army;
 pub mod catalog;
 pub mod config;
 pub mod descriptor;
@@ -19,7 +20,9 @@ pub mod registrar;
 pub mod resolve;
 pub mod runtime;
 pub mod slots;
+pub mod victory;
 
+pub use army::{ArmyRules, ArmyUnit, ArmyViolation, RuleOrigin};
 pub use catalog::{DuplicateModule, ModuleCatalog};
 pub use config::{ConfigError, ConfigSchema};
 pub use descriptor::{DescriptorError, NativeEvaluator, Node, World, check_ability, compile};
@@ -45,6 +48,7 @@ pub use query::{
 pub use registrar::{Anchor, ApiHandler, CommandHandler, LuaApi, PhaseDef, Registrar, Service};
 pub use resolve::{ResolveError, RulesetSource, Site, resolve};
 pub use runtime::RulesRuntime;
+pub use victory::{MatchResult, Progress, Victory};
 
 #[cfg(test)]
 mod tests;

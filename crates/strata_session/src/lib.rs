@@ -4,6 +4,7 @@
 #![deny(clippy::float_arithmetic)]
 #![warn(missing_docs)]
 
+pub mod army;
 pub mod cards;
 pub mod controller;
 pub mod human;
@@ -19,6 +20,7 @@ pub mod setup;
 pub mod sim;
 pub mod view;
 
+pub use army::{army_units, validate_army};
 pub use cards::{AbilityLine, CardSource, FigureLine, NoCards, StatLine, UnitCard};
 pub use controller::Controller;
 pub use human::HumanController;

@@ -17,6 +17,7 @@ use crate::engagement::Engagement;
 use crate::flow::{ActivationGate, ActivationRules, take_action};
 use crate::native::{NativeActions, native_name};
 use crate::runtime::RulesRuntime;
+use crate::victory::Victory;
 
 mod window;
 
@@ -77,6 +78,12 @@ impl<'a> Exec<'a> {
         };
         handler.resolve(&mut exec, player, command)?;
         exec.drain_triggers()?;
+        // Victory is checked once the command has settled, and its end resolves like any event.
+        if let Some(victory) = rt.service::<dyn Victory>() {
+            let events = exec.events.clone();
+            victory.settle(&mut exec, hooks.env(), &events)?;
+            exec.drain_triggers()?;
+        }
         Ok((exec.state, exec.events))
     }
 

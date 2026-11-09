@@ -59,6 +59,48 @@ globals.expect = {
   decision = function(prompt)
     return { ExpectDecision = { prompt = prompt } }
   end,
+  -- How the match ended: `expect.result()` while it goes on, `expect.result(condition)` for a
+  -- draw, `expect.result(condition, { 0 })` for the winning players.
+  result = function(condition, winners)
+    return { ExpectResult = { condition = condition, winners = winners } }
+  end,
+  -- The rules an army list breaks, in order: the format's, then the scenario's.
+  army = function(list, opts)
+    opts = opts or {}
+    return { ExpectArmy = {
+      army = list, format = opts.format, scenario = opts.scenario, violations = opts.violations,
+    } }
+  end,
+}
+
+-- Army rules for `format { army = ... }` and `scenario { army = ... }` (design 11.3). They return
+-- plain data, which freezes as native logic for the `army` slot's module.
+local function list_of(names)
+  if type(names) == "string" then return { names } end
+  return names
+end
+globals.army_rule = {
+  max_points = function(points) return { army_rule = "max_points", points = points } end,
+  unique_once = function(opts)
+    return { army_rule = "unique_once", rarity = opts and opts.rarity }
+  end,
+  max_copies = function(copies) return { army_rule = "max_copies", copies = copies } end,
+  banned = function(units) return { army_rule = "banned", units = list_of(units) } end,
+  require_faction = function(factions)
+    return { army_rule = "require_faction", factions = list_of(factions) }
+  end,
+  max_footprint = function(cells) return { army_rule = "max_footprint", cells = cells } end,
+}
+-- Victory conditions for `scenario { victory = ... }` (design 11.2), as plain data for the
+-- `victory` slot's module.
+globals.win = {
+  eliminate_all = function() return { win = "eliminate_all" } end,
+  hold_zone = function(zone, opts)
+    return { win = "hold_zone", zone = zone, rounds = opts and opts.rounds }
+  end,
+  round_limit = function(rounds, opts)
+    return { win = "round_limit", rounds = rounds, tiebreak = opts and list_of(opts.tiebreak) }
+  end,
 }
 
 function globals.pairs(t)
