@@ -34,6 +34,11 @@ impl VoteQuery {
         Self::named("can_enter", true, subject, context)
     }
 
+    /// May the subject climb a rise of `dz` levels onto a terrain? Defaults to allowed.
+    pub fn can_climb(subject: Value, context: Value) -> Self {
+        Self::named("can_climb", true, subject, context)
+    }
+
     /// Is the subject engaged? Defaults to not engaged.
     pub fn is_engaged(subject: Value, context: Value) -> Self {
         Self::named("is_engaged", false, subject, context)
@@ -85,6 +90,7 @@ impl Query for VoteQuery {
             base: Value::Bool(self.default),
             steps: applied.iter().map(TraceStep::from).collect(),
             unclamped: None,
+            bounds: None,
             result: Value::Bool(result),
         };
         Ok((result, trace))

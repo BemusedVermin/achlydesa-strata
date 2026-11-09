@@ -1,7 +1,7 @@
 //! `toy:driver`: turns the `attack` command into an `attack_declared` event.
 
-use strata_kernel::{ModuleId, SlotId, Sym, Value};
-use strata_model::{Command, Event, PlayerId};
+use strata_kernel::{ModuleId, Rotation, SlotId, Space, Sym, Value};
+use strata_model::{Command, Event, FigureId, FigureStatus, PlayerId};
 use strata_rules::{CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, Registrar, RuleModule};
 
 use super::{ATTACK_DECLARED, no_config};
@@ -21,6 +21,55 @@ impl CommandHandler for Attack {
         ctx.emit(Event::Custom {
             id: Sym::new(ATTACK_DECLARED),
             payload: payload.clone(),
+        })
+    }
+}
+
+/// Handles `move_to`, a stand-in for the movement action in tests: the payload `{ figure, q, r, z }`
+/// puts the figure there, whatever the terrain, in one step or through the spaces of an optional
+/// `via` list of `{ q, r, z }`. Like a move, it first resolves the reprisals for leaving engagement
+/// along that path, and stays put if they take the figure out of play.
+struct MoveTo;
+
+impl CommandHandler for MoveTo {
+    fn kind(&self) -> &str {
+        "move_to"
+    }
+
+    fn resolve(&self, ctx: &mut dyn Ctx, _: PlayerId, command: &Command) -> Result<(), Halt> {
+        let Command::Custom { payload, .. } = command else {
+            return Err(Halt::reject("`move_to` is a custom command"));
+        };
+        let int = |at: &Value, name: &str| {
+            let found = at.get(name).and_then(Value::as_int);
+            found.map_err(|e| Halt::reject(format!("move_to {name}: {e}")))
+        };
+        let space = |at: &Value| -> Result<Space, Halt> {
+            let (q, r, z) = (int(at, "q")?, int(at, "r")?, int(at, "z")?);
+            Ok(Space::new(q as i32, r as i32, z as u32))
+        };
+        let figure = FigureId(int(payload, "figure")? as u32);
+        let via = payload.as_map().ok().and_then(|m| m.get("via"));
+        let via = via.map_or(Ok(&[][..]), Value::as_list);
+        let via = via.map_err(|e| Halt::reject(format!("move_to via: {e}")))?;
+        let mut path = via.iter().map(space).collect::<Result<Vec<_>, _>>()?;
+        let to = space(payload)?;
+        path.push(to);
+        let on_board = |ctx: &dyn Ctx| {
+            let fig = ctx.state().figures.get(figure.index());
+            fig.is_some_and(|f| f.status == FigureStatus::OnBoard)
+        };
+        let moving = on_board(ctx);
+        ctx.leave_engagement(figure, &path)?;
+        if moving && !on_board(ctx) {
+            return Ok(());
+        }
+        let rotation = Rotation::default();
+        ctx.emit(Event::FigureMoved {
+            figure,
+            to,
+            rotation,
+            path: Vec::new(),
         })
     }
 }
@@ -47,6 +96,7 @@ impl RuleModule for Driver {
 
     fn register(&self, r: &mut Registrar, _: &Value) -> Result<(), ModuleError> {
         r.command(Attack);
+        r.command(MoveTo);
         Ok(())
     }
 }

@@ -8,14 +8,15 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
 use strata_kernel::{CommandRng, DefId, Sym, Value, WindowId};
 use strata_model::{
-    ActionDef, Answer, Decision, DieKind, Event, FigureId, GameState, Logic, PlayerId, ReactionDef,
-    ReplacementDef, ScriptRef, TriggerDef,
+    ActionDef, Answer, Decision, DieKind, Event, FigureDef, FigureDefRef, FigureId, GameState,
+    Logic, PlayerId, ReactionDef, ReplacementDef, ScriptRef, TriggerDef,
 };
 use strata_rules::{
-    ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, PhaseTree, RulesRuntime,
+    ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, PhaseTree, Reach,
+    RulesRuntime, VoteQuery,
 };
 
-use crate::convert::{lua_to_value, value_to_lua};
+use crate::convert::{from_lua, lua_to_value, value_to_lua};
 use crate::ctx::{Args, Frame, Namespaces, RuleHost};
 use crate::data::PackSource;
 use crate::runtime::{ModuleBinding, RuntimeLua};
@@ -211,6 +212,40 @@ impl NativeEnv for LuaRules {
         self.host.marker(name)
     }
 
+    fn deployment(&self, state: &GameState, player: PlayerId) -> Option<strata_rules::DeploySlot> {
+        self.host.deployment(state, player)
+    }
+
+    fn standable(&self, space: strata_kernel::Space) -> bool {
+        self.host.standable(space)
+    }
+
+    fn relic(&self, id: DefId) -> Option<strata_model::RelicDef> {
+        self.host.relic(id)
+    }
+
+    fn vote(&self, state: &GameState, query: &VoteQuery) -> Result<bool, LogicError> {
+        let args = [
+            Value::Str(query.key.clone()),
+            Value::Bool(query.default),
+            query.subject.clone(),
+            query.context.clone(),
+        ];
+        let found = self.host.query(state, "vote", &args)?;
+        found.as_bool().map_err(|e| LogicError(e.to_string()))
+    }
+
+    fn figure_def(&self, figure: &FigureDefRef) -> Option<&FigureDef> {
+        self.host.figure_def(figure)
+    }
+
+    fn run_effect(&self, ctx: &mut dyn Ctx, effect: &Logic, event: &Event) -> Result<(), Halt> {
+        self.value(effect, ctx, &with_event(event)).map(drop)
+    }
+    fn reachable(&self, state: &GameState, figure: FigureId) -> Result<Vec<Reach>, LogicError> {
+        self.host.reachable(state, figure)
+    }
+
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
         self.host.forced_roll(die, count)
     }
@@ -245,7 +280,7 @@ impl HookRunner for LuaRules {
             return Err(Halt::reject("native replacements need the native runner"));
         };
         let frame = Frame::new(ctx, self);
-        let finish = |lua: &Lua, v: LuaValue| lua.from_value::<Vec<Event>>(v);
+        let finish = |lua: &Lua, v: LuaValue| from_lua::<Vec<Event>>(lua, v);
         self.with_state(|rt| frame.invoke(rt, script, &with_event(event), finish))?
     }
 

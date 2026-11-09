@@ -119,7 +119,7 @@ fn removing_a_feature_rebuilds_only_its_chunk() {
     let after = chunks_drawn(&mut app);
     assert_eq!(after.len(), 3);
     assert!(!after.keys().any(|(_, m)| *m == Material::Feature(0)));
-    let far = |map: &BTreeMap<_, _>| {
+    let far = |map: &BTreeMap<(ChunkKey, Material), Entity>| {
         map.iter()
             .filter(|((k, _), _)| k.q == 2)
             .map(|(k, e)| (*k, *e))

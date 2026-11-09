@@ -4,6 +4,7 @@ use bevy::prelude::*;
 
 use crate::board::BoardPlugin;
 use crate::camera::CameraPlugin;
+use crate::input::InputPlugin;
 
 macro_rules! skeleton {
     ($($(#[$doc:meta])* $name:ident),* $(,)?) => {$(
@@ -21,8 +22,6 @@ skeleton! {
     FigurePlugin,
     /// Plays event batches in sequence.
     PlaybackPlugin,
-    /// Turns clicks into commands.
-    InputPlugin,
     /// Movement, line-of-sight and combat previews.
     PreviewPlugin,
     /// Silhouettes of figures hidden behind terrain.

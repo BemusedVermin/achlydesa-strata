@@ -30,6 +30,7 @@ fn mv(figure: u32, q: i32) -> Event {
         figure: FigureId(figure),
         to: Space::new(q, 0, 0),
         rotation: Rotation::from_steps(2),
+        path: Vec::new(),
     }
 }
 
@@ -264,7 +265,7 @@ fn relic_claimed_sets_holder_once() {
     };
     applied(&mut s, &claim(1));
     assert_eq!(s.relics[0].holder, Some(PlayerId(1)));
-    assert_eq!(s.relics[0].location, None);
+    assert_eq!(s.relics[0].location, Some(Space::new(2, 0, 0)));
     assert_eq!(rejected(&s, &claim(0)), ApplyError::RelicHeld(RelicId(0)));
     assert_eq!(
         rejected(&base(), &claim(9)),
@@ -466,4 +467,110 @@ fn dealing_to_a_missing_player_or_discarding_a_missing_unit_is_refused() {
     let discard = Event::TokensDiscarded(UnitId(9));
     assert_eq!(state.apply(&discard), Err(ApplyError::NoUnit(UnitId(9))));
     assert_eq!(state.hash(), before);
+}
+
+#[test]
+fn relic_revealed_turns_a_face_down_relic_up_once() {
+    let mut s = base();
+    s.relics[0].face_down = true;
+    applied(&mut s, &Event::RelicRevealed(RelicId(0)));
+    assert!(!s.relics[0].face_down);
+    let again = rejected(&s, &Event::RelicRevealed(RelicId(0)));
+    assert_eq!(again, ApplyError::RelicFaceUp(RelicId(0)));
+    let missing = rejected(&s, &Event::RelicRevealed(RelicId(4)));
+    assert_eq!(missing, ApplyError::NoRelic(RelicId(4)));
+}
+
+#[test]
+fn abilities_attach_and_detach_one_instance_at_a_time() {
+    let mut s = base();
+    let owner = AbilityOwner::Player(PlayerId(1));
+    let attach = Event::AbilityAttached {
+        def: AbilityKey::Def(DefId(7)),
+        owner,
+        params: Default::default(),
+    };
+    applied(&mut s, &attach);
+    applied(&mut s, &attach);
+    assert_eq!(s.abilities.len(), 2);
+    let detach = Event::AbilityDetached {
+        def: AbilityKey::Def(DefId(7)),
+        owner,
+    };
+    applied(&mut s, &detach);
+    assert_eq!(s.abilities.len(), 1);
+    applied(&mut s, &detach);
+    assert_eq!(
+        rejected(&s, &detach),
+        ApplyError::NoAbility(AbilityKey::Def(DefId(7)))
+    );
+}
+
+#[test]
+fn detach_removes_only_the_instance_with_the_same_key() {
+    let mut s = base();
+    let owner = AbilityOwner::Player(PlayerId(1));
+    let grant = |index| AbilityKey::Relic {
+        relic: DefId(2),
+        index,
+    };
+    let keys = [grant(0), grant(1), AbilityKey::Def(DefId(2))];
+    for def in keys {
+        let params = Default::default();
+        applied(&mut s, &Event::AbilityAttached { def, owner, params });
+    }
+    applied(
+        &mut s,
+        &Event::AbilityDetached {
+            def: grant(1),
+            owner,
+        },
+    );
+    let left: Vec<_> = s.abilities.iter().map(|a| a.def).collect();
+    assert_eq!(left, [grant(0), AbilityKey::Def(DefId(2))]);
+}
+
+#[test]
+fn an_ability_cannot_attach_to_a_missing_owner() {
+    let bad = |owner| Event::AbilityAttached {
+        def: AbilityKey::Def(DefId(0)),
+        owner,
+        params: Default::default(),
+    };
+    let s = base();
+    let player = rejected(&s, &bad(AbilityOwner::Player(PlayerId(9))));
+    assert_eq!(player, ApplyError::NoPlayer(PlayerId(9)));
+    let unit = rejected(&s, &bad(AbilityOwner::Unit(UnitId(5))));
+    assert_eq!(unit, ApplyError::NoUnit(UnitId(5)));
+    let relic = rejected(&s, &bad(AbilityOwner::Relic(RelicId(5))));
+    assert_eq!(relic, ApplyError::NoRelic(RelicId(5)));
+}
+
+#[test]
+fn a_held_relic_can_be_released_once_and_claimed_again() {
+    let mut s = base();
+    let id = RelicId(0);
+    assert_eq!(
+        rejected(&s, &Event::RelicReleased(id)),
+        ApplyError::RelicNotHeld(id)
+    );
+    applied(
+        &mut s,
+        &Event::RelicClaimed {
+            relic: id,
+            by: PlayerId(0),
+        },
+    );
+    applied(&mut s, &Event::RelicReleased(id));
+    assert_eq!(s.relics[0].holder, None);
+    applied(
+        &mut s,
+        &Event::RelicClaimed {
+            relic: id,
+            by: PlayerId(1),
+        },
+    );
+    assert_eq!(s.relics[0].holder, Some(PlayerId(1)));
+    let missing = rejected(&s, &Event::RelicReleased(RelicId(8)));
+    assert_eq!(missing, ApplyError::NoRelic(RelicId(8)));
 }

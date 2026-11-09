@@ -6,16 +6,17 @@ use strata_kernel::DefId;
 use strata_lua::{LuaRules, ModuleBinding};
 use strata_model::board::compile;
 use strata_model::{
-    Command, Event, FigureId, FigureStatus, MapDef, RuleModuleDef, RulesetDef, Step, TestDef,
-    TokenAt, TokenPlacement,
+    Command, Event, FigureId, FigureStatus, MapDef, PlayerId, PlayerSetup, RuleModuleDef,
+    RulesetDef, ScenarioDef, Step, TestDef, TokenAt, TokenPlacement,
 };
 use strata_rules::{
-    Engine, LineOfSight, Outcome, RulesetSource, SourcedModifier, event_kind, resolve,
+    Engine, LineOfSight, Movement, Outcome, RulesetSource, SourcedModifier, event_kind, resolve,
 };
 
 use super::host::{Host, RegistryDefs, find};
 use super::report::Failure;
 use super::{PackTests, state};
+use crate::setup::place_relics;
 
 /// Finds a test's rulesets by name, preferring its own pack.
 pub(super) struct Rulesets<'a> {
@@ -79,24 +80,52 @@ impl PackTests {
             .ruleset
             .as_ref()
             .ok_or_else(|| setup("the test names no ruleset".into()))?;
-        let board = match &def.map {
-            Some(map) => {
-                let (_, found) = find::<MapDef>(&self.registry, pack, map.as_str())
-                    .ok_or_else(|| setup(format!("unknown map `{map}`")))?;
-                let defs = RegistryDefs {
-                    registry: &self.registry,
-                    pack,
-                };
-                Some(compile(found, &defs).map_err(|e| setup(e.to_string()))?)
-            }
+        let scenario = match &def.scenario {
+            Some(s) => Some(
+                find::<ScenarioDef>(&self.registry, pack, s.as_str())
+                    .ok_or_else(|| setup(format!("unknown scenario `{s}`")))?,
+            ),
             None => None,
         };
+        let map = def.map.as_ref().or(scenario.map(|(_, s)| &s.map));
+        let map = match map {
+            Some(map) => Some(
+                find::<MapDef>(&self.registry, pack, map.as_str())
+                    .ok_or_else(|| setup(format!("unknown map `{map}`")))?
+                    .1,
+            ),
+            None => None,
+        };
+        let defs = RegistryDefs {
+            registry: &self.registry,
+            pack,
+        };
+        let board = map.map(|m| compile(m, &defs).map_err(|e| setup(e.to_string())));
+        let board = board.transpose()?;
         let rulesets = Rulesets { tests: self, pack };
         let rt =
             resolve(name.as_str(), &rulesets, &self.catalog).map_err(|e| setup(e.to_string()))?;
         let (ruleset_id, _) = find::<RulesetDef>(&self.registry, pack, name.as_str())
             .ok_or_else(|| setup(format!("unknown ruleset `{name}`")))?;
-        let start = state::build(&self.registry, pack, ruleset_id, def).map_err(setup)?;
+        let mut start = state::build(&self.registry, pack, ruleset_id, def).map_err(setup)?;
+        if let Some((scenario_id, scenario)) = scenario {
+            // Seat `i` fills the scenario's `i`-th slot, so deployment finds its start zone.
+            let mut made = (*start.setup).clone();
+            made.scenario = scenario_id;
+            let slots = scenario.slots.iter().take(start.players.len());
+            let seat = |(seat, slot): (u8, &strata_model::ScenarioSlot)| PlayerSetup {
+                id: PlayerId(seat),
+                slot: slot.id.clone(),
+                team: seat,
+                army: None,
+            };
+            made.players = (0u8..).zip(slots).map(seat).collect();
+            start.setup = Arc::new(made);
+        }
+        if let (Some((_, scenario)), Some(map), Some(board)) = (scenario, map, &board) {
+            place_relics(&mut start, &self.registry, pack, scenario, map, board)
+                .map_err(|e| setup(e.to_string()))?;
+        }
 
         let modifiers = rt.modifiers().iter().map(|m| SourcedModifier {
             source: name.clone(),
@@ -104,7 +133,9 @@ impl PackTests {
             def: m.clone(),
         });
         let los = rt.service::<Arc<dyn LineOfSight>>().cloned();
-        let host = Host::new(&self.registry, pack, modifiers.collect(), board).with_los(los);
+        let movement = rt.service::<Arc<dyn Movement>>().cloned();
+        let host = Host::new(&self.registry, pack, modifiers.collect(), board);
+        let host = host.with_los(los).with_movement(movement);
         let host = Arc::new(host);
         let lua_modules = rt
             .configs()

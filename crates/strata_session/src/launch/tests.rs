@@ -171,3 +171,26 @@ fn the_board_arrives_first_and_matches_the_map() {
             .any(|h| info.board.top_surface(h).is_some())
     );
 }
+
+#[test]
+fn a_card_stat_carries_the_trace_that_explains_it() {
+    let view = first_view(cards_spec());
+    let def = view.cards[0]
+        .stats
+        .iter()
+        .find(|s| s.label == "DEF")
+        .unwrap();
+    let inspection = Inspection::of(def.trace.as_ref().expect("a queried stat has a trace"));
+    assert_eq!(inspection.recompute(), Ok(def.value));
+    let figure = view.cards[0].figures[0].figure.0;
+    assert_eq!(
+        inspection.lines(),
+        [
+            format!("defense of figure {figure}").as_str(),
+            "Base 2",
+            "+1 from rs (Lua) = 3",
+            "Clamped to 0..9",
+            "Result 3"
+        ]
+    );
+}

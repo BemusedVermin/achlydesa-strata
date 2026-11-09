@@ -98,6 +98,7 @@ fn commands_and_events_round_trip_through_json() {
         figure: FigureId(0),
         to: Space::new(1, 0, 0),
         rotation: Rotation::from_steps(2),
+        path: Vec::new(),
     };
     let json = serde_json::to_string(&event).unwrap();
     assert_eq!(serde_json::from_str::<Event>(&json).unwrap(), event);
@@ -146,4 +147,12 @@ fn visibility_tags() {
         Event::PhaseEntered(DefId(1)).visibility(),
         Visibility::Public
     );
+}
+
+#[test]
+fn a_listed_player_has_its_team_and_an_unlisted_one_its_own() {
+    let mut state = base();
+    state.players[0].team = 3;
+    assert_eq!(state.team(PlayerId(0)), 3);
+    assert_eq!(state.team(PlayerId(5)), 5);
 }

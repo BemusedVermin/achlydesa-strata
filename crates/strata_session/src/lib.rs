@@ -7,6 +7,7 @@
 pub mod cards;
 pub mod controller;
 pub mod human;
+pub mod inspect;
 pub mod launch;
 pub mod names;
 pub mod pack_test;
@@ -21,10 +22,13 @@ pub mod view;
 pub use cards::{AbilityLine, CardSource, FigureLine, NoCards, StatLine, UnitCard};
 pub use controller::Controller;
 pub use human::HumanController;
+pub use inspect::{Change, Clamp, InspectStep, Inspection, TraceMismatch};
 pub use launch::{LaunchSpec, launch};
 pub use names::Names;
 pub use random::RandomController;
-pub use replay::{Replay, ReplayError, ReplayRecord, SNAPSHOT_EVERY, Snapshot};
+pub use replay::{
+    REPLAY_FORMAT, Replay, ReplayError, ReplayRecord, SNAPSHOT_EVERY, Snapshot, engine_version,
+};
 pub use replay_text::dump;
 pub use session::{Session, SessionError};
 pub use setup::{MatchBuild, SetupError, build_match, pack_identities};

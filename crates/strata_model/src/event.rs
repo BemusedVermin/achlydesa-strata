@@ -5,8 +5,9 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use strata_kernel::{DefId, Rotation, Space, StableHash, Sym, Value};
 
+use crate::ability_key::AbilityKey;
 use crate::ids::{FigureId, PlayerId, RelicId, UnitId, VarKey};
-use crate::state::Token;
+use crate::state::{AbilityOwner, Token};
 
 /// Who may see a command, event or token.
 #[derive(
@@ -31,6 +32,9 @@ pub enum Event {
         to: Space,
         /// Its new rotation.
         rotation: Rotation,
+        /// The spaces walked, excluding the start and ending at `to`; empty for a placement.
+        #[serde(default)]
+        path: Vec<Space>,
     },
     /// Dice were rolled. Presentation and triggers only; no state changes.
     DiceRolled {
@@ -109,6 +113,26 @@ pub enum Event {
         relic: RelicId,
         /// The claimant.
         by: PlayerId,
+    },
+    /// A relic's holder let go, because they left it or were removed.
+    RelicReleased(RelicId),
+    /// A relic was turned face up.
+    RelicRevealed(RelicId),
+    /// An ability instance was attached to a unit, player or relic.
+    AbilityAttached {
+        /// The ability definition.
+        def: AbilityKey,
+        /// What it is attached to.
+        owner: AbilityOwner,
+        /// Parameters resolved at attach time.
+        params: BTreeMap<Sym, Value>,
+    },
+    /// The first matching ability instance was removed from its owner.
+    AbilityDetached {
+        /// The ability definition.
+        def: AbilityKey,
+        /// What it was attached to.
+        owner: AbilityOwner,
     },
     /// A variable was set; a nil value removes it.
     VarSet {

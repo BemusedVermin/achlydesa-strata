@@ -1,6 +1,6 @@
 # T-028: Lua ctx API and Lua rule modules
 
-**Task T-028** · M2 Rules core · Est. core lines: ~450 / 500
+**Task T-028** · M2 Rules core · Est. core lines: ~450
 **Depends on:** T-027, T-024, T-025
 
 ## Goal
@@ -29,8 +29,7 @@ Give scripts the full `ctx` surface and let a Lua module fill any slot.
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

@@ -25,8 +25,9 @@ fn army() -> Option<ArmyList> {
     })
 }
 
-/// The first view of a match on the `cards` fixture, whose ruleset adds 1 to every defense.
-fn launched_view() -> PlayerView {
+/// The first view of a match on the `cards` fixture, whose ruleset adds 1 to every defense from
+/// a Lua function.
+pub(crate) fn launched_view() -> PlayerView {
     let root = env!("CARGO_MANIFEST_DIR");
     let handle = launch(LaunchSpec {
         roots: vec![PathBuf::from(root).join("../../fixtures/packs/cards")],
@@ -178,4 +179,49 @@ fn the_log_words_dice_and_markers_with_their_names() {
             "Figure 1 -1 Wound",
         ]
     );
+}
+
+#[test]
+fn drawing_the_prompt_with_no_input_leaves_the_decision_input_unchanged() {
+    use bevy_egui::egui;
+    use strata_model::{Command, Decision, DecisionKind, PendingDecision};
+
+    use crate::input::DecisionInput;
+
+    let syms = |xs: &[&str]| xs.iter().map(|x| Sym::new(x)).collect::<Vec<_>>();
+    let kinds = [
+        DecisionKind::YesNo,
+        DecisionKind::Number { min: 1, max: 4 },
+        DecisionKind::Order(syms(&["a", "b", "c"])),
+        DecisionKind::ChooseOption(syms(&["left", "right"])),
+    ];
+    for kind in kinds {
+        let pending = PendingDecision {
+            decision: Decision {
+                prompt: Sym::new("pick"),
+                kind,
+            },
+            chooser: PlayerId(1),
+            player: PlayerId(1),
+            command: Command::EndActivation,
+            answers: Vec::new(),
+        };
+        let state = GameState {
+            pending: Some(pending),
+            ..GameState::default()
+        };
+        let view = PlayerView::of(&state, PlayerId(0));
+        let mut input = DecisionInput::of(&view);
+        let before = input.clone();
+        let ctx = egui::Context::default();
+        let mut answer = None;
+        for _ in 0..2 {
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+                answer = super::prompt::decision(ui, &view, &mut input);
+            });
+            output.textures_delta.clear();
+        }
+        assert_eq!(answer, None);
+        assert_eq!(input, before);
+    }
 }

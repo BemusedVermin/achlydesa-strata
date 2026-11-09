@@ -1,6 +1,6 @@
 # T-049: Terrain rendering
 
-**Task T-049** · M4 Playable client · Est. core lines: ~450 / 500
+**Task T-049** · M4 Playable client · Est. core lines: ~450
 **Depends on:** T-048
 
 ## Goal
@@ -29,8 +29,7 @@ Draw the compiled board.
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

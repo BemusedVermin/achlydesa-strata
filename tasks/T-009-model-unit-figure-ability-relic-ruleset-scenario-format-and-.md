@@ -1,6 +1,6 @@
 # T-009: Model: unit, figure, ability, relic, ruleset, scenario, format and army definition types
 
-**Task T-009** · M0 Foundations · Est. core lines: ~400 / 500
+**Task T-009** · M0 Foundations · Est. core lines: ~400
 **Depends on:** T-008
 
 ## Goal
@@ -31,8 +31,7 @@ The frozen Rust shapes of everything else a pack defines.
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

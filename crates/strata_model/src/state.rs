@@ -6,6 +6,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use strata_kernel::{DefId, PackId, Rotation, Space, StableHash, Sym, Value};
 
+use crate::ability_key::AbilityKey;
 use crate::decision::PendingDecision;
 use crate::event::Visibility;
 use crate::ids::{FigureId, PlayerId, RelicId, UnitId, VarKey};
@@ -181,7 +182,7 @@ pub enum AbilityOwner {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct AbilityInstance {
     /// The ability definition.
-    pub def: DefId,
+    pub def: AbilityKey,
     /// What it is attached to.
     pub owner: AbilityOwner,
     /// Parameters resolved at attach time.
@@ -263,5 +264,12 @@ impl GameState {
     /// The stable hash of the whole state.
     pub fn hash(&self) -> u64 {
         StableHash::stable_hash_value(self)
+    }
+
+    /// The team `player` is on. A player the state does not list is on a team of their own,
+    /// numbered like the player.
+    pub fn team(&self, player: PlayerId) -> u8 {
+        let found = self.players.get(player.index());
+        found.map_or(player.0, |p| p.team)
     }
 }

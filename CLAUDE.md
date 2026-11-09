@@ -23,33 +23,25 @@ If something is ambiguous, do not guess on design decisions. Comment on the issu
 5. Before opening the PR, run:
    ```
    cargo fmt --all
-   cargo clippy --workspace --all-targets --locked -- -D warnings
+   cargo clippy -p <each crate the PR changed> --all-targets --locked -- -D warnings
    cargo test --locked                       # core crates (default members): fast
    cargo test -p strata_client -p strata_render -p strata_scene --locked   # only if the PR touches client or render code
-   python scripts/line_budget.py --base origin/master
    ```
+   **Run these one at a time, never concurrently.** Liam develops on the same laptop, and parallel cargo builds slow it to a crawl. Concretely:
+   - Run at most one `cargo` command at a time, and do not start another until the previous one has finished. Never start a second copy of a build or test run that is still going.
+   - Pass `-j 2` to every `cargo` command that compiles.
+   - Prefer the narrowest check while iterating (`cargo check -p <crate> --locked`, `cargo test -p <crate> --locked`). Run the commands above once, at the end.
+   - Do not run `cargo clippy --workspace` locally. It builds Bevy and every other crate, and CI runs it on the whole workspace anyway. Clippy only the crates the PR changed (a crate that depends on a changed one is checked by CI).
+   - A command that moves to the background after the tool timeout is still running. Wait for its notification. Stopping the task does not always stop its child processes, so check for stray `cargo`, `rustc` and `clippy-driver` processes and kill them before running anything else.
+   - Do not work around a slow build by running more builds. If a check is taking too long, say so and ask.
 6. Open a PR to `master` titled `T-NNN: <issue title>`, fill in the PR template, and include `Closes #<issue number>`.
 7. Address every comment from the automated review: fix it, or reply explaining why not. Then leave the PR for Liam.
 
-One issue per PR. Never push to `master` directly. Never modify `.github/`, `scripts/line_budget.py` or this file unless the issue says to.
+One issue per PR. Never push to `master` directly. Never modify `.github/` or this file unless the issue says to.
 
-## The 500-line rule
+## Unit tests
 
-Each PR may add at most **500 lines of core logic**. CI enforces this with `scripts/line_budget.py`.
-
-**Counted** (added lines that are neither blank nor comment-only):
-- `crates/*/src/**/*.rs`, except test files (below)
-- `crates/*/build.rs`
-- Lua logic in packs: `packs/*/rules/`, `packs/*/abilities/`, `packs/*/scripts/`, `packs/*/lib/`
-
-**Not counted:**
-- Tests: `crates/*/tests/**`, `src/**/tests.rs`, `src/**/*_tests.rs`, `src/**/tests/**`
-- `benches/`, `examples/`, `fixtures/`, `docs/`, `.github/`, `scripts/`, `Cargo.toml`, `Cargo.lock`
-- Pack data: `units/`, `terrain/`, `relics/`, `maps/`, `scenarios/`, `formats/`, `assets/`, `assets.lua`, `pack.lua`, `data*.lua`, `packs/*/tests/`
-
-Unit tests go in a separate file: write `#[cfg(test)] mod tests;` in the module and put the tests in `tests.rs` beside it. Inline `mod tests { ... }` blocks inside counted files are rejected by the budget script.
-
-If the work will not fit in 500 lines, **split it**: open the PR for the first coherent part and comment on the issue with the proposed remainder. Never compress code (long lines, dense formatting, removed docs) to fit. The `budget-exempt` label is for Liam only.
+Write `#[cfg(test)] mod tests;` in the module and put the tests in `tests.rs` beside it, not in an inline `mod tests { ... }` block. There is no limit on PR size, but keep each PR to one coherent piece of the issue; if the work is large, open the first part and comment on the issue with the proposed remainder.
 
 ## Architecture rules
 

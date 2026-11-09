@@ -2,8 +2,8 @@
 source: crates/strata_session/src/replay_tools_tests.rs
 expression: "dump(&replay, &events)"
 ---
-engine 0.1.0
-pack toy 1.0.0 0x8aa76ef00ce71f5f
+engine 0.1.0+replay.1
+pack toy 1.0.0 0xcfef7e30a2fc7078
 ruleset DefId(1)  format None  scenario DefId(0)  seed Plain(7)
 player 0 slot a team 0: 2xtest_soldier
 player 1 slot b team 1: 2xtest_archer
@@ -14,18 +14,18 @@ player 1 slot b team 1: 2xtest_archer
   event DiceRolled { die: DefId(0), results: [4, 2, 4] }
   event DiceRolled { die: DefId(0), results: [2] }
   event VarSet { key: VarKey { module: ModuleId("toy:combat"), name: "wounds_2" }, value: Int(1) }
-  hash 0xa589669947fa8c46
+  hash 0x1c0cb54e28622e02
 
 #1 player 0 Custom { id: "attack", payload: Map({"attacker": Int(1), "target": Int(3)}) }
   event Custom { id: "attack_declared", payload: Map({"attacker": Int(1), "target": Int(3)}) }
   event DiceRolled { die: DefId(0), results: [5, 2, 5] }
   event DiceRolled { die: DefId(0), results: [3] }
   event VarSet { key: VarKey { module: ModuleId("toy:combat"), name: "wounds_3" }, value: Int(1) }
-  hash 0x5a68321f9519b461
+  hash 0x8d291533aeb9e7c4
 
 #2 player 0 Custom { id: "attack", payload: Map({"attacker": Int(0), "target": Int(3)}) }
   event Custom { id: "attack_declared", payload: Map({"attacker": Int(0), "target": Int(3)}) }
   event DiceRolled { die: DefId(0), results: [6, 5, 6] }
   event DiceRolled { die: DefId(0), results: [6] }
   event VarSet { key: VarKey { module: ModuleId("toy:combat"), name: "wounds_3" }, value: Int(1) }
-  hash 0x052f4d85889faa7b
+  hash 0x35a94d6b6205e69d
