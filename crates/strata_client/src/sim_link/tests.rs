@@ -92,3 +92,11 @@ fn a_match_that_fails_to_start_is_reported_in_the_status() {
         matches!(w.resource::<SimStatus>(), SimStatus::Failed(_))
     });
 }
+
+#[test]
+fn the_board_from_the_simulation_becomes_the_client_board() {
+    let mut app = app_for(spec("duel"));
+    run_until(&mut app, |w| w.contains_resource::<ClientBoard>());
+    let board = app.world().resource::<ClientBoard>();
+    assert!(board.0.board.max_level().is_some());
+}

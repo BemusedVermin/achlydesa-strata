@@ -148,6 +148,13 @@ impl CompiledBoard {
             .get(usize::try_from(dr * self.width + dq).ok()?)
     }
 
+    /// Iterates every hex of the bounding box, row by row.
+    pub fn hexes(&self) -> impl Iterator<Item = Hex> + '_ {
+        (0..self.height).flat_map(move |r| {
+            (0..self.width).map(move |q| Hex::new(self.min.q + q, self.min.r + r))
+        })
+    }
+
     /// Returns the surfaces at `hex`, bottom to top.
     pub fn surfaces(&self, hex: Hex) -> &[Surface] {
         self.column(hex).map_or(&[], |c| &c.surfaces)

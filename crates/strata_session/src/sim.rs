@@ -9,7 +9,7 @@ use strata_model::{Answer, Command, Event, PlayerId};
 use crate::cards::{CardSource, NoCards};
 use crate::human::HumanController;
 use crate::session::{Session, SessionError};
-use crate::view::{PlayerView, visible_events};
+use crate::view::{BoardInfo, PlayerView, visible_events};
 
 /// A control message for the simulation thread.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +23,8 @@ pub enum Control {
 pub enum SimMessage {
     /// Events that committed, already filtered for the client's viewer.
     Events(Vec<Event>),
+    /// The static board, sent once before the first view.
+    Board(Box<BoardInfo>),
     /// The viewer's projection of the state after a step, including any pending decision.
     View(Box<PlayerView>),
     /// The match reached its command limit.
@@ -89,6 +91,11 @@ impl SimLink {
             }
         }
         self.send(SimMessage::Finished);
+    }
+
+    /// Sends the static board; the client needs it before the first view.
+    pub(crate) fn send_board(&self, info: BoardInfo) -> bool {
+        self.send(SimMessage::Board(Box::new(info)))
     }
 
     /// Reports that the match could not run.
