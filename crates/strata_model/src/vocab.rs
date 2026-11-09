@@ -60,6 +60,20 @@ pub enum DieKind {
     Range(i32, i32),
 }
 
+impl DieKind {
+    /// How many of the die's faces are `face`, and how many faces it has; `None` for a range
+    /// die, which has no faces to count.
+    pub fn odds(&self, face: &str) -> Option<(u32, u32)> {
+        let DieKind::Faces(faces) = self else {
+            return None;
+        };
+        let matching = faces.iter().filter(|f| f.as_str() == face).count();
+        u32::try_from(matching)
+            .ok()
+            .zip(u32::try_from(faces.len()).ok())
+    }
+}
+
 /// A die.
 ///
 /// It serializes by hand because `postcard`, which hashes pack content, cannot serialize the

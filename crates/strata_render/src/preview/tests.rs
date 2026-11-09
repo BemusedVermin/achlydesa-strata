@@ -86,3 +86,14 @@ fn the_plugin_draws_one_mesh_per_look_and_clears_them() {
     app.update();
     assert!(drawn(&mut app).is_empty());
 }
+
+#[test]
+fn marks_written_before_the_draw_set_are_drawn_the_same_frame() {
+    fn write(mut marks: ResMut<PreviewMarks>) {
+        marks.set_if_neq(self::marks());
+    }
+    let mut app = app();
+    app.add_systems(Update, write.before(DrawPreviews));
+    app.update();
+    assert_eq!(drawn(&mut app), Look::ALL);
+}

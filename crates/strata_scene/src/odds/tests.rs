@@ -113,8 +113,31 @@ fn pools_too_large_for_exact_odds_have_none() {
         success: 1,
         faces: 3,
     };
-    assert!(WoundOdds::of(hits(60), thirds(40)).is_some());
+    // 2^30 * 3^20 is under the cap; 2^60 * 3^40 fits in 128 bits but not under the cap.
+    assert!(WoundOdds::of(hits(30), thirds(20)).is_some());
+    assert_eq!(WoundOdds::of(hits(60), thirds(40)), None);
     assert_eq!(WoundOdds::of(hits(1024), blocks(1024)), None);
+}
+
+#[test]
+fn odds_near_the_cap_compare_without_overflow() {
+    let thirds = DicePool {
+        dice: 20,
+        success: 1,
+        faces: 3,
+    };
+    let odds = WoundOdds::of(hits(30), thirds).unwrap();
+    let (_, total) = odds.weights();
+    assert!(total > MAX_TOTAL / 4, "the total is near the cap: {total}");
+    for n in 0..odds.max() {
+        assert!(odds.at_least(n + 1) <= odds.at_least(n));
+        assert!(odds.chance(n) <= Frac::ONE);
+    }
+    // About eight wounds are expected over a total near the cap, so the numerator passes it.
+    assert_eq!(odds.expected(), None);
+    let smaller = WoundOdds::of(hits(20), thirds).unwrap();
+    let expected = smaller.expected().unwrap();
+    assert!(expected > Frac::ZERO && expected < Frac::new(20, 1));
 }
 
 #[test]

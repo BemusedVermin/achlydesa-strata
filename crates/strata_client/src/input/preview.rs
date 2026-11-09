@@ -123,7 +123,7 @@ impl PreviewModel {
         for target in targets.collect::<Vec<_>>() {
             match target {
                 Target::Space(space) => {
-                    let Some(stop) = view.previews.stop(figure, space) else {
+                    let Some(stop) = view.previews.stop(figure, action, space) else {
                         continue;
                     };
                     model.marks.stops.push(StopMark {

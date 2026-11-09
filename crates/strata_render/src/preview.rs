@@ -131,11 +131,16 @@ struct PreviewLooks(BTreeMap<Look, Handle<StandardMaterial>>);
 /// Draws [`PreviewMarks`] as line meshes, rebuilt whenever they or the board change.
 pub struct PreviewPlugin;
 
+/// The set that draws [`PreviewMarks`] in `Update`. A system that writes the marks runs before
+/// it, so a change is drawn the same frame.
+#[derive(SystemSet, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct DrawPreviews;
+
 impl Plugin for PreviewPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PreviewMarks>()
             .add_systems(Startup, make_looks)
-            .add_systems(Update, draw_previews);
+            .add_systems(Update, draw_previews.in_set(DrawPreviews));
     }
 }
 

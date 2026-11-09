@@ -86,6 +86,7 @@ fn an_attack_reads_as_pools_sight_cover_and_odds() {
     assert_eq!(lines[2], "1 combat defense (block counts)");
     assert_eq!(lines[3], "In sight: 33.3% (1/3) of the target clear");
     assert_eq!(lines[4], "Cover: +1 defense die.");
+    assert_eq!(lines[5], "Before reactions and abilities:");
     assert_eq!(lines.last().unwrap(), "At least 1 wound: 58.3% (7/12)");
     attack.ranged = false;
     attack.clear = None;
@@ -96,6 +97,7 @@ fn an_attack_reads_as_pools_sight_cover_and_odds() {
         lines[3..],
         [
             "Adjacent: no line of sight needed.",
+            "Before reactions and abilities:",
             "No exact odds for these dice."
         ]
     );

@@ -4,8 +4,17 @@
 //! count is binomial. The wounds are the attack's hits minus the defense's blocks, never below
 //! zero. Every probability is an integer weight over one common total, so the distribution is
 //! exact and sums to exactly one.
+//!
+//! The common total is capped at [`MAX_TOTAL`], `i64::MAX`. `Frac` compares by cross-multiplying
+//! in `i128`, so with every numerator and denominator at most `i64::MAX` any two chances or
+//! expectations these odds give can be compared, or added, without overflow. Pools beyond the
+//! cap get no exact odds.
 
 use strata_kernel::Frac;
+
+/// The largest common total, and the largest numerator, of the fractions [`WoundOdds`] gives:
+/// small enough that `Frac`'s `i128` cross-multiplication of any two of them cannot overflow.
+pub const MAX_TOTAL: i128 = i64::MAX as i128;
 
 /// A pool of identical dice, each counting on `success` of its `faces` faces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -62,11 +71,14 @@ fn gcd(mut a: u32, mut b: u32) -> u32 {
 impl WoundOdds {
     /// The wounds `attack`'s hits minus `defense`'s blocks deal, or `None` when a die is
     /// malformed (no faces, or more counting faces than faces) or the pools are too large for
-    /// exact odds in 128 bits.
+    /// exact odds: their common total would pass [`MAX_TOTAL`].
     pub fn of(attack: DicePool, defense: DicePool) -> Option<Self> {
         let (hits, hit_total) = counts(attack)?;
         let (blocks, block_total) = counts(defense)?;
         let total = hit_total.checked_mul(block_total)?;
+        if total > MAX_TOTAL {
+            return None;
+        }
         // Each product is at most `total`, and the sums never exceed it.
         let mut weights = vec![0i128; hits.len()];
         for (h, hw) in hits.iter().enumerate() {
@@ -97,13 +109,14 @@ impl WoundOdds {
         Frac::new(weight, self.total)
     }
 
-    /// The expected number of wounds, exactly, or `None` if it does not fit in 128 bits.
+    /// The expected number of wounds, exactly, or `None` if its numerator would pass
+    /// [`MAX_TOTAL`].
     pub fn expected(&self) -> Option<Frac> {
         let mut sum = 0i128;
         for (n, w) in self.weights.iter().enumerate() {
             sum = sum.checked_add(i128::try_from(n).ok()?.checked_mul(*w)?)?;
         }
-        Some(Frac::new(sum, self.total))
+        (sum <= MAX_TOTAL).then(|| Frac::new(sum, self.total))
     }
 
     /// The weight of each wound count from zero, with the common total they are over.

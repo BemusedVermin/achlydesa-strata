@@ -2,7 +2,7 @@
 
 use strata_kernel::Hex;
 use strata_model::{FigureId, GameState};
-use strata_rules::{Halt, NativeEnv, VoteQuery};
+use strata_rules::{Halt, LosResult, NativeEnv, VoteQuery};
 
 use super::Rules;
 use crate::shared::{height, id_value, overlaps};
@@ -11,13 +11,16 @@ use crate::shared::{height, id_value, overlaps};
 const RANGE: &str = "range";
 
 /// How a legal attack sees its target.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Sight {
     /// Whether the target is not adjacent (more than one hex away, or on levels that do not
     /// overlap), so line of sight was needed.
     pub(crate) ranged: bool,
     /// Whether the target adds a defense die for cover.
     pub(crate) cover: bool,
+    /// The line-of-sight answer that decided a ranged attack, so a preview need not cast again;
+    /// `None` for an adjacent target.
+    pub(crate) los: Option<LosResult>,
 }
 
 /// The columns a figure on the board covers: its footprint, or else the column it stands in.
@@ -95,15 +98,15 @@ impl Sight {
             return Ok(None);
         }
         let ranged = !adjacent(state, env, attacker, target, apart);
-        let (seen, cover) = if ranged {
+        let (seen, cover, los) = if ranged {
             match (env.los(state, attacker, target), blind) {
                 // At least half the samples blocked: clear / total <= 1 / 2.
                 (Ok(los), _) => {
                     let clear = los.clear_fraction;
                     let cover = rules.cover && 2 * clear.numer() <= clear.denom();
-                    (los.visible, cover)
+                    (los.visible, cover, Some(los))
                 }
-                (Err(_), Blind::Unseen) => (false, false),
+                (Err(_), Blind::Unseen) => (false, false, None),
                 (Err(e), Blind::Reject) => {
                     let (a, t) = (attacker.0, target.0);
                     let message = format!(
@@ -115,7 +118,7 @@ impl Sight {
                 }
             }
         } else {
-            (true, false)
+            (true, false, None)
         };
         let query = VoteQuery {
             default: seen,
@@ -124,7 +127,7 @@ impl Sight {
         if !env.vote(state, &query).map_err(fail)? {
             return Ok(None);
         }
-        Ok(Some(Self { ranged, cover }))
+        Ok(Some(Self { ranged, cover, los }))
     }
 }
 

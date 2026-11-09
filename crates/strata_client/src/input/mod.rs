@@ -9,7 +9,7 @@
 use bevy::prelude::*;
 use bevy_egui::input::EguiWantsInput;
 use strata_model::Answer;
-use strata_render::{BoardHighlights, HoveredSpace, PreviewMarks, SpaceClicked};
+use strata_render::{BoardHighlights, DrawPreviews, HoveredSpace, PreviewMarks, SpaceClicked};
 use strata_session::PlayerView;
 
 use crate::sim_link::{LatestView, SendAnswer, SendCommand, SimStatus};
@@ -109,7 +109,12 @@ impl Plugin for PlayerInputPlugin {
             .init_resource::<PreviewMarks>()
             .add_message::<SpaceClicked>()
             .add_message::<SendCommand>()
-            .add_systems(Update, (refresh, on_click, highlight, preview).chain());
+            .add_systems(
+                Update,
+                (refresh, on_click, highlight, preview)
+                    .chain()
+                    .before(DrawPreviews),
+            );
     }
 }
 

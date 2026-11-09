@@ -18,5 +18,6 @@ pub use camera::{CameraPlugin, ClientBoard, HoveredSpace, IsoCamera, IsoCameraMa
 pub use input::{BoardHighlights, InputPlugin, SpaceClicked};
 pub use plugins::{FigurePlugin, OcclusionPlugin, PlaybackPlugin, RenderPlugins};
 pub use preview::{
-    Look, PreviewMarks, PreviewMesh, PreviewPlugin, StopMark, VolumeMark, preview_lines,
+    DrawPreviews, Look, PreviewMarks, PreviewMesh, PreviewPlugin, StopMark, VolumeMark,
+    preview_lines,
 };

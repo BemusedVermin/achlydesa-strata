@@ -2,14 +2,15 @@
 //! where the rules can be asked (design §13.1, §13.6).
 //!
 //! The client only draws these. Movement previews come from the `movement` slot's reach, the same
-//! result the move action and the AI read; attack previews come from the `combat` slot's
-//! [`CombatPreview`] service and the `los` slot. Nothing here rolls dice or changes the state.
+//! result the move action and the AI read, and are attached only to the actions whose targets
+//! are that reach; attack previews come from the `combat` slot's [`CombatPreview`] service, with
+//! the line of sight it judged the attack on. Nothing here rolls dice or changes the state.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use strata_kernel::{DefId, Rotation, Space, Sym, Value};
-use strata_model::{Command, DieKind, FigureId, GameState};
+use strata_model::{Command, FigureId, GameState};
 use strata_rules::{
     CombatPreview, FigureVolume, LosResult, NativeEnv, PreviewPool, Reach, RulesRuntime,
     native_name,
@@ -64,15 +65,9 @@ pub struct PoolPreview {
 
 impl PoolPreview {
     fn of(pool: PreviewPool, env: &dyn NativeEnv) -> Self {
-        let odds = match env.die(&pool.die) {
-            Some((_, DieKind::Faces(faces))) => {
-                let matching = faces.iter().filter(|f| **f == pool.face).count();
-                u32::try_from(matching)
-                    .ok()
-                    .zip(u32::try_from(faces.len()).ok())
-            }
-            _ => None,
-        };
+        let odds = env
+            .die(&pool.die)
+            .and_then(|(_, kind)| kind.odds(pool.face.as_str()));
         Self {
             dice: pool.dice,
             die: pool.die,
@@ -109,11 +104,18 @@ pub struct AttackPreview {
 /// Every preview for the viewer's legal commands.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Previews {
-    /// The stops of each figure that has a legal command targeting a space, by figure.
-    pub moves: BTreeMap<FigureId, Vec<MoveStop>>,
+    /// The stops of each move, by figure and move action. An action counts as a move for a
+    /// figure when its legal targets are exactly the stops the `movement` slot lists for that
+    /// figure, as `ctx.movement.reachable` lists them; any other action that targets spaces gets
+    /// no movement preview.
+    pub moves: BTreeMap<(FigureId, DefId), Vec<MoveStop>>,
     /// One preview per legal attack command.
     pub attacks: Vec<AttackPreview>,
 }
+
+/// A space target as a move lists it: the anchor space, and the rotation for a figure whose
+/// footprint is larger than one cell.
+type Spot = (Space, Option<Rotation>);
 
 impl Previews {
     /// Previews for `legal`, the viewer's legal commands in `state`. A figure whose reach or an
@@ -131,7 +133,8 @@ impl Previews {
             combat.is_some_and(|c| native == Some(c.action()))
         };
         let mut previews = Self::default();
-        let mut asked = BTreeSet::new();
+        // The targets of each figure's non-attack actions; `None` once one is not a space.
+        let mut spots: BTreeMap<(FigureId, DefId), Option<BTreeSet<Spot>>> = BTreeMap::new();
         for command in legal {
             let Command::Action {
                 figure,
@@ -141,32 +144,54 @@ impl Previews {
             else {
                 continue;
             };
-            if is_space(args) {
-                // Reach is per figure, so it is asked once whatever the number of targets.
-                if asked.insert(*figure)
-                    && let Ok(reach) = env.reachable(state, *figure)
-                {
-                    let stops = reach.iter().filter(|r| !r.occupied).map(MoveStop::of);
-                    previews.moves.insert(*figure, stops.collect());
-                }
-            } else if let (Some(combat), true) = (combat, attack_action(*action)) {
+            if let (Some(combat), true) = (combat, attack_action(*action)) {
                 let target = args.as_int().ok().and_then(|n| u32::try_from(n).ok());
                 let found = target
                     .and_then(|t| attack(&**combat, env, state, (*figure, FigureId(t)), *action));
                 previews.attacks.extend(found);
+                continue;
+            }
+            let entry = spots.entry((*figure, *action));
+            let entry = entry.or_insert_with(|| Some(BTreeSet::new()));
+            match (entry.as_mut(), spot(args)) {
+                (Some(set), Some(at)) => {
+                    set.insert(at);
+                }
+                _ => *entry = None,
+            }
+        }
+        // Reach is per figure, so it is asked once whatever the number of its actions.
+        let mut reach: BTreeMap<FigureId, Option<Vec<Reach>>> = BTreeMap::new();
+        for ((figure, action), targets) in spots {
+            let Some(targets) = targets else { continue };
+            let stops = reach.entry(figure).or_insert_with(|| {
+                let found = env.reachable(state, figure).ok();
+                found.map(|r| r.into_iter().filter(|r| !r.occupied).collect())
+            });
+            let Some(stops) = stops.as_deref() else {
+                continue;
+            };
+            if stops.iter().map(listed).collect::<BTreeSet<_>>() == targets {
+                let stops = stops.iter().map(MoveStop::of).collect();
+                previews.moves.insert((figure, action), stops);
             }
         }
         previews
     }
 
-    /// The stops `figure` may move to, if it has a movement preview.
-    pub fn stops(&self, figure: FigureId) -> &[MoveStop] {
-        self.moves.get(&figure).map_or(&[], Vec::as_slice)
+    /// The stops `figure` may move to with `action`, if it is a move with a preview.
+    pub fn stops(&self, figure: FigureId, action: DefId) -> &[MoveStop] {
+        let found = self.moves.get(&(figure, action));
+        found.map_or(&[], Vec::as_slice)
     }
 
-    /// The cheapest stop of `figure` on `space`, the one a move without a rotation takes.
-    pub fn stop(&self, figure: FigureId, space: Space) -> Option<&MoveStop> {
-        let on = self.stops(figure).iter().filter(|s| s.space == space);
+    /// The cheapest stop of `figure` moving with `action` on `space`, the one a move without a
+    /// rotation takes.
+    pub fn stop(&self, figure: FigureId, action: DefId, space: Space) -> Option<&MoveStop> {
+        let on = self
+            .stops(figure, action)
+            .iter()
+            .filter(|s| s.space == space);
         on.min_by_key(|s| (s.cost, s.rotation))
     }
 
@@ -186,10 +211,6 @@ fn attack(
     action: DefId,
 ) -> Option<AttackPreview> {
     let pools = combat.pools(state, env, attacker, target).ok()??;
-    let sight = match pools.ranged {
-        true => env.los(state, attacker, target).ok(),
-        false => None,
-    };
     Some(AttackPreview {
         attacker,
         target,
@@ -198,19 +219,37 @@ fn attack(
         defense: PoolPreview::of(pools.defense, env),
         ranged: pools.ranged,
         cover: pools.cover,
-        sight,
+        sight: pools.sight,
         volume: env.volume(state, target),
     })
 }
 
-/// Whether an action argument names a space: `[q, r, z]`, `[q, r, z, o]` or `{ q, r, z }`.
-fn is_space(args: &Value) -> bool {
-    let int = |v: Option<&Value>| matches!(v, Some(Value::Int(_)));
-    match args {
-        Value::List(xs) if (3..=4).contains(&xs.len()) => xs.iter().all(|x| int(Some(x))),
-        Value::Map(m) => ["q", "r", "z"].iter().all(|k| int(m.get(&Sym::new(k)))),
-        _ => false,
-    }
+/// How `ctx.movement.reachable` lists `reach`: its rotation only for a footprint larger than one
+/// cell.
+fn listed(reach: &Reach) -> Spot {
+    let turned = reach.cells.len() > 1;
+    (reach.space, turned.then_some(reach.rotation))
+}
+
+/// The space an action argument names: `[q, r, z]`, `[q, r, z, o]`, `{ q, r, z }` or
+/// `{ q, r, z, o }`.
+fn spot(args: &Value) -> Option<Spot> {
+    let fields: Vec<Option<&Value>> = match args {
+        Value::List(xs) if (3..=4).contains(&xs.len()) => (0..4).map(|i| xs.get(i)).collect(),
+        Value::Map(m) => ["q", "r", "z", "o"]
+            .iter()
+            .map(|k| m.get(&Sym::new(k)))
+            .collect(),
+        _ => return None,
+    };
+    let int = |i: usize| fields[i]?.as_int().ok();
+    let coord = |i: usize| i32::try_from(int(i)?).ok();
+    let space = Space::new(coord(0)?, coord(1)?, u32::try_from(int(2)?).ok()?);
+    let rotation = match fields[3] {
+        Some(_) => Some(u8::try_from(int(3)?).ok().and_then(Rotation::new)?),
+        None => None,
+    };
+    Some((space, rotation))
 }
 
 #[cfg(test)]

@@ -9,14 +9,20 @@ use crate::input::tests::{space, state};
 
 const WALK: DefId = DefId(5);
 const ATTACK: DefId = DefId(6);
+/// Another action that targets spaces, with no movement preview of its own.
+const BLINK: DefId = DefId(7);
 
-fn walk(q: i32) -> Command {
+fn on_space(action: DefId, q: i32) -> Command {
     let at = [q, 0, 1].map(|n| Value::Int(i64::from(n)));
     Command::Action {
         figure: FigureId(0),
-        action: WALK,
+        action,
         args: Value::List(at.to_vec()),
     }
+}
+
+fn walk(q: i32) -> Command {
+    on_space(WALK, q)
 }
 
 fn attack(target: u32) -> Command {
@@ -55,13 +61,15 @@ fn ray() -> Seg3 {
     )
 }
 
-/// Figure 0 may walk to spaces 2 and 4, or attack figure 2 on space 3 from range with 3 dice
-/// against 2.
+/// Figure 0 may walk to spaces 2 and 4, blink to the same spaces, or attack figure 2 on space 3
+/// from range with 3 dice against 2. Only the walk has a movement preview.
 fn view() -> PlayerView {
     let mut view = PlayerView::of(&state(), PlayerId(0));
+    let blinks = [on_space(BLINK, 2), on_space(BLINK, 4)];
     view.legal = vec![walk(2), walk(4), attack(2)];
+    view.legal.extend(blinks);
     let stops = vec![stop(2, 2, false, true), stop(4, 3, true, false)];
-    view.previews.moves.insert(FigureId(0), stops);
+    view.previews.moves.insert((FigureId(0), WALK), stops);
     view.previews.attacks.push(AttackPreview {
         attacker: FigureId(0),
         target: FigureId(2),
@@ -124,6 +132,13 @@ fn hovering_a_stop_shows_its_route() {
     let path = vec![space(1), space(2), space(3), space(4)];
     assert_eq!(model.marks.route, Some((space(0), path)));
     assert_eq!(model.stop.map(|s| s.cost), Some(3));
+}
+
+#[test]
+fn another_action_on_the_same_spaces_shows_no_movement_preview() {
+    let view = view();
+    let model = PreviewModel::of(&view, &choosing(&view, BLINK), Some(space(4)));
+    assert_eq!(model, PreviewModel::default());
 }
 
 #[test]

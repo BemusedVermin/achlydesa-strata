@@ -7,6 +7,7 @@ use strata_rules::{AttackPools, CombatPreview, Halt, LogicError, NativeEnv, Prev
 
 use super::sight::{Blind, Sight};
 use super::{ACTION, Rules, resolve};
+use crate::shared::check_faces;
 
 /// Previews the ordinary attack under the configured rules.
 pub(super) struct Previews(pub(super) Arc<Rules>);
@@ -16,7 +17,9 @@ impl CombatPreview for Previews {
         ACTION
     }
 
-    /// The same pools `ctx.combat.preview` reports, with the die and the faces that count.
+    /// The same pools `ctx.combat.preview` reports, with the die and the faces that count. A die
+    /// the attack would reject, unknown or without the `hit` or `block` face, is an error here
+    /// too, so the preview never shows odds for an attack that cannot be made.
     fn pools(
         &self,
         state: &GameState,
@@ -35,7 +38,9 @@ impl CombatPreview for Previews {
         else {
             return Ok(None);
         };
-        let record = resolve::start(rules, state, env, pair, sight, None).map_err(halted)?;
+        let faces = [("hit", &rules.hit), ("block", &rules.block)];
+        check_faces(env, "core:combat", &rules.die, &faces).map_err(halted)?;
+        let record = resolve::start(rules, state, env, pair, &sight, None).map_err(halted)?;
         let pool = |dice, face: &strata_kernel::Sym| PreviewPool {
             dice,
             die: rules.die.clone(),
@@ -46,6 +51,7 @@ impl CombatPreview for Previews {
             defense: pool(record.defense_dice, &rules.block),
             ranged: record.ranged,
             cover: record.cover,
+            sight: sight.los,
         }))
     }
 }

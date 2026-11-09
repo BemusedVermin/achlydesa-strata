@@ -13,6 +13,9 @@ use super::prompt::figure_label;
 use crate::input::preview::{AttackModel, PreviewModel};
 use crate::sim_link::LatestView;
 
+/// The line that says the pools and odds shown ignore reactions and abilities.
+pub const BEFORE_REACTIONS: &str = "Before reactions and abilities:";
+
 /// Exact fractions longer than this are shown as percentages alone.
 const MAX_SHOWN_DENOMINATOR: i128 = 10_000;
 
@@ -61,7 +64,8 @@ pub fn odds_lines(odds: &WoundOdds) -> Vec<String> {
     lines
 }
 
-/// The hovered attack, line by line.
+/// The hovered attack, line by line: the pools, sight and cover, then the wound odds, which are
+/// those before any reaction or ability changes the attack.
 pub fn attack_lines(view: &PlayerView, attack: &AttackModel) -> Vec<String> {
     let pool = |p: &crate::input::preview::PoolLine, verb: &str| {
         format!("{} {} {verb} ({} counts)", p.dice, p.die, p.face)
@@ -86,6 +90,9 @@ pub fn attack_lines(view: &PlayerView, attack: &AttackModel) -> Vec<String> {
     if attack.cover {
         lines.push("Cover: +1 defense die.".into());
     }
+    // The pools and odds are those the attack starts from: reactions in the combat windows and
+    // special attacks may change them.
+    lines.push(BEFORE_REACTIONS.into());
     match &attack.odds {
         Some(odds) => lines.extend(odds_lines(odds)),
         None => lines.push("No exact odds for these dice.".into()),

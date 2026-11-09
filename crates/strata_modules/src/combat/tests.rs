@@ -53,8 +53,9 @@ fn a_negative_or_oversized_height_bonus_is_refused() {
     }
 }
 
-/// A range of 3 for everyone, votes at their defaults, and line of sight that answers `clear`
-/// of 21 samples clear, visible when any is. `None` fails every line-of-sight question.
+/// A range of 3 for everyone, votes at their defaults, a `combat` die of three `hit`, two
+/// `block` and a `blank`, and line of sight that answers `clear` of 21 samples clear, visible
+/// when any is. `None` fails every line-of-sight question.
 struct Env {
     clear: Option<i128>,
     /// Extra cells of figure 0's footprint, beyond the column it stands in.
@@ -70,8 +71,9 @@ impl NativeEnv for Env {
             other => Err(LogicError(format!("no stat `{other}`"))),
         }
     }
-    fn die(&self, _: &str) -> Option<(DefId, DieKind)> {
-        None
+    fn die(&self, name: &str) -> Option<(DefId, DieKind)> {
+        let faces = ["hit", "hit", "hit", "block", "block", "blank"].map(Sym::new);
+        (name == "combat").then(|| (DefId(0), DieKind::Faces(faces.to_vec())))
     }
     fn vote(&self, _: &GameState, query: &VoteQuery) -> Result<bool, LogicError> {
         Ok(query.default)
@@ -152,6 +154,7 @@ fn an_adjacent_target_needs_no_line_of_sight() {
     let melee = Sight {
         ranged: false,
         cover: false,
+        los: None,
     };
     assert_eq!(found, Ok(Some(melee)));
 }
@@ -286,8 +289,37 @@ fn the_preview_names_the_attack_action_and_both_pools() {
         defense: pool(2, "block"),
         ranged: false,
         cover: false,
+        sight: None,
     };
     assert_eq!(melee, Some(expected));
+}
+
+#[test]
+fn the_preview_of_a_ranged_attack_carries_its_line_of_sight() {
+    let ranged = pools(rules(true, 0), &env(Some(5)), 1, Space::new(2, 0, 1)).unwrap();
+    let sight = ranged.sight.expect("a ranged attack casts line of sight");
+    assert_eq!(sight.clear_fraction, Frac::new(5, 21));
+}
+
+#[test]
+fn the_preview_refuses_a_die_the_attack_would_refuse() {
+    let s = state(Space::new(0, 0, 1), Space::new(1, 0, 1));
+    let preview = |rules: Rules| {
+        let previews = Previews(std::sync::Arc::new(rules));
+        previews.pools(&s, &env(None), FigureId(0), FigureId(1))
+    };
+    let no_block = Rules {
+        block: Sym::new("shield"),
+        ..rules(false, 0)
+    };
+    let err = preview(no_block).unwrap_err();
+    assert!(err.0.contains("`block`"), "{err:?}");
+    let unknown = Rules {
+        die: "d20".into(),
+        ..rules(false, 0)
+    };
+    let err = preview(unknown).unwrap_err();
+    assert!(err.0.contains("unknown die"), "{err:?}");
 }
 
 #[test]

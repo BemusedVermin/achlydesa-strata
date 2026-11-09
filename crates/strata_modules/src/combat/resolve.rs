@@ -129,7 +129,7 @@ pub(crate) fn start(
     state: &GameState,
     env: &dyn NativeEnv,
     (attacker, target): (FigureId, FigureId),
-    sight: Sight,
+    sight: &Sight,
     dice: Option<i64>,
 ) -> Result<Record, Halt> {
     let pool = |figure, stat| DicePool::for_stat(env, state, &rules.die, figure, stat);
@@ -187,7 +187,7 @@ pub(crate) fn attack(
     }
     let faces = [("hit", &rules.hit), ("block", &rules.block)];
     crate::shared::check_faces(env, "core:combat", &rules.die, &faces)?;
-    let record = start(rules, ctx.state(), env, (attacker, target), sight, dice)?;
+    let record = start(rules, ctx.state(), env, (attacker, target), &sight, dice)?;
     let record = steps(rules, ctx, env, record)?;
     ctx.emit(Event::Custom {
         id: Sym::new(ATTACK_EVENT),

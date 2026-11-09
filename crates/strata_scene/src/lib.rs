@@ -8,7 +8,7 @@
 #![warn(missing_docs)]
 
 pub use self::layout::{LEVEL_HEIGHT, Orientation, surface_point};
-pub use self::odds::{DicePool, WoundOdds, percent};
+pub use self::odds::{DicePool, MAX_TOTAL, WoundOdds, percent};
 pub use self::outline::{LIFT, Line, lattice_point, ring, route, segment, volume_outline};
 pub use self::pick::{SceneBoard, pick};
 pub use self::terrain::{

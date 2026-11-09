@@ -6,6 +6,7 @@
 use strata_kernel::Sym;
 use strata_model::{FigureId, GameState};
 
+use crate::los::LosResult;
 use crate::native::NativeEnv;
 use crate::query::LogicError;
 
@@ -31,6 +32,9 @@ pub struct AttackPools {
     pub ranged: bool,
     /// Whether the target adds a defense die for cover.
     pub cover: bool,
+    /// The line-of-sight answer the attack was judged on, for a ranged attack: the same cast,
+    /// so the caller need not cast again.
+    pub sight: Option<LosResult>,
 }
 
 /// What the combat slot tells the client about an attack before it is taken.
@@ -39,6 +43,7 @@ pub trait CombatPreview: Send + Sync {
     /// legal commands are attacks.
     fn action(&self) -> &str;
     /// The pools `attacker` would roll against `target`, or `None` when it may not attack it.
+    /// An error means the attack itself would be rejected, as with a misconfigured die.
     fn pools(
         &self,
         state: &GameState,
