@@ -337,9 +337,12 @@ fn attack(attacker: i64, target: i64) -> Command {
 }
 
 fn next_view(handle: &SimHandle) -> PlayerView {
-    match handle.recv_timeout(WAIT) {
-        Ok(SimMessage::View(view)) => *view,
-        other => panic!("expected a view, got {other:?}"),
+    loop {
+        match handle.recv_timeout(WAIT) {
+            Ok(SimMessage::View(view)) => return *view,
+            Ok(SimMessage::Board(_)) => {}
+            other => panic!("expected a view, got {other:?}"),
+        }
     }
 }
 
@@ -348,7 +351,7 @@ fn view_after_events(handle: &SimHandle) -> PlayerView {
     loop {
         match handle.recv_timeout(WAIT) {
             Ok(SimMessage::View(view)) => return *view,
-            Ok(SimMessage::Events(_)) => {}
+            Ok(SimMessage::Events(_) | SimMessage::Board(_)) => {}
             other => panic!("expected a view, got {other:?}"),
         }
     }
