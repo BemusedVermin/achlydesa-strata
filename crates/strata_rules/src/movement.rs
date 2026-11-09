@@ -100,6 +100,10 @@ pub struct Reach {
     pub cost: i64,
     /// The anchor spaces walked, excluding the start and ending at `space`.
     pub path: Vec<Space>,
+    /// The spaces the footprint covers where the figure starts and then after each step of
+    /// `path`, in offset order, so one entry longer than `path`. A move hands this to
+    /// [`Ctx::leave_engagement`](crate::Ctx::leave_engagement).
+    pub walk: Vec<Vec<Space>>,
     /// Entering the space ends the move.
     pub stops_here: bool,
     /// The last step descended further than the fall limit.

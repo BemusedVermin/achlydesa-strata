@@ -60,7 +60,11 @@ impl CommandHandler for MoveTo {
             fig.is_some_and(|f| f.status == FigureStatus::OnBoard)
         };
         let moving = on_board(ctx);
-        ctx.leave_engagement(figure, &path)?;
+        let fig = ctx.state().figures.get(figure.index());
+        let start = fig.and_then(|f| f.location).filter(|_| moving);
+        // A one-space walk: where the figure stands, then each space of the path.
+        let walk: Vec<Vec<Space>> = start.into_iter().chain(path).map(|s| vec![s]).collect();
+        ctx.leave_engagement(figure, &walk)?;
         if moving && !on_board(ctx) {
             return Ok(());
         }

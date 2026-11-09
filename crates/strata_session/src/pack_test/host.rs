@@ -16,9 +16,10 @@ use strata_model::{
     TerrainDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
-    Ctx, DeploySlot, Engagement, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError,
-    LogicEvaluator, Logics, LosWorld, MoveWorld, Movement, NativeEvaluator, Query, QueryEngine,
-    QueryTrace, Reach, SourcedModifier, StatBounds, StatQuery, TerrainRules, VoteQuery, World,
+    Ctx, DeploySlot, Engagement, EngagementMemo, EvalCtx, FigureVolume, Halt, LineOfSight,
+    LogicError, LogicEvaluator, Logics, LosWorld, MoveWorld, Movement, NativeEvaluator, Query,
+    QueryEngine, QueryTrace, Reach, SourcedModifier, StatBounds, StatQuery, TerrainRules,
+    VoteQuery, World,
 };
 
 impl CardSource for Host {
@@ -322,11 +323,19 @@ impl RuleHost for Host {
             service.ok_or_else(|| LogicError("the ruleset has no `movement` module".into()))?;
         let board = self.board.as_ref();
         let board = board.ok_or_else(|| LogicError("the match has no board".into()))?;
+        // The rules answer the engagement service's votes, so they must outlive the query.
+        let rules = self.rules.get().and_then(Weak::upgrade);
+        let engagement = match (self.engagement.as_deref(), rules.as_deref()) {
+            (None, _) => None,
+            (Some(service), Some(rules)) => Some(EngagementMemo::new(service, state, rules)),
+            (Some(_), None) => return Err(LogicError("the rules are not running".into())),
+        };
         let world = StateMove {
             host: self,
             state,
             board,
             covered: self.covered(state, board),
+            engagement,
         };
         service.reachable(&world, figure)
     }
@@ -558,6 +567,9 @@ struct StateMove<'a> {
     board: &'a CompiledBoard,
     /// The figure covering each space, footprints included.
     covered: BTreeMap<Space, FigureId>,
+    /// The engagement service's answers for this query, each asked once (design §7.4); `None`
+    /// without an engagement module.
+    engagement: Option<EngagementMemo<'a, dyn Engagement>>,
 }
 
 impl StateMove<'_> {
@@ -660,19 +672,18 @@ impl MoveWorld for StateMove<'_> {
         self.body_provokes_reprisal(figure, &[from], &[to])
     }
 
-    /// Asks the engagement service about the whole body; without one no step provokes.
+    /// Asks the engagement service about the whole body, through this query's memo; without one
+    /// no step provokes.
     fn body_provokes_reprisal(
         &self,
         figure: FigureId,
         before: &[Space],
         after: &[Space],
     ) -> Result<bool, LogicError> {
-        let Some(service) = self.host.engagement.as_ref() else {
+        let Some(memo) = self.engagement.as_ref() else {
             return Ok(false);
         };
-        let rules = self.host.rules.get().and_then(Weak::upgrade);
-        let rules = rules.ok_or_else(|| LogicError("the rules are not running".into()))?;
-        let owed = service.reprisals(self.state, &*rules, figure, before, after)?;
+        let owed = memo.reprisals(figure, before, after)?;
         Ok(!owed.is_empty())
     }
 }

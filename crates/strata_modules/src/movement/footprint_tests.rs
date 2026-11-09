@@ -253,6 +253,18 @@ fn a_snake_walks_round_a_corner_over_several_steps() {
         .unwrap();
     assert_eq!(end.cells, [Space::new(2, 3, 1), Space::new(2, 2, 1)]);
     assert_eq!(end.cost, 4);
+    // The walk holds the body where it starts and after each step, the rear on the leader's trail.
+    let body =
+        |a: (i32, i32), b: (i32, i32)| vec![Space::new(a.0, a.1, 1), Space::new(b.0, b.1, 1)];
+    let walk = [
+        body((1, 0), (0, 0)),
+        body((2, 0), (1, 0)),
+        body((2, 1), (2, 0)),
+        body((2, 2), (2, 1)),
+        body((2, 3), (2, 2)),
+    ];
+    assert_eq!(end.walk, walk);
+    assert_eq!(end.walk.len(), end.path.len() + 1);
     // A rigid shape cannot: its rear would leave the corridor at the turn.
     scene.figures[0].footprint = Some(footprint(&TWO, MoveMode::Rigid, 1));
     assert!(run(&scene).iter().all(|r| r.space.r == 0));

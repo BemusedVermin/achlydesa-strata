@@ -5,9 +5,14 @@
 //! keeps its rotation. A larger footprint can reach a space in several rotations, so it is listed
 //! as `{ q, r, z, o }`; `move` without `o` takes the cheapest rotation, the lowest on a tie. A
 //! move that ends in a fall emits `figure_fell` with `{ figure, levels }`, the levels dropped.
+//!
+//! A move first resolves the reprisals for leaving engagement along its route, and does not move
+//! a figure they take out of play. `preview(figure)` lists the same stops as `reachable`, as
+//! `{ q, r, z, o, cost, stops_here, falls, provokes_reprisal }` tables, `o` only for larger
+//! footprints.
 
 use strata_kernel::{Rotation, Space, Sym, Value, ValueError};
-use strata_model::{Event, FigureId};
+use strata_model::{Event, FigureId, FigureStatus, GameState};
 use strata_rules::{ApiHandler, Ctx, Halt, NativeEnv, Reach};
 
 /// The custom event emitted when a move ends in a fall.
@@ -66,6 +71,32 @@ fn listed(reach: &Reach) -> Value {
     Value::List(at.into_iter().map(|n| Value::Int(i64::from(n))).collect())
 }
 
+/// A reachable stop with what reaching it costs and causes, as the UI preview and the AI read it.
+fn previewed(reach: &Reach) -> Value {
+    let int = |n: i64| Value::Int(n);
+    let s = reach.space;
+    let mut fields = vec![
+        ("q", int(s.q.into())),
+        ("r", int(s.r.into())),
+        ("z", int(s.z.into())),
+        ("cost", int(reach.cost)),
+        ("stops_here", Value::Bool(reach.stops_here)),
+        ("falls", Value::Bool(reach.falls)),
+        ("provokes_reprisal", Value::Bool(reach.provokes_reprisal)),
+    ];
+    if reach.cells.len() > 1 {
+        fields.push(("o", int(reach.rotation.steps().into())));
+    }
+    let fields = fields.into_iter().map(|(k, v)| (Sym::new(k), v));
+    Value::Map(fields.collect())
+}
+
+/// Whether `figure` is on the board.
+fn on_board(state: &GameState, figure: FigureId) -> bool {
+    let fig = state.figures.get(figure.index());
+    fig.is_some_and(|f| f.status == FigureStatus::OnBoard)
+}
+
 /// The stop `move` asked for: the given rotation, or else the cheapest one.
 fn chosen(reach: Vec<Reach>, to: Space, turn: Option<Rotation>) -> Option<Reach> {
     let mut hits = stops(reach).into_iter().filter(|r| r.space == to);
@@ -94,6 +125,7 @@ impl ApiHandler for Api {
             .map_err(|e| Halt::reject(e.0))?;
         match name {
             "reachable" => Ok(Value::List(stops(reach).iter().map(listed).collect())),
+            "preview" => Ok(Value::List(stops(reach).iter().map(previewed).collect())),
             "move" => {
                 let to = space(args)?;
                 let found = chosen(reach, to, rotation(args)?);
@@ -102,6 +134,11 @@ impl ApiHandler for Api {
                 let state = ctx.state();
                 let from = state.figures[who.index()].location;
                 let before = found.path.iter().rev().nth(1).copied().or(from);
+                // Reprisals resolve first, and a figure they take out of play does not move.
+                ctx.leave_engagement(who, &found.walk)?;
+                if !on_board(ctx.state(), who) {
+                    return Ok(Value::Nil);
+                }
                 let moved = Event::FigureMoved {
                     figure: who,
                     to,
