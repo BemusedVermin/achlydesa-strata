@@ -3,6 +3,7 @@
 use strata_kernel::{DefId, Value};
 use thiserror::Error;
 
+use crate::ability_key::AbilityKey;
 use crate::event::{Event, Visibility};
 use crate::ids::{FigureId, PlayerId, RelicId, UnitId};
 use crate::state::{
@@ -57,7 +58,7 @@ pub enum ApplyError {
     RelicFaceUp(RelicId),
     /// No attached ability instance matches.
     #[error("no attached ability {0:?}")]
-    NoAbility(DefId),
+    NoAbility(AbilityKey),
     /// The relic has no holder to release.
     #[error("relic {0:?} is not held")]
     RelicNotHeld(RelicId),
@@ -74,6 +75,7 @@ impl GameState {
                 figure,
                 to,
                 rotation,
+                ..
             } => {
                 let fig = self.live_figure(*figure)?;
                 let from = fig.location;

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use strata_kernel::{DefId, PackId, Rotation, Space, StableHash, Sym, Value};
 
+use crate::ability_key::AbilityKey;
 use crate::decision::PendingDecision;
 use crate::event::Visibility;
 use crate::ids::{FigureId, PlayerId, RelicId, UnitId, VarKey};
@@ -181,7 +182,7 @@ pub enum AbilityOwner {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, StableHash)]
 pub struct AbilityInstance {
     /// The ability definition.
-    pub def: DefId,
+    pub def: AbilityKey,
     /// What it is attached to.
     pub owner: AbilityOwner,
     /// Parameters resolved at attach time.

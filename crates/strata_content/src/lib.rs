@@ -4,6 +4,7 @@
 #![deny(clippy::float_arithmetic)]
 #![warn(missing_docs)]
 
+mod abilities;
 mod defs;
 mod discover;
 mod error;

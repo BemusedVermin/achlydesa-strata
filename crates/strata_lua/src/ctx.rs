@@ -10,7 +10,7 @@ use strata_model::{
     Answer, Decision, DecisionKind, Descriptor, DieKind, Event, FigureId, FigureStatus, GameState,
     PlayerId, ScriptRef, VarKey,
 };
-use strata_rules::{Ctx, Halt, LogicError};
+use strata_rules::{Ctx, Halt, LogicError, Reach};
 
 use crate::convert::{lua_to_value, value_to_lua};
 use crate::error::HostError;
@@ -37,9 +37,25 @@ pub trait RuleHost: Send + Sync {
     fn marker(&self, _name: &str) -> Option<strata_kernel::DefId> {
         None
     }
+    /// The start zone and deployment order of `player`'s scenario slot.
+    fn deployment(
+        &self,
+        _: &GameState,
+        _: strata_model::PlayerId,
+    ) -> Option<strata_rules::DeploySlot> {
+        None
+    }
+    /// Whether a figure can stand at `space`.
+    fn standable(&self, _: Space) -> bool {
+        false
+    }
     /// The relic with this definition ID.
     fn relic(&self, _id: strata_kernel::DefId) -> Option<strata_model::RelicDef> {
         None
+    }
+    /// Every space `figure` can reach under the ruleset's `movement` module.
+    fn reachable(&self, _state: &GameState, _figure: FigureId) -> Result<Vec<Reach>, LogicError> {
+        Err(LogicError("the ruleset has no `movement` module".into()))
     }
     /// Calls `name` of the namespace a module exported with `Registrar::lua_api`.
     fn call(
