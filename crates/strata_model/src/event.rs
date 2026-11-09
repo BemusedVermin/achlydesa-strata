@@ -35,6 +35,14 @@ pub enum Event {
         /// The spaces walked, excluding the start and ending at `to`; empty for a placement.
         #[serde(default)]
         path: Vec<Space>,
+        /// Every space the figure's footprint covers at `to`, anchor included, in offset order;
+        /// `[to]` for a one-cell figure. Every emitter lists them all: `apply` refuses a list
+        /// without the anchor, so an empty one too, and one that changes how many spaces a figure
+        /// on the board covers. The serde default only lets a log written before this field
+        /// existed be read; such a move cannot be applied, and replays that old are refused by
+        /// their format version.
+        #[serde(default)]
+        cells: Vec<Space>,
     },
     /// Dice were rolled. Presentation and triggers only; no state changes.
     DiceRolled {

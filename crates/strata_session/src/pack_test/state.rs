@@ -3,22 +3,27 @@
 use std::sync::Arc;
 
 use strata_content::ContentRegistry;
-use strata_kernel::DefId;
+use strata_kernel::{DefId, Rotation};
+use strata_lua::RuleHost;
 use strata_model::{
     FigureDefRef, FigureId, FigureState, FigureStatus, GameState, MatchSetup, PlayerId,
     PlayerState, TestDef, UnitDef, UnitId, UnitState,
 };
 
-use super::host::find;
+use super::host::{Host, find};
 use crate::setup::attach_printed;
 
 /// Builds the state a test starts from, for the ruleset `ruleset`. A placement with no spaces
-/// leaves its unit in reserve. Each unit's printed abilities are attached, as at match setup.
+/// leaves its unit in reserve. A placed figure faces the default way and covers every cell of
+/// its footprint, each standing where `host` places it, as deployment would: an anchor that is
+/// not a surface, or a cell with no surface the figure fits on, fails the test's setup. Each
+/// unit's printed abilities are attached, as at match setup.
 pub(super) fn build(
     registry: &ContentRegistry,
     pack: &str,
     ruleset: DefId,
     test: &TestDef,
+    host: &Host,
 ) -> Result<GameState, String> {
     let mut state = GameState {
         setup: Arc::new(MatchSetup {
@@ -62,11 +67,6 @@ pub(super) fn build(
         for (nth, figure_name) in kinds.enumerate() {
             let space = placement.at.get(nth).copied();
             let id = FigureId(state.figures.len() as u32);
-            if let Some(space) = space
-                && state.board_changes.occupancy.insert(space, id).is_some()
-            {
-                return Err(format!("place: two figures share space {space:?}"));
-            }
             unit_state.figures.push(id);
             let status = if space.is_some() {
                 FigureStatus::OnBoard
@@ -84,6 +84,18 @@ pub(super) fn build(
                 controller: placement.player,
                 ..FigureState::default()
             });
+            if let Some(space) = space {
+                let body = host.cells(&state, id, space, Rotation::default());
+                let (q, r, z) = (space.q, space.r, space.z);
+                let body = body.ok_or_else(|| {
+                    format!("place: `{name}` cannot stand at ({q}, {r}, {z}): no surface fits every cell")
+                })?;
+                for cell in body {
+                    if state.board_changes.occupancy.insert(cell, id).is_some() {
+                        return Err(format!("place: two figures share space {cell:?}"));
+                    }
+                }
+            }
         }
         state.units.push(unit_state);
         attach_printed(&mut state, unit, def).map_err(|e| format!("place: {e}"))?;

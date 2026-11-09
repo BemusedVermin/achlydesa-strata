@@ -1,9 +1,9 @@
 //! `core:engagement`: who is engaged with whom, and reprisals for leaving (design §6.1, §6.6).
 //!
-//! A figure is engaged with an enemy in an adjacent column when their height ranges overlap
-//! (`heights = "overlap"`), or whatever their levels (`heights = "ignore"`). That geometric answer
-//! is the default of the `is_engaged` vote, so modifiers can change it either way. Figures further
-//! apart are never engaged.
+//! A figure is engaged with an enemy that covers an adjacent column with any cell of its
+//! footprint, when their height ranges overlap there (`heights = "overlap"`), or whatever their
+//! levels (`heights = "ignore"`). That geometric answer is the default of the `is_engaged` vote,
+//! so modifiers can change it either way. Figures further apart are never engaged.
 //!
 //! A figure that walks out of engagement with an enemy gives that enemy one reprisal per move,
 //! unless the `provokes_reprisal` vote denies it: a roll of `dice` of `die`, where every `wound_on`
@@ -63,19 +63,24 @@ impl Engagement for Service {
         let me = state.figures.get(figure.index());
         let me = me.ok_or_else(|| LogicError(format!("no figure {}", figure.0)))?;
         let (mine, tall) = (team(state, me), height(env, me));
-        let mut found = Vec::new();
-        for (index, other) in (0u32..).zip(&state.figures) {
-            let id = FigureId(index);
-            let Some(there) = state.standing(id).filter(|_| id != figure) else {
+        // Every covered cell of every enemy counts, so a long body engages along its length.
+        let mut near: BTreeMap<FigureId, bool> = BTreeMap::new();
+        for (&there, &id) in &state.board_changes.occupancy {
+            let Some(other) = state.figures.get(id.index()) else {
                 continue;
             };
-            if team(state, other) == mine || there.hex().distance(at.hex()) != 1 {
+            let enemy = id != figure && team(state, other) != mine;
+            if !enemy || there.hex().distance(at.hex()) != 1 || state.standing(id).is_none() {
                 continue;
             }
             let level = match self.heights {
                 Heights::Overlap => overlaps(at.z, tall, there.z, height(env, other)),
                 Heights::Ignore => true,
             };
+            *near.entry(id).or_default() |= level;
+        }
+        let mut found = Vec::new();
+        for (id, level) in near {
             let query = VoteQuery {
                 default: level,
                 ..VoteQuery::is_engaged(id_value(figure), id_value(id))

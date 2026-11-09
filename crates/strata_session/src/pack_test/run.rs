@@ -109,7 +109,19 @@ impl PackTests {
             resolve(name.as_str(), &rulesets, &self.catalog).map_err(|e| setup(e.to_string()))?;
         let (ruleset_id, _) = find::<RulesetDef>(&self.registry, pack, name.as_str())
             .ok_or_else(|| setup(format!("unknown ruleset `{name}`")))?;
-        let mut start = state::build(&self.registry, pack, ruleset_id, def).map_err(setup)?;
+        let modifiers = rt.modifiers().iter().map(|m| SourcedModifier {
+            source: name.clone(),
+            priority: 0,
+            def: m.clone(),
+        });
+        let los = rt.service::<Arc<dyn LineOfSight>>().cloned();
+        let movement = rt.service::<Arc<dyn Movement>>().cloned();
+        let engagement = rt.service::<Arc<dyn Engagement>>().cloned();
+        let host = Host::new(&self.registry, pack, modifiers.collect(), board);
+        let host = host.with_los(los).with_movement(movement);
+        let host = host.with_engagement(engagement);
+        let mut start =
+            state::build(&self.registry, pack, ruleset_id, def, &host).map_err(setup)?;
         if let Some((scenario_id, scenario)) = scenario {
             // Seat `i` fills the scenario's `i`-th slot, so deployment finds its start zone.
             let mut made = (*start.setup).clone();
@@ -124,22 +136,11 @@ impl PackTests {
             made.players = (0u8..).zip(slots).map(seat).collect();
             start.setup = Arc::new(made);
         }
-        if let (Some((_, scenario)), Some(map), Some(board)) = (scenario, map, &board) {
+        if let (Some((_, scenario)), Some(map), Some(board)) = (scenario, map, host.board()) {
             place_relics(&mut start, &self.registry, pack, scenario, map, board)
                 .map_err(|e| setup(e.to_string()))?;
         }
 
-        let modifiers = rt.modifiers().iter().map(|m| SourcedModifier {
-            source: name.clone(),
-            priority: 0,
-            def: m.clone(),
-        });
-        let los = rt.service::<Arc<dyn LineOfSight>>().cloned();
-        let movement = rt.service::<Arc<dyn Movement>>().cloned();
-        let engagement = rt.service::<Arc<dyn Engagement>>().cloned();
-        let host = Host::new(&self.registry, pack, modifiers.collect(), board);
-        let host = host.with_los(los).with_movement(movement);
-        let host = host.with_engagement(engagement);
         let host = Arc::new(host);
         let lua_modules = rt
             .configs()

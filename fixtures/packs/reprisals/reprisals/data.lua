@@ -146,3 +146,22 @@ walk('snake_keeps', 'a snake that keeps contact through its rear provokes no rep
 walk('snake_leaves', 'a snake gives one reprisal once its rear leaves too', 'field',
   'test_wyrm', { -1, 1 }, { 2, 0, 1, 3 }, { 'blank' },
   { expect.event('reprisal'), expect.event('figure_moved', { figure = 'p0.test_wyrm#1' }) })
+
+-- A two-space enemy engages with its rear cell too (#190). Its anchor is on (-2, 0), two columns
+-- from the mover on (0, 0); its rear on (-1, 0) is next to the mover.
+footprint { id = 'rigid', name = 'Rigid', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }}, move = 'rigid', max_spread = 1 }
+unit_of('test_cart', 'rigid', 1, 2)
+test {
+  id = 'rear_engages', name = 'leaving an enemy that is engaged only through its rear cell gives it a reprisal',
+  ruleset = 'engaged', map = 'field',
+  place = {
+    { unit = 'test_soldier', player = 0, at = {{ q = 0, r = 0, z = 1 }} },
+    { unit = 'test_cart', player = 1, at = {{ q = -2, r = 0, z = 1 }} },
+  },
+  steps = {
+    act.activate(0, 'p0.test_soldier#1'),
+    act.action('p0.test_soldier#1', 'walk', { 2, 0, 1 }, { rig = { { 'blank' } } }),
+    expect.event('reprisal'),
+    expect.event('figure_moved', { figure = 'p0.test_soldier#1' }),
+  },
+}

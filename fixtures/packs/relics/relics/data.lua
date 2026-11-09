@@ -36,6 +36,24 @@ relic {
   effect = function(ctx) ctx.emit('boon_taken', 1) end,
 }
 
+-- A two-space cart: its rear cell is one column east of its anchor.
+footprint { id = 'two', name = 'Two', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }}, move = 'rigid', max_spread = 1 }
+unit {
+  id = 'test_cart', name = 'Test Cart', kind = 'squad', rarity = 'common',
+  stats = { attack = 3 }, figures = {{
+    id = 'c', count = 1, footprint = 'two', height = 1,
+    los = { target = 10, hit_zone = {0, 12}, samples = {'center'} },
+  }},
+}
+-- Five columns, with two relic spots side by side on (2, 0) and (3, 0).
+local long = {}
+for q = 0, 4 do long[#long + 1] = { piece = 'meadow', at = { q = q, r = 0 }, rot = 0, level = 0 } end
+map {
+  id = 'long', name = 'Long', orientation = 'pointy', pieces = long,
+  zones = { west = {{ q = 0, r = 0 }}, east = {{ q = 4, r = 0 }} },
+  relic_spots = { left = { q = 2, r = 0 }, right = { q = 3, r = 0 } },
+}
+
 local function slot(id, start, order) return { id = id, start = start, deploy_order = order } end
 local function scn(id, relic, face_down)
   return {
@@ -47,6 +65,14 @@ end
 scenario(scn('fury_up', 'fury', false))
 scenario(scn('fury_down', 'fury', true))
 scenario(scn('boon_up', 'boon', false))
+local function long_scn(id, relics)
+  return {
+    id = id, name = id, map = 'long', players = { min = 2, max = 2 },
+    slots = { slot('a', 'west', 1), slot('b', 'east', 2) }, relics = relics,
+  }
+end
+scenario(long_scn('rear_up', {{ relic = 'fury', spot = 'left' }}))
+scenario(long_scn('pair', {{ relic = 'fury', spot = 'left' }, { relic = 'boon', spot = 'right' }}))
 
 ruleset {
   id = 'rs', name = 'Relics',
@@ -121,5 +147,39 @@ test {
     act.command(0, 'move_to', go(0, 1)),
     expect.event('relic_claimed'),
     expect.event('boon_taken'),
+  },
+}
+
+-- A two-space cart on the `long` map. `drive(q)` puts its anchor on (q, 0) and its rear on
+-- (q + 1, 0).
+local function cart_board()
+  return {
+    { unit = 'test_cart', player = 0, at = {{ q = 0, r = 0, z = 1 }} },
+    { unit = 'test_soldier', player = 1, at = {{ q = 4, r = 0, z = 1 }} },
+  }
+end
+local function drive(q)
+  return { figure = 0, q = q, r = 0, z = 1, cells = {{ q = q, r = 0, z = 1 }, { q = q + 1, r = 0, z = 1 }} }
+end
+test {
+  id = 'rear_claim', name = 'a rear cell claims a relic and releases it on leaving',
+  ruleset = 'rs', scenario = 'rear_up', place = cart_board(),
+  steps = {
+    expect.stat('p0.test_cart#1', 'attack', 3),
+    act.command(0, 'move_to', drive(1)),
+    expect.event('relic_claimed'),
+    expect.stat('p0.test_cart#1', 'attack', 5),
+    act.command(0, 'move_to', drive(0)),
+    expect.event('relic_released'),
+    expect.stat('p0.test_cart#1', 'attack', 3),
+  },
+}
+test {
+  id = 'two_spots', name = 'one figure covering two spots claims both relics',
+  ruleset = 'rs', scenario = 'pair', place = cart_board(),
+  steps = {
+    act.command(0, 'move_to', drive(2)),
+    expect.event('boon_taken'),
+    expect.stat('p0.test_cart#1', 'attack', 5),
   },
 }

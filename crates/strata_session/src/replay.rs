@@ -13,8 +13,9 @@ pub const SNAPSHOT_EVERY: u32 = 20;
 /// The saved form of a replay. Bump it whenever that form changes without an engine release,
 /// such as a new field in `GameState`, so older files fail with [`ReplayError::Version`].
 /// 1: abilities name their definition with an `AbilityKey`.
-/// 2: match setup attaches each unit's printed abilities, so the first state differs.
-pub const REPLAY_FORMAT: u32 = 2;
+/// 2: the occupancy index covers every cell of a figure's footprint, not only its anchor.
+/// 3: match setup attaches each unit's printed abilities, so the first state differs.
+pub const REPLAY_FORMAT: u32 = 3;
 
 /// The version a replay records: the engine's, with [`REPLAY_FORMAT`] as semver build metadata.
 pub fn engine_version() -> String {

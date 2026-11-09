@@ -17,14 +17,15 @@ mod search;
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
-use strata_kernel::{ModuleId, SlotId, Sym, Value};
+use strata_kernel::{ModuleId, Rotation, SlotId, Space, Sym, Value};
 use strata_model::{ConfigField, FigureId};
 use strata_rules::{
     ConfigSchema, LogicError, LuaApi, ModuleError, MoveWorld, Movement, Reach, Registrar,
-    RuleModule,
+    RuleModule, footprint_cells,
 };
 
 pub use self::api::FIGURE_FELL;
+use self::body::fits;
 use self::fall::Fall;
 pub use self::search::{Headroom, Limits, reachable};
 
@@ -44,6 +45,21 @@ struct Service {
 impl Movement for Service {
     fn reachable(&self, world: &dyn MoveWorld, figure: FigureId) -> Result<Vec<Reach>, LogicError> {
         reachable(world, figure, self.limits)
+    }
+
+    /// Every cell, the anchor's included, on the nearest surface the figure [`fits`] on: the same
+    /// test, headroom and all, that a move puts each cell through.
+    fn cells(
+        &self,
+        world: &dyn MoveWorld,
+        figure: FigureId,
+        anchor: Space,
+        rotation: Rotation,
+    ) -> Option<Vec<Space>> {
+        let height = world.height(figure);
+        footprint_cells(world, figure, anchor, rotation, |surface| {
+            fits(world.terrain(surface.terrain), self.limits, height, surface)
+        })
     }
 }
 

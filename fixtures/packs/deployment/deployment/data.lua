@@ -25,10 +25,19 @@ map {
   },
 }
 footprint { id = 'one', name = 'One', cells = {{ q = 0, r = 0 }}, move = 'rigid', max_spread = 1 }
+footprint { id = 'two', name = 'Two', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }}, move = 'rigid', max_spread = 1 }
 unit {
   id = 'test_soldier', name = 'Test Soldier', kind = 'squad', rarity = 'common',
   stats = {}, figures = {{
     id = 's', count = 2, footprint = 'one', height = 1,
+    los = { target = 10, hit_zone = {0, 12}, samples = {'center'} },
+  }},
+}
+-- One two-space figure: placed facing the default way, its rear is one column east.
+unit {
+  id = 'test_cart', name = 'Test Cart', kind = 'squad', rarity = 'common',
+  stats = {}, figures = {{
+    id = 'c', count = 1, footprint = 'two', height = 1,
     los = { target = 10, hit_zone = {0, 12}, samples = {'center'} },
   }},
 }
@@ -118,4 +127,51 @@ test {
     act.command(1, 'place_unit', put(2, 5, 6)),
     act.command(0, 'place_unit', put(1, 0, 2)),
   },
+}
+
+-- Two-space figures: every cell must be in the zone, standable and free.
+local function cart(unit, q)
+  return { unit = unit, at = {{ q, 0, 1 }} }
+end
+local carts = {
+  { unit = 'test_cart', player = 0, at = {} },
+  { unit = 'test_soldier', player = 0, at = {} },
+  { unit = 'test_soldier', player = 1, at = {} },
+}
+test {
+  id = 'cart', name = 'a two-space figure covers both its cells',
+  ruleset = 'rs', scenario = 'duel', place = carts,
+  steps = {
+    act.command(0, 'place_unit', cart(0, 2)),
+    expect.event('figure_moved'),
+    expect.figure('p0.test_cart#1', 'on_board'),
+  },
+}
+test {
+  id = 'cart_onto_soldier', name = 'a rear cell cannot be placed on a figure',
+  ruleset = 'rs', scenario = 'duel', place = carts,
+  steps = {
+    act.command(0, 'place_unit', put(1, 0, 3)),
+    act.command(1, 'place_unit', put(2, 5, 6)),
+    act.command(0, 'place_unit', cart(0, 2)),
+  },
+}
+test {
+  id = 'soldier_onto_cart', name = 'a figure cannot be placed on a rear cell',
+  ruleset = 'rs', scenario = 'duel', place = carts,
+  steps = {
+    act.command(0, 'place_unit', cart(0, 2)),
+    act.command(1, 'place_unit', put(2, 5, 6)),
+    act.command(0, 'place_unit', put(1, 0, 3)),
+  },
+}
+test {
+  id = 'cart_water', name = 'a rear cell cannot stand on water',
+  ruleset = 'rs', scenario = 'duel', place = carts,
+  steps = { act.command(0, 'place_unit', cart(0, 0)) },
+}
+test {
+  id = 'cart_outside', name = 'a rear cell cannot leave the start zone',
+  ruleset = 'rs', scenario = 'duel', place = carts,
+  steps = { act.command(0, 'place_unit', cart(0, 4)) },
 }

@@ -2,6 +2,7 @@
 
 use std::path::PathBuf;
 
+use strata_model::Event;
 use strata_modules::native_modules;
 use strata_session::pack_test::{PackTests, TestReport, summary};
 
@@ -50,6 +51,23 @@ fn claiming_a_face_down_relic_reveals_it() {
 #[test]
 fn an_on_claim_relic_runs_its_effect() {
     passes("an on-claim relic");
+}
+
+#[test]
+fn a_rear_cell_claims_a_relic_and_releases_it_on_leaving() {
+    passes("a rear cell claims a relic");
+}
+
+#[test]
+fn one_figure_covering_two_spots_claims_both_relics() {
+    passes("one figure covering two spots");
+    let reports = run();
+    let found = reports
+        .iter()
+        .find(|r| r.name.starts_with("one figure covering"));
+    let claimed = found.unwrap().events.iter();
+    let claimed = claimed.filter(|e| matches!(e, Event::RelicClaimed { .. }));
+    assert_eq!(claimed.count(), 2);
 }
 
 #[test]
