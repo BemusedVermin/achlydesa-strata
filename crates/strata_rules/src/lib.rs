@@ -23,7 +23,7 @@ pub mod slots;
 pub use catalog::{DuplicateModule, ModuleCatalog};
 pub use config::{ConfigError, ConfigSchema};
 pub use descriptor::{DescriptorError, NativeEvaluator, Node, World, check_ability, compile};
-pub use engagement::Engagement;
+pub use engagement::{Engagement, EngagementMemo};
 pub use engine::{
     CommandRecord, Ctx, Engine, Halt, HookRunner, MAX_DECISIONS, Outcome, RuleViolation, event_kind,
 };

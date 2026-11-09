@@ -1,7 +1,7 @@
 //! `toy:driver`: turns the `attack` command into an `attack_declared` event.
 
 use strata_kernel::{ModuleId, Rotation, SlotId, Space, Sym, Value};
-use strata_model::{Command, Event, FigureId, FigureStatus, PlayerId};
+use strata_model::{Command, Event, FigureId, PlayerId};
 use strata_rules::{CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, Registrar, RuleModule};
 
 use super::{ATTACK_DECLARED, no_config};
@@ -55,13 +55,12 @@ impl CommandHandler for MoveTo {
         let mut path = via.iter().map(space).collect::<Result<Vec<_>, _>>()?;
         let to = space(payload)?;
         path.push(to);
-        let on_board = |ctx: &dyn Ctx| {
-            let fig = ctx.state().figures.get(figure.index());
-            fig.is_some_and(|f| f.status == FigureStatus::OnBoard)
-        };
-        let moving = on_board(ctx);
-        ctx.leave_engagement(figure, &path)?;
-        if moving && !on_board(ctx) {
+        let start = ctx.state().standing(figure);
+        let moving = start.is_some();
+        // A one-space walk: where the figure stands, then each space of the path.
+        let walk: Vec<Vec<Space>> = start.into_iter().chain(path).map(|s| vec![s]).collect();
+        ctx.leave_engagement(figure, &walk)?;
+        if moving && ctx.state().standing(figure).is_none() {
             return Ok(());
         }
         let rotation = Rotation::default();

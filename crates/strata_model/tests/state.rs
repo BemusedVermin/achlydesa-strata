@@ -150,6 +150,31 @@ fn visibility_tags() {
 }
 
 #[test]
+fn only_a_listed_figure_on_the_board_is_standing() {
+    let at = Space::new(1, 2, 3);
+    let figure = |status| FigureState {
+        location: Some(at),
+        status,
+        ..FigureState::default()
+    };
+    let state = GameState {
+        figures: vec![
+            figure(FigureStatus::OnBoard),
+            figure(FigureStatus::Reserve),
+            FigureState {
+                location: None,
+                ..figure(FigureStatus::OnBoard)
+            },
+        ],
+        ..GameState::default()
+    };
+    assert_eq!(state.standing(FigureId(0)), Some(at));
+    assert_eq!(state.standing(FigureId(1)), None);
+    assert_eq!(state.standing(FigureId(2)), None);
+    assert_eq!(state.standing(FigureId(3)), None);
+}
+
+#[test]
 fn a_listed_player_has_its_team_and_an_unlisted_one_its_own() {
     let mut state = base();
     state.players[0].team = 3;

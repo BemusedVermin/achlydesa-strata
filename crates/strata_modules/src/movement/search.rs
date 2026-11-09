@@ -195,15 +195,19 @@ pub(super) fn search(
             }
         }
     }
-    found.remove(&start);
+    let origin = found.remove(&start).map(|n| n.cells).unwrap_or_default();
     let reach = |(&key, node): (&Key, &Node)| {
         let mut path = vec![key.0];
+        let mut walk = vec![node.cells.clone()];
         let mut back = node.from;
         while let Some(prev) = back.filter(|p| *p != start) {
             path.push(prev.0);
+            walk.push(found[&prev].cells.clone());
             back = found[&prev].from;
         }
+        walk.push(origin.clone());
         path.reverse();
+        walk.reverse();
         let covered_by_other = |s: &Space| world.occupant(*s).is_some_and(|o| o != figure);
         Reach {
             space: key.0,
@@ -211,6 +215,7 @@ pub(super) fn search(
             cells: node.cells.clone(),
             cost: node.cost,
             path,
+            walk,
             stops_here: node.stops_here,
             falls: node.falls,
             provokes_reprisal: node.provokes_reprisal,

@@ -328,6 +328,10 @@ proptest! {
             prop_assert!(r.cost >= i64::from(distance));
             prop_assert_eq!(r.path.len() as u32 >= distance, true);
             prop_assert_eq!(r.path.last().copied(), Some(r.space));
+            // A one-cell walk is the start, then each space of the path.
+            let start = std::iter::once(Space::new(0, 0, 1));
+            let walk: Vec<Vec<Space>> = start.chain(r.path.iter().copied()).map(|s| vec![s]).collect();
+            prop_assert_eq!(&r.walk, &walk);
         }
     }
 }

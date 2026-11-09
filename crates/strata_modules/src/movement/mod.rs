@@ -6,7 +6,8 @@
 //! change. Stop-on-enter terrain and falls end a move; occupied spaces can be passed through but
 //! not stopped on. A space whose route takes the body out of engagement with an enemy, with no
 //! cell staying engaged with it, is flagged `provokes_reprisal`. A move that ends in a fall emits
-//! `figure_fell`; `fall_wounds` turns on the native falling damage.
+//! `figure_fell`; `fall_wounds` turns on the native falling damage. A move resolves the reprisals
+//! its route provokes, through the `engagement` slot, before the figure moves.
 
 mod api;
 mod body;
@@ -108,7 +109,7 @@ impl RuleModule for MovementModule {
         .register(r);
         let service: Arc<dyn Movement> = Arc::new(Service { limits });
         r.service(Box::new(service));
-        let functions = ["reachable", "move"].map(Sym::new).to_vec();
+        let functions = ["reachable", "preview", "move"].map(Sym::new).to_vec();
         r.lua_api_native("movement", LuaApi { functions }, Box::new(api::Api));
         Ok(())
     }

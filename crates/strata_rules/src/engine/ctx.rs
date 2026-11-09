@@ -29,12 +29,13 @@ pub trait Ctx {
         true
     }
 
-    /// Resolves the reprisals `figure` provokes by walking `path` from where it stands, through
-    /// the ruleset's `engagement` slot. A move calls this before it emits `FigureMoved`, and skips
-    /// the move if the figure is out of play afterwards.
+    /// Resolves the reprisals `figure` provokes on a move, through the ruleset's `engagement`
+    /// slot. `walk` holds the spaces its body covers where it stands and then after each step
+    /// (see [`Engagement::leave`](crate::Engagement::leave)). A move calls this before it emits
+    /// `FigureMoved`, and skips the move if the figure is out of play afterwards.
     ///
     /// Contexts without a ruleset, and rulesets without an engagement module, provoke nothing.
-    fn leave_engagement(&mut self, _figure: FigureId, _path: &[Space]) -> Result<(), Halt> {
+    fn leave_engagement(&mut self, _figure: FigureId, _walk: &[Vec<Space>]) -> Result<(), Halt> {
         Ok(())
     }
 

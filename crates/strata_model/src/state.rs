@@ -272,4 +272,10 @@ impl GameState {
         let found = self.players.get(player.index());
         found.map_or(player.0, |p| p.team)
     }
+
+    /// Where `figure` stands, if the state lists it and it is on the board.
+    pub fn standing(&self, figure: FigureId) -> Option<Space> {
+        let fig = self.figures.get(figure.index())?;
+        fig.location.filter(|_| fig.status == FigureStatus::OnBoard)
+    }
 }

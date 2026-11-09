@@ -244,10 +244,10 @@ impl Ctx for Exec<'_> {
         gate.is_none_or(|g| g.may_activate(&self.state, player, unit))
     }
 
-    fn leave_engagement(&mut self, figure: FigureId, path: &[Space]) -> Result<(), Halt> {
+    fn leave_engagement(&mut self, figure: FigureId, walk: &[Vec<Space>]) -> Result<(), Halt> {
         let (rt, hooks) = (self.rt, self.hooks);
         match rt.service::<Arc<dyn Engagement>>() {
-            Some(service) => service.leave(self, hooks.env(), figure, path),
+            Some(service) => service.leave(self, hooks.env(), figure, walk),
             None => Ok(()),
         }
     }

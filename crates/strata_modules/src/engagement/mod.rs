@@ -7,18 +7,19 @@
 //!
 //! A figure that walks out of engagement with an enemy gives that enemy one reprisal per move,
 //! unless the `provokes_reprisal` vote denies it: a roll of `dice` of `die`, where every `wound_on`
-//! face wounds the leaving figure through `core:units`. Reprisals resolve before the move applies.
+//! face wounds the leaving figure through `core:units`. A multi-space body leaves an enemy only
+//! when none of its cells stays engaged with it. Reprisals resolve before the move applies.
 
 mod reprisal;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
 use strata_kernel::{ModuleId, SlotId, Space, Sym, Value};
-use strata_model::{ConfigField, FigureId, FigureState, FigureStatus, GameState};
+use strata_model::{ConfigField, FigureId, FigureState, GameState};
 use strata_rules::{
-    ConfigSchema, Ctx, Engagement, Halt, LogicError, ModuleError, NativeEnv, Registrar, RuleModule,
-    VoteQuery,
+    ConfigSchema, Ctx, Engagement, EngagementMemo, Halt, LogicError, ModuleError, NativeEnv,
+    Registrar, RuleModule, VoteQuery,
 };
 
 pub use self::reprisal::REPRISAL;
@@ -61,32 +62,9 @@ fn height(env: &dyn NativeEnv, figure: &FigureState) -> u32 {
     def.map_or(1, |d| u32::from(d.height).max(1))
 }
 
-/// Where `figure` stands, if it is on the board.
-pub(crate) fn standing(state: &GameState, figure: FigureId) -> Option<Space> {
-    let fig = state.figures.get(figure.index())?;
-    fig.location.filter(|_| fig.status == FigureStatus::OnBoard)
-}
-
 /// Whether the level ranges `[a, a + a_height)` and `[b, b + b_height)` share a level.
 pub(crate) fn overlaps(a: u32, a_height: u32, b: u32, b_height: u32) -> bool {
     a < b.saturating_add(b_height) && b < a.saturating_add(a_height)
-}
-
-impl Service {
-    /// The enemies engaged with any of the spaces a figure's body covers, ordered by ID.
-    fn engaged_body(
-        &self,
-        state: &GameState,
-        env: &dyn NativeEnv,
-        figure: FigureId,
-        cells: &[Space],
-    ) -> Result<BTreeSet<FigureId>, LogicError> {
-        let mut found = BTreeSet::new();
-        for &cell in cells {
-            found.extend(self.engaged(state, env, figure, cell)?);
-        }
-        Ok(found)
-    }
 }
 
 impl Engagement for Service {
@@ -103,7 +81,7 @@ impl Engagement for Service {
         let mut found = Vec::new();
         for (index, other) in (0u32..).zip(&state.figures) {
             let id = FigureId(index);
-            let Some(there) = standing(state, id).filter(|_| id != figure) else {
+            let Some(there) = state.standing(id).filter(|_| id != figure) else {
                 continue;
             };
             if team(state, other) == mine || there.hex().distance(at.hex()) != 1 {
@@ -124,30 +102,19 @@ impl Engagement for Service {
         Ok(found)
     }
 
-    fn reprisals(
+    fn leaving_provokes(
         &self,
         state: &GameState,
         env: &dyn NativeEnv,
         figure: FigureId,
-        before: &[Space],
-        after: &[Space],
-    ) -> Result<Vec<FigureId>, LogicError> {
-        let kept = self.engaged_body(state, env, figure, after)?;
-        let mut owed = Vec::new();
-        for enemy in self.engaged_body(state, env, figure, before)? {
-            if kept.contains(&enemy) {
-                continue;
-            }
-            // Asked only of an enemy being left, so leaving provokes unless a modifier denies it.
-            let query = VoteQuery {
-                default: true,
-                ..VoteQuery::provokes_reprisal(id_value(figure), id_value(enemy))
-            };
-            if env.vote(state, &query)? {
-                owed.push(enemy);
-            }
-        }
-        Ok(owed)
+        enemy: FigureId,
+    ) -> Result<bool, LogicError> {
+        // Asked only of an enemy being left, so leaving provokes unless a modifier denies it.
+        let query = VoteQuery {
+            default: true,
+            ..VoteQuery::provokes_reprisal(id_value(figure), id_value(enemy))
+        };
+        env.vote(state, &query)
     }
 
     fn leave(
@@ -155,27 +122,20 @@ impl Engagement for Service {
         ctx: &mut dyn Ctx,
         env: &dyn NativeEnv,
         figure: FigureId,
-        path: &[Space],
+        walk: &[Vec<Space>],
     ) -> Result<(), Halt> {
-        let Some(mut at) = standing(ctx.state(), figure) else {
+        if ctx.state().standing(figure).is_none() {
             return Ok(());
-        };
-        let mut owed: Vec<FigureId> = Vec::new();
-        for &next in path {
-            let found = self.reprisals(ctx.state(), env, figure, &[at], &[next]);
-            for enemy in found.map_err(|e| Halt::reject(e.0))? {
-                if !owed.contains(&enemy) {
-                    owed.push(enemy);
-                }
-            }
-            at = next;
         }
+        // Every reprisal is owed before any resolves, so the walk is judged on one state.
+        let owed = EngagementMemo::new(self, ctx.state(), env).owed_along(figure, walk);
+        let owed = owed.map_err(|e| Halt::reject(e.0))?;
         for enemy in owed {
             let state = ctx.state();
-            if standing(state, figure).is_none() {
+            if state.standing(figure).is_none() {
                 break;
             }
-            if standing(state, enemy).is_some() {
+            if state.standing(enemy).is_some() {
                 self.reprisal.resolve(ctx, env, enemy, figure)?;
             }
         }
