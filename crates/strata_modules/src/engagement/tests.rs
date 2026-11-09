@@ -1,12 +1,19 @@
-//! Height overlap and configuration of `core:engagement`; behavior is covered by pack tests.
+//! Height overlap, body-level reprisals and configuration of `core:engagement`; the rest of its
+//! behavior is covered by pack tests.
 
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
-use strata_kernel::{Sym, Value};
-use strata_rules::{ModuleError, Registrar, RuleModule};
+use strata_kernel::{DefId, Space, Sym, Value};
+use strata_model::{
+    DieKind, FigureId, FigureState, FigureStatus, GameState, PlayerId, PlayerState,
+};
+use strata_rules::{
+    Engagement, LogicError, ModuleError, NativeEnv, Registrar, RuleModule, VoteQuery,
+};
 
-use super::{EngagementModule, overlaps};
+use super::reprisal::Reprisal;
+use super::{EngagementModule, Heights, Service, overlaps};
 
 /// The module's defaults with `name` set to `value`.
 fn config(name: &str, value: Value) -> Value {
@@ -46,6 +53,99 @@ fn a_negative_or_oversized_pool_is_refused() {
         let err = register(&config("dice", Value::Int(dice)));
         assert!(matches!(err, Err(ModuleError::Invalid(m)) if m.contains("dice")));
     }
+}
+
+/// Answers every vote with its default, so engagement is plain geometry.
+struct Plain;
+
+impl NativeEnv for Plain {
+    fn stat(&self, _: &GameState, _: FigureId, stat: &str) -> Result<i64, LogicError> {
+        Err(LogicError(format!("no stat `{stat}`")))
+    }
+    fn die(&self, _: &str) -> Option<(DefId, DieKind)> {
+        None
+    }
+    fn vote(&self, _: &GameState, query: &VoteQuery) -> Result<bool, LogicError> {
+        Ok(query.default)
+    }
+}
+
+fn service() -> Service {
+    let reprisal = Reprisal {
+        die: "combat".into(),
+        dice: 1,
+        wound_on: Sym::new("hit"),
+    };
+    Service {
+        heights: Heights::Overlap,
+        reprisal,
+    }
+}
+
+/// Figure 0 of team 0 stands at the origin; each enemy of team 1 stands on its `(q, r)`, all on
+/// level 1.
+fn state(enemies: &[(i32, i32)]) -> GameState {
+    let figure = |controller: u8, (q, r): (i32, i32)| FigureState {
+        location: Some(Space::new(q, r, 1)),
+        status: FigureStatus::OnBoard,
+        controller: PlayerId(controller),
+        ..FigureState::default()
+    };
+    let mut figures = vec![figure(0, (0, 0))];
+    figures.extend(enemies.iter().map(|&at| figure(1, at)));
+    let team = |team| PlayerState {
+        team,
+        ..PlayerState::default()
+    };
+    GameState {
+        players: vec![team(0), team(1)],
+        figures,
+        ..GameState::default()
+    }
+}
+
+/// The enemies owed a reprisal when figure 0's body moves from `before` to `after`.
+fn owed(state: &GameState, before: &[(i32, i32)], after: &[(i32, i32)]) -> Vec<FigureId> {
+    let on = |cells: &[(i32, i32)]| -> Vec<Space> {
+        cells.iter().map(|&(q, r)| Space::new(q, r, 1)).collect()
+    };
+    let found = service().reprisals(state, &Plain, FigureId(0), &on(before), &on(after));
+    found.unwrap()
+}
+
+#[test]
+fn a_snake_whose_rear_steps_next_to_the_enemy_owes_nothing() {
+    // The anchor leaves the enemy at (-1, 0); the rear follows onto (0, 0), next to it.
+    let state = state(&[(-1, 0)]);
+    assert!(owed(&state, &[(0, 0), (1, 0)], &[(1, -1), (0, 0)]).is_empty());
+    // The anchor's own step, asked alone, would owe one.
+    assert_eq!(owed(&state, &[(0, 0)], &[(1, -1)]), [FigureId(1)]);
+    // Once no cell is next to the enemy, the body has left it.
+    assert_eq!(
+        owed(&state, &[(1, -1), (0, 0)], &[(2, -1), (1, -1)]),
+        [FigureId(1)]
+    );
+}
+
+#[test]
+fn a_rigid_shape_that_keeps_the_enemy_through_another_cell_owes_nothing() {
+    // The enemy at (1, -1) touches both cells; sliding west the rear stays next to it.
+    let state = state(&[(1, -1)]);
+    assert!(owed(&state, &[(0, 0), (1, 0)], &[(-1, 0), (0, 0)]).is_empty());
+    assert_eq!(
+        owed(&state, &[(0, 0), (1, 0)], &[(-1, 1), (0, 1)]),
+        [FigureId(1)]
+    );
+}
+
+#[test]
+fn each_enemy_is_judged_on_its_own() {
+    // Enemy 1 at (-1, 0) is kept by the new rear on (0, 0); enemy 2 at (2, -1) is left.
+    let state = state(&[(-1, 0), (2, -1)]);
+    let before = [(0, 0), (1, 0)];
+    assert_eq!(owed(&state, &before, &[(-1, 1), (0, 0)]), [FigureId(2)]);
+    // Moving towards enemy 2 keeps it, and the old anchor's cell keeps enemy 1.
+    assert!(owed(&state, &before, &[(1, -1), (0, 0)]).is_empty());
 }
 
 proptest! {

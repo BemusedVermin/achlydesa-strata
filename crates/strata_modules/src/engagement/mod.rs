@@ -11,8 +11,8 @@
 
 mod reprisal;
 
-use std::collections::BTreeMap;
-use std::sync::OnceLock;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::{Arc, OnceLock};
 
 use strata_kernel::{ModuleId, SlotId, Space, Sym, Value};
 use strata_model::{ConfigField, FigureId, FigureState, FigureStatus, GameState};
@@ -72,6 +72,23 @@ pub(crate) fn overlaps(a: u32, a_height: u32, b: u32, b_height: u32) -> bool {
     a < b.saturating_add(b_height) && b < a.saturating_add(a_height)
 }
 
+impl Service {
+    /// The enemies engaged with any of the spaces a figure's body covers, ordered by ID.
+    fn engaged_body(
+        &self,
+        state: &GameState,
+        env: &dyn NativeEnv,
+        figure: FigureId,
+        cells: &[Space],
+    ) -> Result<BTreeSet<FigureId>, LogicError> {
+        let mut found = BTreeSet::new();
+        for &cell in cells {
+            found.extend(self.engaged(state, env, figure, cell)?);
+        }
+        Ok(found)
+    }
+}
+
 impl Engagement for Service {
     fn engaged(
         &self,
@@ -112,13 +129,13 @@ impl Engagement for Service {
         state: &GameState,
         env: &dyn NativeEnv,
         figure: FigureId,
-        from: Space,
-        to: Space,
+        before: &[Space],
+        after: &[Space],
     ) -> Result<Vec<FigureId>, LogicError> {
-        let after = self.engaged(state, env, figure, to)?;
+        let kept = self.engaged_body(state, env, figure, after)?;
         let mut owed = Vec::new();
-        for enemy in self.engaged(state, env, figure, from)? {
-            if after.contains(&enemy) {
+        for enemy in self.engaged_body(state, env, figure, before)? {
+            if kept.contains(&enemy) {
                 continue;
             }
             // Asked only of an enemy being left, so leaving provokes unless a modifier denies it.
@@ -145,7 +162,7 @@ impl Engagement for Service {
         };
         let mut owed: Vec<FigureId> = Vec::new();
         for &next in path {
-            let found = self.reprisals(ctx.state(), env, figure, at, next);
+            let found = self.reprisals(ctx.state(), env, figure, &[at], &[next]);
             for enemy in found.map_err(|e| Halt::reject(e.0))? {
                 if !owed.contains(&enemy) {
                     owed.push(enemy);
@@ -224,7 +241,8 @@ impl RuleModule for EngagementModule {
             dice,
             wound_on: Sym::new(text("wound_on")?),
         };
-        r.service::<dyn Engagement>(Box::new(Service { heights, reprisal }));
+        let service: Arc<dyn Engagement> = Arc::new(Service { heights, reprisal });
+        r.service(Box::new(service));
         Ok(())
     }
 }

@@ -140,8 +140,15 @@ fn falls_emit_figure_fell_and_wound_only_when_configured() {
 }
 
 #[test]
+fn a_snake_moves_with_engagement_in_the_ruleset() {
+    // Reachable spaces are flagged through `core:engagement`, asked about the body as a whole.
+    let what = "a snake next to an enemy moves with engagement in the ruleset";
+    allowed(&run(), &[what]);
+}
+
+#[test]
 fn every_footprint_test_is_checked_here() {
-    assert_eq!(run().len(), 13, "{}", summary(&run()));
+    assert_eq!(run().len(), 14, "{}", summary(&run()));
 }
 
 #[test]

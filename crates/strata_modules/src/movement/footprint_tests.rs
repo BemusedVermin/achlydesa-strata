@@ -12,6 +12,8 @@ use strata_model::{
 };
 use strata_rules::{LogicError, MoveWorld, Reach, TerrainRules};
 
+use super::body::Body;
+use super::search::search;
 use super::{Headroom, Limits, reachable};
 
 const GRASS: DefId = DefId(1);
@@ -103,8 +105,9 @@ struct Scene {
     board: CompiledBoard,
     figures: Vec<Figure>,
     allowance: i64,
-    /// Steps out of this space provoke a reprisal.
-    engaged_on: Option<Space>,
+    /// Enemies, engaged with any cell in an adjacent column. They are not figures, so they block
+    /// nothing.
+    enemies: Vec<Hex>,
 }
 
 impl Scene {
@@ -118,8 +121,14 @@ impl Scene {
             board,
             figures: vec![mover],
             allowance: 1,
-            engaged_on: None,
+            enemies: Vec::new(),
         }
+    }
+
+    /// The enemies a cell on `at` is engaged with.
+    fn engaged(&self, at: Space) -> BTreeSet<Hex> {
+        let near = self.enemies.iter().filter(|e| e.distance(at.hex()) == 1);
+        near.copied().collect()
     }
 
     fn cells(&self, figure: &Figure) -> Vec<Space> {
@@ -176,8 +185,10 @@ impl MoveWorld for Scene {
     fn can_enter(&self, _: FigureId, _: Space) -> Result<bool, LogicError> {
         Ok(true)
     }
-    fn provokes_reprisal(&self, _: FigureId, from: Space, _: Space) -> Result<bool, LogicError> {
-        Ok(self.engaged_on == Some(from))
+    /// Some enemy engaged with `from` is not engaged with `to`. Multi-cell steps use the
+    /// trait's default, built from this.
+    fn provokes_reprisal(&self, _: FigureId, from: Space, to: Space) -> Result<bool, LogicError> {
+        Ok(!self.engaged(from).is_subset(&self.engaged(to)))
     }
 }
 
@@ -319,12 +330,39 @@ fn another_figures_rear_cell_is_occupied() {
     );
 }
 
+/// Whether the figure's best route to `(q, r)` in rotation `o` provokes a reprisal.
+fn provokes(reach: &[Reach], q: i32, r: i32, o: u8) -> bool {
+    let at = |x: &&Reach| x.space.hex() == Hex::new(q, r) && x.rotation.steps() == o;
+    reach.iter().find(at).unwrap().provokes_reprisal
+}
+
 #[test]
-fn any_cell_leaving_engagement_provokes_a_reprisal() {
+fn a_snake_whose_rear_stays_next_to_the_enemy_does_not_leave_it() {
+    // Anchor (0, 0), rear (1, 0); the enemy at (-1, 0) touches only the anchor.
+    let mut scene = Scene::new(flat(3), Some(footprint(&TWO, MoveMode::Snake, 1)));
+    scene.enemies = vec![Hex::new(-1, 0)];
+    scene.allowance = 2;
+    let reach = run(&scene);
+    // Each first step leads away from the enemy, but the rear follows onto (0, 0), next to it.
+    // Asked cell by cell, the anchor's step out of engagement would provoke.
+    assert!(!provokes(&reach, 1, -1, 2));
+    assert!(!provokes(&reach, 0, 1, 4));
+    assert!(!provokes(&reach, 1, 0, 3), "reversing onto the rear");
+    // A second step east takes the rear to (1, 0) too, and the body leaves the enemy.
+    assert!(provokes(&reach, 2, 0, 3));
+}
+
+#[test]
+fn a_rigid_shape_that_keeps_the_enemy_through_another_cell_does_not_leave_it() {
+    // Anchor (0, 0), rear (1, 0); the enemy at (1, -1) touches both.
     let mut scene = Scene::new(flat(3), Some(footprint(&TWO, MoveMode::Rigid, 1)));
-    scene.engaged_on = Some(Space::new(1, 0, 1));
-    assert!(run(&scene).iter().all(|r| r.provokes_reprisal));
-    scene.engaged_on = Some(Space::new(5, 5, 1));
+    scene.enemies = vec![Hex::new(1, -1)];
+    let reach = run(&scene);
+    // Sliding west, the anchor leaves the enemy while the rear moves onto (0, 0), next to it.
+    assert!(!provokes(&reach, -1, 0, 0));
+    // Sliding south-west, neither cell stays next to it.
+    assert!(provokes(&reach, -1, 1, 0));
+    scene.enemies = vec![Hex::new(-3, 3)];
     assert!(run(&scene).iter().all(|r| !r.provokes_reprisal));
 }
 
@@ -346,62 +384,152 @@ fn a_one_cell_footprint_moves_exactly_like_no_footprint() {
     assert_eq!(run(&bare), run(&one));
 }
 
-/// A ragged board: random levels, holes and mud over a radius-3 patch.
-fn ragged(levels: &[u8], holes: &BTreeSet<usize>, mud: &BTreeSet<usize>) -> CompiledBoard {
-    let hexes = Hex::ORIGIN.spiral(3).into_iter().enumerate();
-    let kept = hexes.filter(|(i, _)| *i == 0 || !holes.contains(i));
-    let pieces: Vec<_> = kept
-        .map(|(i, h)| (h.q, h.r, levels[i % levels.len()], mud.contains(&i)))
-        .collect();
+/// A ragged board over a radius-3 patch: random levels, holes and mud, and upper decks. An
+/// entry `i => gap` of `upper` adds a tile `gap` levels above column `i`'s ground (or where the
+/// ground would be, over a hole): an overhang with `gap - 1` levels of headroom under it, or a
+/// bridge deck over a chasm.
+fn ragged(
+    levels: &[u8],
+    holes: &BTreeSet<usize>,
+    mud: &BTreeSet<usize>,
+    upper: &BTreeMap<usize, u8>,
+) -> CompiledBoard {
+    let mut pieces = Vec::new();
+    for (i, h) in Hex::ORIGIN.spiral(3).into_iter().enumerate() {
+        let level = levels[i % levels.len()];
+        if i == 0 || !holes.contains(&i) {
+            pieces.push((h.q, h.r, level, mud.contains(&i)));
+        }
+        if let Some(gap) = upper.get(&i) {
+            pieces.push((h.q, h.r, level + gap, false));
+        }
+    }
     board(&pieces)
+}
+
+/// One case of the placement property: a two-cell footprint on a ragged board.
+#[derive(Clone, Debug)]
+struct Case {
+    levels: Vec<u8>,
+    holes: BTreeSet<usize>,
+    mud: BTreeSet<usize>,
+    upper: BTreeMap<usize, u8>,
+    snake: bool,
+    spread: u8,
+    rotation: u8,
+}
+
+fn cases() -> impl Strategy<Value = Case> {
+    let set = |n| proptest::collection::btree_set(1usize..37, 0..n);
+    (
+        proptest::collection::vec(0u8..3, 37),
+        (set(12), set(4)),
+        proptest::collection::btree_map(1usize..37, 1u8..4, 0..14),
+        (any::<bool>(), 0u8..3, 0u8..6),
+    )
+        .prop_map(
+            |(levels, (holes, mud), upper, (snake, spread, rotation))| Case {
+                levels,
+                holes,
+                mud,
+                upper,
+                snake,
+                spread,
+                rotation,
+            },
+        )
+}
+
+/// How many cases reached something, and how many reached each kind of hard placement.
+#[derive(Debug, Default)]
+struct Coverage {
+    moved: usize,
+    upper_deck: usize,
+    under_overhang: usize,
+    spread: usize,
+}
+
+/// Checks every placement `case` can reach, and notes what it exercised.
+fn placements_stand(case: &Case, seen: &mut Coverage) -> Result<(), TestCaseError> {
+    let board = ragged(&case.levels, &case.holes, &case.mud, &case.upper);
+    let mode = if case.snake {
+        MoveMode::Snake
+    } else {
+        MoveMode::Rigid
+    };
+    let mut scene = Scene::new(board, Some(footprint(&TWO, mode, case.spread)));
+    scene.figures[0].at = Space::new(0, 0, u32::from(case.levels[0]) + 1);
+    scene.figures[0].rotation = Rotation::new(case.rotation).unwrap();
+    scene.allowance = 4;
+    let reach = run(&scene);
+    let (mut deck, mut under, mut spread) = (false, false, false);
+    for r in &reach {
+        prop_assert_eq!(r.cells.len(), 2);
+        for cell in &r.cells {
+            let surfaces = scene.board.surfaces(cell.hex());
+            let stood = surfaces.iter().find(|s| s.z == cell.z);
+            let stood = stood.ok_or_else(|| TestCaseError::fail(format!("{cell:?} floats")))?;
+            // Headroom is checked against the figure's height of one level.
+            prop_assert!(
+                stood.headroom.is_none_or(|free| free >= 1),
+                "{:?} is crushed",
+                cell
+            );
+            deck |= surfaces.first().is_some_and(|lowest| lowest.z < cell.z);
+            under |= stood.headroom.is_some();
+        }
+        let low = r.cells.iter().map(|c| c.z).min().unwrap();
+        let high = r.cells.iter().map(|c| c.z).max().unwrap();
+        prop_assert!(high - low <= u32::from(case.spread));
+        spread |= high > low;
+        if !case.snake {
+            prop_assert_eq!(r.rotation, Rotation::new(case.rotation).unwrap());
+        }
+    }
+    prop_assert_eq!(run(&scene), reach.clone());
+    seen.moved += usize::from(!reach.is_empty());
+    seen.upper_deck += usize::from(deck);
+    seen.under_overhang += usize::from(under);
+    seen.spread += usize::from(spread);
+    Ok(())
+}
+
+#[test]
+fn no_reachable_placement_leaves_a_cell_over_empty_space() {
+    let seen = std::cell::RefCell::new(Coverage::default());
+    let mut runner = proptest::test_runner::TestRunner::default();
+    let ran = runner.run(&cases(), |case| {
+        placements_stand(&case, &mut seen.borrow_mut())
+    });
+    ran.unwrap();
+    // The property must not hold vacuously: most cases move, and a tenth or more reach an upper
+    // deck, stand under an overhang or straddle a level change (each is well above that).
+    let seen = seen.into_inner();
+    let cases = runner.config().cases as usize;
+    assert!(seen.moved * 2 >= cases, "{seen:?} of {cases}");
+    let hard = [seen.upper_deck, seen.under_overhang, seen.spread];
+    assert!(hard.iter().all(|&n| n >= cases / 10), "{seen:?} of {cases}");
 }
 
 proptest! {
     #[test]
-    fn no_reachable_placement_leaves_a_cell_over_empty_space(
+    fn a_one_cell_shape_moves_like_one_cell_at_every_rotation(
         levels in proptest::collection::vec(0u8..3, 37),
         holes in proptest::collection::btree_set(1usize..37, 0..12),
         mud in proptest::collection::btree_set(1usize..37, 0..4),
-        snake in any::<bool>(),
-        spread in 0u8..3,
-        rotation in 0u8..6,
+        upper in proptest::collection::btree_map(1usize..37, 1u8..4, 0..8),
     ) {
-        let board = ragged(&levels, &holes, &mud);
-        let mode = if snake { MoveMode::Snake } else { MoveMode::Rigid };
-        let mut scene = Scene::new(board, Some(footprint(&TWO, mode, spread)));
+        let mut scene = Scene::new(ragged(&levels, &holes, &mud, &upper), None);
         scene.figures[0].at = Space::new(0, 0, u32::from(levels[0]) + 1);
-        scene.figures[0].rotation = Rotation::new(rotation).unwrap();
         scene.allowance = 4;
-        let reach = run(&scene);
-        for r in &reach {
-            prop_assert_eq!(r.cells.len(), 2);
-            for cell in &r.cells {
-                let surfaces = scene.board.surfaces(cell.hex());
-                prop_assert!(surfaces.iter().any(|s| s.z == cell.z), "{:?} floats", cell);
-            }
-            let low = r.cells.iter().map(|c| c.z).min().unwrap();
-            let high = r.cells.iter().map(|c| c.z).max().unwrap();
-            prop_assert!(high - low <= u32::from(spread));
-            if !snake {
-                prop_assert_eq!(r.rotation, Rotation::new(rotation).unwrap());
-            }
+        scene.enemies = vec![Hex::new(1, 0)];
+        let one = footprint(&[(0, 0)], MoveMode::Rigid, 0);
+        for steps in 0..6 {
+            scene.figures[0].rotation = Rotation::new(steps).unwrap();
+            let bare = search(&scene, FigureId(0), LIMITS, Body::One).unwrap();
+            let shaped = search(&scene, FigureId(0), LIMITS, Body::Shaped(&one)).unwrap();
+            prop_assert_eq!(&bare, &shaped);
+            prop_assert_eq!(run(&scene), bare);
         }
-        prop_assert_eq!(run(&scene), reach);
-    }
-
-    #[test]
-    fn a_one_cell_footprint_never_changes_the_answer(
-        levels in proptest::collection::vec(0u8..3, 37),
-        holes in proptest::collection::btree_set(1usize..37, 0..12),
-        mud in proptest::collection::btree_set(1usize..37, 0..4),
-    ) {
-        let mut bare = Scene::new(ragged(&levels, &holes, &mud), None);
-        bare.figures[0].at = Space::new(0, 0, u32::from(levels[0]) + 1);
-        bare.allowance = 4;
-        let mut one = Scene::new(ragged(&levels, &holes, &mud), None);
-        one.figures[0].at = bare.figures[0].at;
-        one.figures[0].footprint = Some(footprint(&[(0, 0)], MoveMode::Rigid, 0));
-        one.allowance = 4;
-        prop_assert_eq!(run(&bare), run(&one));
     }
 }

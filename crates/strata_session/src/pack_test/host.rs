@@ -16,9 +16,9 @@ use strata_model::{
     TerrainDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
-    Ctx, DeploySlot, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics,
-    LosWorld, MoveWorld, Movement, NativeEvaluator, Query, QueryEngine, QueryTrace, Reach,
-    SourcedModifier, StatBounds, StatQuery, TerrainRules, VoteQuery, World,
+    Ctx, DeploySlot, Engagement, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError,
+    LogicEvaluator, Logics, LosWorld, MoveWorld, Movement, NativeEvaluator, Query, QueryEngine,
+    QueryTrace, Reach, SourcedModifier, StatBounds, StatQuery, TerrainRules, VoteQuery, World,
 };
 
 impl CardSource for Host {
@@ -57,6 +57,7 @@ pub(crate) struct Host {
     board: Option<CompiledBoard>,
     los: Option<Arc<dyn LineOfSight>>,
     movement: Option<Arc<dyn Movement>>,
+    engagement: Option<Arc<dyn Engagement>>,
     rig: Mutex<Rig>,
     /// Set once the ruleset's phases are known.
     pub(crate) names: OnceLock<Arc<Names>>,
@@ -86,6 +87,7 @@ impl Host {
             board,
             los: None,
             movement: None,
+            engagement: None,
             rig: Mutex::default(),
             names: OnceLock::new(),
             rules: OnceLock::new(),
@@ -157,6 +159,12 @@ impl Host {
     /// Answers `ctx.movement` with the ruleset's movement service.
     pub(crate) fn with_movement(mut self, movement: Option<Arc<dyn Movement>>) -> Self {
         self.movement = movement;
+        self
+    }
+
+    /// Flags reachable spaces that provoke reprisals with the ruleset's engagement service.
+    pub(crate) fn with_engagement(mut self, engagement: Option<Arc<dyn Engagement>>) -> Self {
+        self.engagement = engagement;
         self
     }
 
@@ -641,5 +649,30 @@ impl MoveWorld for StateMove<'_> {
         );
         self.host
             .ask(self.state, figure, &VoteQuery::can_enter(subject, at))
+    }
+
+    fn provokes_reprisal(
+        &self,
+        figure: FigureId,
+        from: Space,
+        to: Space,
+    ) -> Result<bool, LogicError> {
+        self.body_provokes_reprisal(figure, &[from], &[to])
+    }
+
+    /// Asks the engagement service about the whole body; without one no step provokes.
+    fn body_provokes_reprisal(
+        &self,
+        figure: FigureId,
+        before: &[Space],
+        after: &[Space],
+    ) -> Result<bool, LogicError> {
+        let Some(service) = self.host.engagement.as_ref() else {
+            return Ok(false);
+        };
+        let rules = self.host.rules.get().and_then(Weak::upgrade);
+        let rules = rules.ok_or_else(|| LogicError("the rules are not running".into()))?;
+        let owed = service.reprisals(self.state, &*rules, figure, before, after)?;
+        Ok(!owed.is_empty())
     }
 }

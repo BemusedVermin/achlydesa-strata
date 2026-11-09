@@ -3,10 +3,10 @@
 //! `reachable` runs Dijkstra over (anchor space, rotation) nodes, so footprints of any size move
 //! in their `snake` or `rigid` mode with every cell on a surface. Costs, climbing and entry come
 //! from the `move_cost`, `can_climb` and `can_enter` queries, asked once per terrain and level
-//! change. Stop-on-enter
-//! terrain and falls end a move; occupied spaces can be passed through but not stopped on. A
-//! space whose route takes any cell out of engagement is flagged `provokes_reprisal`. A move
-//! that ends in a fall emits `figure_fell`; `fall_wounds` turns on the native falling damage.
+//! change. Stop-on-enter terrain and falls end a move; occupied spaces can be passed through but
+//! not stopped on. A space whose route takes the body out of engagement with an enemy, with no
+//! cell staying engaged with it, is flagged `provokes_reprisal`. A move that ends in a fall emits
+//! `figure_fell`; `fall_wounds` turns on the native falling damage.
 
 mod api;
 mod body;
