@@ -295,6 +295,50 @@ fn standard_libraries_are_frozen() {
 }
 
 #[test]
+fn the_string_metatable_cannot_be_reached_or_changed() {
+    assert_eq!(
+        run_str(
+            "local hidden = getmetatable('') == false
+             local set = pcall(setmetatable, '', {})
+             local lib = pcall(function() string.upper = nil end)
+             return tostring(hidden) .. tostring(set) .. tostring(lib) .. ('x'):upper()"
+        ),
+        "truefalsefalseX"
+    );
+}
+
+#[test]
+fn freeze_names_the_line_that_called_it_and_refuses_a_function_index() {
+    let host = host();
+    let source = "local ok, e = pcall(freeze, 1)\nlocal ok2, e2 = pcall(function()\n  freeze(setmetatable({}, { __index = function() end }))\nend)\nreturn e .. '|' .. e2";
+    let out = run_in(&host, source).unwrap();
+    let Some(LuaValue::String(text)) = out.into_iter().next() else {
+        panic!("expected the two messages");
+    };
+    let text = text.to_string_lossy();
+    let (direct, nested) = text.split_once('|').unwrap();
+    assert_eq!(direct, "test.lua:1: freeze expects a table");
+    assert!(nested.starts_with("test.lua:3: cannot freeze"), "{nested}");
+    assert!(nested.contains("`__index` is a function"), "{nested}");
+}
+
+#[test]
+fn freeze_reaches_children_of_tables_frozen_earlier() {
+    let host = host();
+    let env = host.new_env().unwrap();
+    let set = host
+        .load(&env, "a.lua", "Outer = freeze { inner = { 1 } }")
+        .unwrap();
+    host.call(&set, ()).unwrap();
+    host.freeze_env(&env).unwrap();
+    let write = host.load(&env, "b.lua", "Outer.inner[2] = 2").unwrap();
+    let Err(HostError::Script(message)) = host.call(&write, ()) else {
+        panic!("the inner table must be frozen");
+    };
+    assert_eq!(message, "b.lua:1: attempt to modify a frozen table");
+}
+
+#[test]
 fn environments_are_isolated_and_freezable() {
     let host = host();
     let a = host.new_env().unwrap();

@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use strata_kernel::{Sym, Value};
 
 use crate::error::ConvertError;
-use crate::host::FROZEN_KEY;
+use crate::lock::FROZEN_KEY;
 
 const MAX_DEPTH: usize = 64;
 
@@ -55,9 +55,40 @@ pub(crate) fn sorted_keys() -> DeserializeOptions {
     DeserializeOptions::new().sort_keys(true)
 }
 
-/// Deserializes `value` into a `T`, visiting table keys in sorted order.
+/// Deserializes `value` into a `T`, visiting table keys in sorted order. Frozen tables are
+/// read through their contents first: serde reads tables raw, and would see a frozen table as
+/// empty.
 pub(crate) fn from_lua<T: DeserializeOwned>(lua: &Lua, value: mlua::Value) -> mlua::Result<T> {
-    lua.from_value_with(value, sorted_keys())
+    lua.from_value_with(thaw(lua, value, 0)?, sorted_keys())
+}
+
+/// `value` with every frozen table in it, at any depth, replaced by a plain copy of its
+/// contents. Tables that hold no frozen table are passed through, and the script's own tables
+/// are never changed: a table whose children were replaced is copied too.
+fn thaw(lua: &Lua, value: mlua::Value, depth: usize) -> mlua::Result<mlua::Value> {
+    let mlua::Value::Table(table) = value else {
+        return Ok(value);
+    };
+    if depth >= MAX_DEPTH {
+        return Err(mlua::Error::runtime(ConvertError::TooDeep.to_string()));
+    }
+    let source = contents(lua, &table);
+    let mut changed = source.to_pointer() != table.to_pointer();
+    let mut entries = Vec::new();
+    for pair in source.pairs::<mlua::Value, mlua::Value>() {
+        let (key, item) = pair?;
+        let thawed = thaw(lua, item.clone(), depth + 1)?;
+        changed |= thawed.to_pointer() != item.to_pointer();
+        entries.push((key, thawed));
+    }
+    if !changed {
+        return Ok(mlua::Value::Table(table));
+    }
+    let copy = lua.create_table_with_capacity(0, entries.len())?;
+    for (key, item) in entries {
+        copy.raw_set(key, item)?;
+    }
+    Ok(mlua::Value::Table(copy))
 }
 
 fn convert(lua: &Lua, value: &mlua::Value, depth: usize) -> Result<Value, ConvertError> {

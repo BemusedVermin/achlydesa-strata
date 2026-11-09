@@ -11,7 +11,8 @@ use crate::convert::{contents, from_lua, value_to_lua};
 use crate::data::{DataStage, PackSource};
 use crate::error::HostError;
 use crate::freeze::{Def, FrozenRecord, freeze_registered};
-use crate::host::{Limits, freeze_deep};
+use crate::host::Limits;
+use crate::lock::freeze_deep;
 
 const REGISTRAR: &str = include_str!("registrar.lua");
 /// The key under which a module's registrations sit, so their `ScriptRef` paths cannot collide

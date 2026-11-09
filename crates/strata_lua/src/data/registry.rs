@@ -9,6 +9,8 @@ use mlua::{Function, Lua, Result, Table, Value};
 use strata_kernel::PackId;
 
 use super::{PackSource, Source};
+use crate::convert::contents;
+use crate::lock::trust_index;
 
 /// Every constructor kind (design §10.1).
 pub(crate) const KINDS: [&str; 20] = [
@@ -130,23 +132,24 @@ pub(crate) fn install(lua: &Lua, shared: &Shared) -> Result<Table> {
         let records = lua.create_table()?;
         let meta = lua.create_table()?;
         let registry = shared.clone();
-        meta.set(
-            "__index",
-            lua.create_function(move |lua, (records, key): (Table, Value)| {
-                let Value::String(key) = key else {
-                    return Ok(Value::Nil);
-                };
-                let key = key.to_str()?;
-                if key.contains(PACK_SEPARATOR) {
-                    return Ok(Value::Nil);
-                }
-                let (pack, ..) = caller(lua)?;
-                match registry.borrow().resolve(kind, &pack, &key)? {
-                    Some(id) => records.raw_get(id),
-                    None => Ok(Value::Nil),
-                }
-            })?,
-        )?;
+        // Once `data` is frozen, Lua calls this with the shadow table that holds the records;
+        // reading through `contents` works whichever table it is given.
+        let index = lua.create_function(move |lua, (records, key): (Table, Value)| {
+            let Value::String(key) = key else {
+                return Ok(Value::Nil);
+            };
+            let key = key.to_str()?;
+            if key.contains(PACK_SEPARATOR) {
+                return Ok(Value::Nil);
+            }
+            let (pack, ..) = caller(lua)?;
+            match registry.borrow().resolve(kind, &pack, &key)? {
+                Some(id) => contents(lua, &records).raw_get(id),
+                None => Ok(Value::Nil),
+            }
+        })?;
+        trust_index(lua, &index)?;
+        meta.set("__index", index)?;
         records.set_metatable(Some(meta))?;
         data.set(kind, records.clone())?;
         lua.globals()
@@ -163,7 +166,8 @@ fn constructor(lua: &Lua, shared: Shared, kind: &'static str, records: Table) ->
         if shared.borrow().sealed {
             return Err(fail("can only be called while the packs load".to_owned()));
         }
-        let text = |field: &str| match record.raw_get(field) {
+        let fields = contents(lua, &record);
+        let text = |field: &str| match fields.raw_get(field) {
             Ok(Value::String(s)) => Ok(s.to_str()?.to_owned()),
             _ => Err(fail(format!("needs a string `{field}`"))),
         };
