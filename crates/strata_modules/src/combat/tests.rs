@@ -9,7 +9,8 @@ use strata_model::{
     DieKind, FigureId, FigureState, FigureStatus, GameState, PlayerId, PlayerState,
 };
 use strata_rules::{
-    FigureVolume, LogicError, LosResult, ModuleError, NativeEnv, Registrar, RuleModule, VoteQuery,
+    FigureVolume, LogicError, LosResult, ModuleError, NativeEnv, Registrar, RuleModule, VolumeCell,
+    VoteQuery,
 };
 
 use super::sight::{Blind, Sight, distance, height_bonus};
@@ -55,8 +56,8 @@ fn a_negative_or_oversized_height_bonus_is_refused() {
 /// of 21 samples clear, visible when any is. `None` fails every line-of-sight question.
 struct Env {
     clear: Option<i128>,
-    /// Extra cells of figure 0's footprint, beyond the column it stands in.
-    wide: Vec<Hex>,
+    /// Extra cells of figure 0's footprint, beyond the space it stands on, each on its own level.
+    wide: Vec<Space>,
 }
 
 impl NativeEnv for Env {
@@ -83,17 +84,21 @@ impl NativeEnv for Env {
         })
     }
     fn volume(&self, state: &GameState, figure: FigureId) -> Option<FigureVolume> {
-        let at = state.standing(figure)?.hex();
-        let mut cells = vec![at];
+        let at = state.standing(figure)?;
+        let mut spaces = vec![at];
         if figure == FigureId(0) {
-            cells.extend(&self.wide);
+            spaces.extend(&self.wide);
         }
+        let floor = i64::from(at.z) * 12;
+        let cells = spaces.into_iter().map(|space| VolumeCell {
+            space,
+            bottom: i64::from(space.z) * 12,
+            top: i64::from(space.z) * 12 + 12,
+        });
         Some(FigureVolume {
-            anchor: at,
-            cells,
-            target: 10,
-            bottom: 0,
-            top: 12,
+            anchor: at.hex(),
+            target: floor + 10,
+            cells: cells.collect(),
         })
     }
 }
@@ -179,10 +184,36 @@ fn a_target_beyond_range_is_not_a_target() {
 fn range_counts_from_the_nearest_cell_of_a_wide_footprint() {
     let wide = Env {
         clear: Some(21),
-        wide: vec![Hex::new(1, 0)],
+        wide: vec![Space::new(1, 0, 1)],
     };
     let found = sight(&rules(false, 0), &wide, (4, 0));
     assert_eq!(found.unwrap().map(|s| s.ranged), Some(true));
+}
+
+#[test]
+fn adjacency_compares_each_cell_at_its_own_level() {
+    // Figure 0 stands on (0, 0) at level 1 with a rear cell on (1, 0); the target stands on
+    // (2, 0) at level 2, next to the rear cell only. Line of sight fails if it is asked.
+    let rear = |z| Env {
+        clear: None,
+        wide: vec![Space::new(1, 0, z)],
+    };
+    let melee = Sight {
+        ranged: false,
+        cover: false,
+    };
+    let to = Space::new(2, 0, 2);
+    let level = sight_at(&rules(false, 0), &rear(2), 1, to, Blind::Reject);
+    assert_eq!(
+        level,
+        Ok(Some(melee)),
+        "the rear cell stands level with the target"
+    );
+    let below = sight_at(&rules(false, 0), &rear(1), 1, to, Blind::Reject);
+    assert!(
+        below.is_err(),
+        "a level below, the rear cell needs line of sight: {below:?}"
+    );
 }
 
 #[test]

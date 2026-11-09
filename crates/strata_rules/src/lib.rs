@@ -31,7 +31,7 @@ pub use flow::{
     ActionRunner, ActivationGate, ActivationRules, Flow, FlowError, OrderingPolicy, PhaseTree,
     ROOT, TokenRules, take_action,
 };
-pub use los::{FigureVolume, LineOfSight, LosResult, LosWorld};
+pub use los::{FigureVolume, LineOfSight, LosResult, LosWorld, VolumeCell};
 pub use module::{ModuleError, RuleModule};
 pub use movement::{MoveWorld, Movement, Reach, TerrainRules, footprint_cells, passable_cells};
 pub use native::{

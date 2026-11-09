@@ -3,13 +3,15 @@
 use std::collections::BTreeMap;
 
 use proptest::prelude::*;
-use strata_kernel::{Blocker, DefId, Hex, Rotation, Shape, Sym, Value};
+use strata_kernel::{Blocker, DefId, Hex, Rotation, Shape, Space, Sym, Value};
 use strata_model::board::{BoardDefs, CompiledBoard, compile};
 use strata_model::{
     FeatureCell, FeatureDef, FigureId, MapConstraints, MapDef, PlacedFeature, PlacedPiece, Segment,
     SourceLoc, Text, TileDef,
 };
-use strata_rules::{FigureVolume, LineOfSight, LosResult, LosWorld, Registrar, RuleModule};
+use strata_rules::{
+    FigureVolume, LineOfSight, LosResult, LosWorld, Registrar, RuleModule, VolumeCell,
+};
 
 use super::{Los, Policy, Service, Threshold};
 
@@ -71,6 +73,8 @@ struct Fig {
     z: i64,
     target: i64,
     hit: (i64, i64),
+    /// A second footprint cell and the level it stands on, for a two-space figure.
+    rear: Option<(Hex, i64)>,
 }
 
 /// A short figure on row 0 whose eye is `target` sub-levels above its feet.
@@ -80,6 +84,7 @@ fn fig(q: i32, z: i64, target: i64) -> Fig {
         z,
         target,
         hit: (0, 12),
+        rear: None,
     }
 }
 
@@ -97,13 +102,16 @@ impl LosWorld for Scene {
     }
     fn volume(&self, figure: FigureId) -> Option<FigureVolume> {
         let f = self.figs.get(figure.index())?;
-        let floor = f.z * 12;
+        let cell = |(at, z): (Hex, i64)| VolumeCell {
+            space: Space::new(at.q, at.r, z as u32),
+            bottom: z * 12 + f.hit.0,
+            top: z * 12 + f.hit.1,
+        };
+        let cells = std::iter::once((f.at, f.z)).chain(f.rear);
         Some(FigureVolume {
             anchor: f.at,
-            cells: vec![f.at],
-            target: floor + f.target,
-            bottom: floor + f.hit.0,
-            top: floor + f.hit.1,
+            target: f.z * 12 + f.target,
+            cells: cells.map(cell).collect(),
         })
     }
 }
@@ -228,6 +236,7 @@ fn a_tall_figure_beside_the_line_does_not_block() {
         z: 1,
         target: 10,
         hit: (0, 36),
+        rear: None,
     });
     assert!(geometric(&aside).visible);
 }
@@ -244,6 +253,53 @@ fn a_bridge_deck_above_eye_height_does_not_block_a_view_beneath_it() {
     assert!(geometric(&scene(pieces.clone(), vec![], figs.clone())).visible);
     let hidden = scene(pieces, vec![wall(Hex::new(5, 0), 3)], figs);
     assert!(!geometric(&hidden).visible);
+}
+
+/// Ground from `q = 0` to `6`, with `raised` one level higher than the rest.
+fn stepped(raised: Hex) -> Vec<PlacedPiece> {
+    let ground = ground().into_iter().filter(|p| p.at != raised);
+    ground.chain([piece(raised, 1)]).collect()
+}
+
+#[test]
+fn a_rear_cell_a_level_up_is_sampled_at_its_own_level() {
+    // A one-level wall hides everything on the defender's anchor level. The defender's rear
+    // cell stands on (6, 0), a level up, and pokes over the wall.
+    let figs = |rear_z| {
+        let mut defender = fig(5, 1, 10);
+        defender.rear = Some((Hex::new(6, 0), rear_z));
+        vec![fig(0, 1, 10), defender]
+    };
+    let walls = || vec![wall(Hex::new(3, 0), 1)];
+    let raised = scene(stepped(Hex::new(6, 0)), walls(), figs(2));
+    let result = geometric(&raised);
+    assert!(result.visible, "the raised rear cell is seen over the wall");
+    assert!(result.witnesses.len() < 21, "the anchor cell stays hidden");
+    // The same cell at the anchor's level, as when every prism rose from the anchor, is hidden.
+    let flat = scene(stepped(Hex::new(6, 0)), walls(), figs(1));
+    assert!(!geometric(&flat).visible);
+}
+
+#[test]
+fn a_rear_cell_a_level_down_blocks_at_its_own_level() {
+    // A bystander stands on raised ground at (3, 1), with its rear cell down on (3, 0), across
+    // the line between two figures on the ground.
+    let bystander = |rear_z| {
+        let mut f = fig(3, 2, 10);
+        f.at = Hex::new(3, 1);
+        f.rear = Some((Hex::new(3, 0), rear_z));
+        f
+    };
+    let mut pieces = ground();
+    pieces.push(piece(Hex::new(3, 1), 1));
+    let figs = |rear_z| vec![fig(0, 1, 10), fig(6, 1, 10), bystander(rear_z)];
+    let low = scene(pieces.clone(), vec![], figs(1));
+    assert!(
+        !geometric(&low).visible,
+        "the rear cell on the ground blocks"
+    );
+    // Raised to the anchor's level, the rear prism passes over the line.
+    assert!(geometric(&scene(pieces, vec![], figs(2))).visible);
 }
 
 #[test]
@@ -344,6 +400,7 @@ fn build(layout: &Layout, turns: u8) -> Scene {
             z: tops[&at],
             target,
             hit: (0, 12),
+            rear: None,
         }
     };
     let mut figs: Vec<Fig> = layout.figs.iter().copied().map(stand).collect();

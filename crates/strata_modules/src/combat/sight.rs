@@ -1,6 +1,6 @@
 //! Whether an attacker can attack a target: range, line of sight, cover and the `can_target` vote.
 
-use strata_kernel::Hex;
+use strata_kernel::Space;
 use strata_model::{FigureId, GameState};
 use strata_rules::{Halt, NativeEnv, VoteQuery};
 
@@ -20,11 +20,12 @@ pub(crate) struct Sight {
     pub(crate) cover: bool,
 }
 
-/// The columns a figure on the board covers: its footprint, or else the column it stands in.
-fn cells(state: &GameState, env: &dyn NativeEnv, figure: FigureId) -> Option<Vec<Hex>> {
+/// The spaces a figure on the board covers, each at its own level: its volume's cells, or else
+/// the space it stands on.
+fn cells(state: &GameState, env: &dyn NativeEnv, figure: FigureId) -> Option<Vec<Space>> {
     let at = state.standing(figure)?;
     let volume = env.volume(state, figure);
-    Some(volume.map_or_else(|| vec![at.hex()], |v| v.cells))
+    Some(volume.map_or_else(|| vec![at], |v| v.cells.iter().map(|c| c.space).collect()))
 }
 
 /// The hex distance between the nearest cells of two figures on the board.
@@ -37,24 +38,25 @@ pub(crate) fn distance(
     let (mine, theirs) = (cells(state, env, a)?, cells(state, env, b)?);
     let pairs = mine
         .iter()
-        .flat_map(|m| theirs.iter().map(|t| m.distance(*t)));
+        .flat_map(|m| theirs.iter().map(|t| m.hex().distance(t.hex())));
     pairs.min()
 }
 
-/// Whether two figures on the board are adjacent for an attack: their columns at most one hex
-/// apart and the levels they span overlapping, as for engagement. Such a target needs no line of
-/// sight.
-fn adjacent(state: &GameState, env: &dyn NativeEnv, a: FigureId, b: FigureId, apart: u32) -> bool {
-    let span = |f: FigureId| {
-        let z = state.standing(f)?.z;
-        Some((z, height(env, state.figures.get(f.index())?)))
+/// Whether two figures on the board are adjacent for an attack: some cell of each at most one hex
+/// apart, with the levels the two span from those cells overlapping, as for engagement. Such a
+/// target needs no line of sight.
+fn adjacent(state: &GameState, env: &dyn NativeEnv, a: FigureId, b: FigureId) -> bool {
+    let tall = |f: FigureId| state.figures.get(f.index()).map(|fig| height(env, fig));
+    let (Some(mine), Some(theirs), Some(a_height), Some(b_height)) =
+        (cells(state, env, a), cells(state, env, b), tall(a), tall(b))
+    else {
+        return false;
     };
-    match (span(a), span(b)) {
-        (Some((a, a_height)), Some((b, b_height))) => {
-            apart <= 1 && overlaps(a, a_height, b, b_height)
-        }
-        _ => false,
-    }
+    mine.iter().any(|m| {
+        theirs
+            .iter()
+            .any(|t| m.hex().distance(t.hex()) <= 1 && overlaps(m.z, a_height, t.z, b_height))
+    })
 }
 
 /// What to make of a line-of-sight question that fails, as when the ruleset's `los` slot is
@@ -94,7 +96,7 @@ impl Sight {
         if i64::from(apart) > range {
             return Ok(None);
         }
-        let ranged = !adjacent(state, env, attacker, target, apart);
+        let ranged = !adjacent(state, env, attacker, target);
         let (seen, cover) = if ranged {
             match (env.los(state, attacker, target), blind) {
                 // At least half the samples blocked: clear / total <= 1 / 2.

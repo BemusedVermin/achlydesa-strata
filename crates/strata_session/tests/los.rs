@@ -65,12 +65,28 @@ fn run() -> Vec<TestReport> {
 #[test]
 fn walls_bridges_cover_and_figures_decide_who_is_in_line_of_sight() {
     let reports = run();
-    assert_eq!(reports.len(), 7, "{}", summary(&reports));
+    assert_eq!(reports.len(), 11, "{}", summary(&reports));
     assert!(
         reports.iter().all(|r| r.outcome.is_ok()),
         "{}",
         summary(&reports)
     );
+}
+
+#[test]
+fn a_two_space_figure_is_seen_and_blocks_at_each_cells_own_level() {
+    let reports = run();
+    let names = [
+        "a rear cell a level up is seen over a low wall",
+        "a rear cell on the anchor's level stays behind a low wall",
+        "the lane is open end to end",
+        "a rear cell a level below its anchor blocks sight past it",
+    ];
+    for what in names {
+        let found = reports.iter().find(|r| r.name == what);
+        let ran = found.unwrap_or_else(|| panic!("no test `{what}`:\n{}", summary(&reports)));
+        assert!(ran.outcome.is_ok(), "{what}: {}", summary(&reports));
+    }
 }
 
 #[test]
