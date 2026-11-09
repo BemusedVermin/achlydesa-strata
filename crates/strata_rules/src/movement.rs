@@ -38,6 +38,16 @@ pub trait MoveWorld {
     fn can_climb(&self, figure: FigureId, terrain: DefId, dz: i32) -> Result<bool, LogicError>;
     /// The `can_enter` query for entering `to`.
     fn can_enter(&self, figure: FigureId, to: Space) -> Result<bool, LogicError>;
+    /// Whether stepping from `from` to `to` gives an enemy a reprisal, as the `engagement` slot
+    /// decides. Without an engagement module no step does.
+    fn provokes_reprisal(
+        &self,
+        _figure: FigureId,
+        _from: Space,
+        _to: Space,
+    ) -> Result<bool, LogicError> {
+        Ok(false)
+    }
 }
 
 /// One space a figure can reach.
@@ -53,6 +63,8 @@ pub struct Reach {
     pub stops_here: bool,
     /// The last step descended further than the fall limit.
     pub falls: bool,
+    /// Some step of the path leaves engagement with an enemy who gets a reprisal.
+    pub provokes_reprisal: bool,
     /// Another figure stands here, so the figure can pass through but not stop.
     pub occupied: bool,
 }

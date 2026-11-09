@@ -7,6 +7,7 @@
 pub mod cards;
 pub mod controller;
 pub mod human;
+pub mod inspect;
 pub mod launch;
 pub mod names;
 pub mod pack_test;
@@ -21,6 +22,7 @@ pub mod view;
 pub use cards::{AbilityLine, CardSource, FigureLine, NoCards, StatLine, UnitCard};
 pub use controller::Controller;
 pub use human::HumanController;
+pub use inspect::{Change, Clamp, InspectStep, Inspection, TraceMismatch};
 pub use launch::{LaunchSpec, launch};
 pub use names::Names;
 pub use random::RandomController;

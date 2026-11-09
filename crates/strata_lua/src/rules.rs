@@ -8,12 +8,12 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use mlua::{Lua, LuaSerdeExt, Value as LuaValue};
 use strata_kernel::{CommandRng, DefId, Sym, Value, WindowId};
 use strata_model::{
-    ActionDef, Answer, Decision, DieKind, Event, FigureId, GameState, Logic, PlayerId, ReactionDef,
-    ReplacementDef, ScriptRef, TriggerDef,
+    ActionDef, Answer, Decision, DieKind, Event, FigureDef, FigureDefRef, FigureId, GameState,
+    Logic, PlayerId, ReactionDef, ReplacementDef, ScriptRef, TriggerDef,
 };
 use strata_rules::{
     ActionRunner, ApiHandler, Ctx, Halt, HookRunner, LogicError, NativeEnv, PhaseTree, Reach,
-    RulesRuntime,
+    RulesRuntime, VoteQuery,
 };
 
 use crate::convert::{from_lua, lua_to_value, value_to_lua};
@@ -222,6 +222,21 @@ impl NativeEnv for LuaRules {
 
     fn relic(&self, id: DefId) -> Option<strata_model::RelicDef> {
         self.host.relic(id)
+    }
+
+    fn vote(&self, state: &GameState, query: &VoteQuery) -> Result<bool, LogicError> {
+        let args = [
+            Value::Str(query.key.clone()),
+            Value::Bool(query.default),
+            query.subject.clone(),
+            query.context.clone(),
+        ];
+        let found = self.host.query(state, "vote", &args)?;
+        found.as_bool().map_err(|e| LogicError(e.to_string()))
+    }
+
+    fn figure_def(&self, figure: &FigureDefRef) -> Option<&FigureDef> {
+        self.host.figure_def(figure)
     }
 
     fn run_effect(&self, ctx: &mut dyn Ctx, effect: &Logic, event: &Event) -> Result<(), Halt> {

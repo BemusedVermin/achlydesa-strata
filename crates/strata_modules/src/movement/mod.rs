@@ -2,7 +2,8 @@
 //!
 //! `reachable` runs Dijkstra over surfaces. Costs, climbing and entry come from the `move_cost`,
 //! `can_climb` and `can_enter` queries, asked once per terrain and level change. Stop-on-enter
-//! terrain and falls end a move; occupied spaces can be passed through but not stopped on.
+//! terrain and falls end a move; occupied spaces can be passed through but not stopped on. A
+//! space whose route leaves engagement is flagged `provokes_reprisal`.
 
 mod api;
 mod search;

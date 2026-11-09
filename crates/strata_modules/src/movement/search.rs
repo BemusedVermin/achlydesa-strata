@@ -81,6 +81,7 @@ struct Node {
     from: Option<Space>,
     stops_here: bool,
     falls: bool,
+    provokes_reprisal: bool,
 }
 
 /// One legal step onto a surface.
@@ -121,6 +122,7 @@ pub fn reachable(
         from: None,
         stops_here: false,
         falls: false,
+        provokes_reprisal: false,
     };
     let mut found = BTreeMap::from([(start, origin)]);
     let mut settled = BTreeSet::new();
@@ -136,11 +138,15 @@ pub fn reachable(
                 if total > allowance || !better || settled.contains(&step.to) {
                     continue;
                 }
+                // Asked only for steps that improve a route, so each edge is asked at most once.
+                let provokes =
+                    found[&at].provokes_reprisal || world.provokes_reprisal(figure, at, step.to)?;
                 let node = Node {
                     cost: total,
                     from: Some(at),
                     stops_here: step.stops_here,
                     falls: step.falls,
+                    provokes_reprisal: provokes,
                 };
                 found.insert(step.to, node);
                 heap.push(Reverse((total, step.to)));
@@ -162,6 +168,7 @@ pub fn reachable(
             path,
             stops_here: node.stops_here,
             falls: node.falls,
+            provokes_reprisal: node.provokes_reprisal,
             occupied: world.occupant(space).is_some_and(|o| o != figure),
         }
     };

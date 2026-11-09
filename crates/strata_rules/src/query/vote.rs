@@ -90,6 +90,7 @@ impl Query for VoteQuery {
             base: Value::Bool(self.default),
             steps: applied.iter().map(TraceStep::from).collect(),
             unclamped: None,
+            bounds: None,
             result: Value::Bool(result),
         };
         Ok((result, trace))

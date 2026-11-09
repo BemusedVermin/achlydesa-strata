@@ -1,7 +1,7 @@
 //! What every rule sees while resolving (design §5.1).
 
-use strata_kernel::{CommandRng, WindowId};
-use strata_model::{Answer, Command, Decision, Event, GameState, PlayerId, UnitId};
+use strata_kernel::{CommandRng, Space, WindowId};
+use strata_model::{Answer, Command, Decision, Event, FigureId, GameState, PlayerId, UnitId};
 
 use super::halt::Halt;
 use crate::flow::ActivationRules;
@@ -27,6 +27,15 @@ pub trait Ctx {
     /// Contexts without a ruleset, and rulesets without a gate, allow every activation.
     fn may_activate(&self, _player: PlayerId, _unit: UnitId) -> bool {
         true
+    }
+
+    /// Resolves the reprisals `figure` provokes by walking `path` from where it stands, through
+    /// the ruleset's `engagement` slot. A move calls this before it emits `FigureMoved`, and skips
+    /// the move if the figure is out of play afterwards.
+    ///
+    /// Contexts without a ruleset, and rulesets without an engagement module, provoke nothing.
+    fn leave_engagement(&mut self, _figure: FigureId, _path: &[Space]) -> Result<(), Halt> {
+        Ok(())
     }
 
     /// Takes the `Command::Action` in `command` for `player`: checks who may act and the targets,

@@ -11,14 +11,14 @@ use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::CompiledBoard;
 use strata_model::{
-    AbilityOwner, Descriptor, DieDef, DieKind, FigureId, FigureStatus, FootprintDef, GameState,
-    MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef, StatDef, TerrainDef, UnitDef, UnitId,
-    UnitState,
+    AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureDef, FigureDefRef, FigureId,
+    FigureStatus, FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef,
+    StatDef, TerrainDef, TileDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
     Ctx, DeploySlot, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics,
-    LosWorld, MoveWorld, Movement, NativeEvaluator, Query, QueryEngine, Reach, SourcedModifier,
-    StatBounds, StatQuery, TerrainRules, VoteQuery, World,
+    LosWorld, MoveWorld, Movement, NativeEvaluator, Query, QueryEngine, QueryTrace, Reach,
+    SourcedModifier, StatBounds, StatQuery, TerrainRules, VoteQuery, World,
 };
 
 impl CardSource for Host {
@@ -123,12 +123,13 @@ impl Host {
             );
             let base = i64::from(*printed);
             let bare = name.split_once(':').map_or(name, |(_, bare)| bare);
-            let queried = figure.and_then(|f| self.stat(state, *f, bare).ok());
+            let queried = figure.and_then(|f| self.stat_trace(state, *f, bare).ok());
             let label = stat_def.abbrev.as_ref().unwrap_or(&stat_def.name);
             let line = StatLine {
                 label: label.0.clone(),
                 base,
-                value: queried.unwrap_or(base),
+                value: queried.as_ref().map_or(base, |(value, _)| *value),
+                trace: queried.map(|(_, trace)| trace),
             };
             stats.push((stat_def.order, line));
         }
@@ -203,6 +204,16 @@ impl Host {
         figure: FigureId,
         stat: &str,
     ) -> Result<i64, LogicError> {
+        self.stat_trace(state, figure, stat).map(|(value, _)| value)
+    }
+
+    /// A figure's stat after every modifier, with how it was reached.
+    fn stat_trace(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        stat: &str,
+    ) -> Result<(i64, QueryTrace), LogicError> {
         let fail = LogicError;
         let (stat_id, _) = find::<StatDef>(&self.registry, &self.pack, stat)
             .ok_or_else(|| fail(format!("unknown stat `{stat}`")))?;
@@ -215,7 +226,7 @@ impl Host {
             subject: Value::Int(i64::from(figure.0)),
             context: Value::Nil,
         };
-        self.ask(state, figure, &query)
+        self.ask_trace(state, figure, &query)
     }
 
     /// Resolves `query` against the state with every modifier applied.
@@ -225,6 +236,17 @@ impl Host {
         figure: FigureId,
         query: &Q,
     ) -> Result<Q::Output, LogicError> {
+        self.ask_trace(state, figure, query)
+            .map(|(output, _)| output)
+    }
+
+    /// Resolves `query` like [`Host::ask`], with how it was reached.
+    fn ask_trace<Q: Query>(
+        &self,
+        state: &GameState,
+        figure: FigureId,
+        query: &Q,
+    ) -> Result<(Q::Output, QueryTrace), LogicError> {
         let fail = LogicError;
         let rules = self.rules.get().and_then(Weak::upgrade);
         let rules = rules.ok_or_else(|| fail("the rules are not running".into()))?;
@@ -237,7 +259,7 @@ impl Host {
                 evaluator: &evaluator,
                 scripts,
             };
-            QueryEngine::new(&modifiers, &self.bounds, logics).query(query)
+            QueryEngine::new(&modifiers, &self.bounds, logics).trace(query)
         });
         let asked = asked.map_err(|_| fail("the script state failed".into()))?;
         asked.map_err(|e| fail(e.to_string()))
@@ -261,16 +283,29 @@ impl RuleHost for Host {
         NativeEvaluator { world: &world }.eval(descriptor, &cx)
     }
 
+    /// Answers `stat` with `[figure, stat]`, and `vote` with `[key, default, figure, context]`.
     fn query(&self, state: &GameState, name: &str, args: &[Value]) -> Result<Value, LogicError> {
         let asked = |e: strata_kernel::ValueError| LogicError(format!("query `{name}`: {e}"));
-        if name != "stat" || args.len() != 2 {
-            return Err(LogicError(format!(
+        match (name, args) {
+            ("stat", [figure, stat]) => {
+                let figure = FigureId(figure.as_int().map_err(asked)? as u32);
+                let stat = stat.as_str().map_err(asked)?;
+                self.stat(state, figure, stat).map(Value::Int)
+            }
+            ("vote", [key, default, subject, context]) => {
+                let query = VoteQuery {
+                    key: Sym::new(key.as_str().map_err(asked)?),
+                    default: default.as_bool().map_err(asked)?,
+                    subject: subject.clone(),
+                    context: context.clone(),
+                };
+                let figure = FigureId(subject.as_int().map_err(asked)? as u32);
+                self.ask(state, figure, &query).map(Value::Bool)
+            }
+            _ => Err(LogicError(format!(
                 "the harness cannot answer query `{name}`"
-            )));
+            ))),
         }
-        let figure = FigureId(args[0].as_int().map_err(asked)? as u32);
-        let stat = args[1].as_str().map_err(asked)?;
-        self.stat(state, figure, stat).map(Value::Int)
     }
 
     fn reachable(&self, state: &GameState, figure: FigureId) -> Result<Vec<Reach>, LogicError> {
@@ -319,6 +354,11 @@ impl RuleHost for Host {
 
     fn relic(&self, id: DefId) -> Option<RelicDef> {
         self.registry.get::<RelicDef>(id).cloned()
+    }
+
+    fn figure_def(&self, figure: &FigureDefRef) -> Option<&FigureDef> {
+        let unit = self.registry.get::<UnitDef>(figure.unit)?;
+        unit.figures.iter().find(|f| f.id == figure.figure)
     }
 
     fn forced_roll(&self, die: &str, count: usize) -> Option<Result<Vec<u32>, String>> {
@@ -387,8 +427,7 @@ impl World for StateWorld<'_> {
     }
 
     fn team(&self, player: PlayerId) -> u8 {
-        let player_state = self.state.players.get(player.index());
-        player_state.map_or(player.0, |p| p.team)
+        self.state.team(player)
     }
 
     fn has_trait(&self, figure: FigureId, value: &str) -> bool {

@@ -295,3 +295,29 @@ fn trace_records_inputs_steps_and_result() {
     assert_eq!(trace.steps.len(), 1);
     assert_eq!(trace.steps[0].priority, 2);
 }
+
+#[test]
+fn trace_marks_lua_steps_and_records_running_values_and_bounds() {
+    let mods = [
+        int(ModifierLayer::Add, "a", 0, 2),
+        modifier("defense", ModifierLayer::Mul, "m", 0, script("double")),
+    ];
+    let (echo, b) = (Echo::default(), bounds());
+    let table = Table(BTreeMap::from([("double", Value::Int(3))]));
+    let logics = Logics {
+        evaluator: &echo,
+        scripts: &table,
+    };
+    let engine = QueryEngine::new(&mods, &b, logics);
+    let (value, trace) = engine.trace(&defense(4)).unwrap();
+    assert_eq!(value, 10);
+    let steps: Vec<_> = trace.steps.iter().map(|s| (s.scripted, s.after)).collect();
+    assert_eq!(steps, [(false, Some(6)), (true, Some(18))]);
+    assert_eq!(trace.unclamped, Some(18));
+    assert_eq!(trace.bounds, Some(StatBounds { min: 0, max: 10 }));
+    let (_, votes) = run(&[vote("v", true, false)], |e| {
+        e.trace(&VoteQuery::can_enter(Value::Int(1), Value::Nil))
+            .unwrap()
+    });
+    assert_eq!((votes.steps[0].after, votes.bounds), (None, None));
+}
