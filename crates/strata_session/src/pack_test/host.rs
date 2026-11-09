@@ -11,9 +11,9 @@ use strata_kernel::{Blocker, DefId, Hex, SUB_LEVELS, Space, Sym, Value};
 use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::CompiledBoard;
 use strata_model::{
-    AbilityOwner, Descriptor, DieDef, DieKind, FeatureDef, FigureDef, FigureDefRef, FigureId,
-    FigureStatus, FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef,
-    StatDef, TerrainDef, TileDef, UnitDef, UnitId, UnitState,
+    AbilityOwner, Descriptor, DieDef, DieKind, FigureDef, FigureDefRef, FigureId, FigureStatus,
+    FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef, StatDef,
+    TerrainDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
     Ctx, DeploySlot, EvalCtx, FigureVolume, Halt, LineOfSight, LogicError, LogicEvaluator, Logics,
