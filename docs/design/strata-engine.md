@@ -339,6 +339,8 @@ ruleset {
 
 Game flow is a tree of phases: setup, then rounds, each containing initiative, token placement, turns and round end. Entering and leaving a phase emits events, which is what "at the start of your turn" hooks. Modules insert phases at named anchors (`after = "turns.round_end"`).
 
+`core:deployment` registers `setup` with one step, `deploy`. The first `place_unit` opens them; the last placement closes `setup` and emits `setup_ended`, on which `core:rounds` starts round 1 without a `start_round`, and refuses one while units still wait. Players place in their slots' `deploy_order`, either one unit each in turn (`order = "alternate"`, the default) or a whole reserve per seat (`order = "army"`). While units wait, the deployment module names the deploying player through a `NextActor` service, so the session asks that player for the next command rather than the active player.
+
 ### 6.5 Actions
 
 An activation gives each figure a budget of slots, by default one `move` and one `attack`. Every action declares the slots it consumes, its targeting, and its resolver. The ordinary move and attack are themselves actions from the movement and combat modules. A special attack is just another action that consumes `attack`, and "may move again after attacking" grants one extra `move`.

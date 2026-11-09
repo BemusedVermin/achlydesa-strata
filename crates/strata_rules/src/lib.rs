@@ -28,8 +28,8 @@ pub use engine::{
     CommandRecord, Ctx, Engine, Halt, HookRunner, MAX_DECISIONS, Outcome, RuleViolation, event_kind,
 };
 pub use flow::{
-    ActionRunner, ActivationGate, ActivationRules, Flow, FlowError, OrderingPolicy, PhaseTree,
-    ROOT, TokenRules, take_action,
+    ActionRunner, ActivationGate, ActivationRules, Flow, FlowError, NextActor, OrderingPolicy,
+    PhaseTree, ROOT, TokenRules, take_action,
 };
 pub use los::{FigureVolume, LineOfSight, LosResult, LosWorld};
 pub use module::{ModuleError, RuleModule};

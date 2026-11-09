@@ -1,8 +1,9 @@
 //! `core:rounds`: the round loop, initiative and round end (design §6.1, §6.4).
 //!
 //! The module owns the phases `round` > (`initiative`, `turns`, `round_end`). The `start_round`
-//! command begins a round: every player rolls the initiative die, ties are broken, and the
-//! players take turns in that order, `turns_per_round` times each. A turn ends when its
+//! command begins a round, and round 1 also begins on its own once setup ends (see
+//! [`crate::setup`]): every player rolls the initiative die, ties are broken, and the players take
+//! turns in that order, `turns_per_round` times each. A turn ends when its
 //! activation ends. Other modules slot phases in around these, such as token placement after
 //! `initiative`.
 
@@ -18,6 +19,8 @@ use strata_rules::{
     Anchor, CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, NativeEnv, NativeLogic, PhaseDef,
     PhaseTree, ROOT, Registrar, RuleModule, roll_pool,
 };
+
+use crate::setup::{self, SETUP_ENDED};
 
 /// The phase that contains a whole round.
 pub const ROUND: &str = "round";
@@ -117,7 +120,7 @@ impl RuleModule for Rounds {
         };
         r.native(DRIVE, Box::new(drive));
         let call = [(Sym::new("native"), Value::Str(Sym::new(DRIVE)))];
-        for event in [REQUESTED, TURN_SKIPPED, "activation_ended"] {
+        for event in [REQUESTED, SETUP_ENDED, TURN_SKIPPED, "activation_ended"] {
             r.trigger(TriggerDef {
                 event: Sym::new(event),
                 filter: None,
@@ -175,6 +178,12 @@ impl NativeLogic for Drive {
             .ok_or_else(|| Halt::reject("core:rounds needs the phase tree"))?;
         match event {
             Event::Custom { id, .. } if id.as_str() == REQUESTED => self.begin(ctx, env, tree),
+            // The first round follows setup without being asked for.
+            Event::Custom { id, .. }
+                if id.as_str() == SETUP_ENDED && ctx.state().flow.round == 0 =>
+            {
+                self.begin(ctx, env, tree)
+            }
             Event::Custom { id, .. } if id.as_str() == TURN_SKIPPED => self.next_turn(ctx, tree),
             Event::ActivationEnded => self.next_turn(ctx, tree),
             _ => Ok(()),
@@ -189,6 +198,11 @@ impl Drive {
         if !state.flow.phases.is_empty() {
             return Err(Halt::reject("a round is already under way"));
         }
+        if setup::unfinished(state, env, tree) {
+            return Err(Halt::reject(
+                "setup is not over: units are still waiting to deploy",
+            ));
+        }
         let seats = state.players.len();
         if seats == 0 {
             return Err(Halt::reject("there are no players"));
@@ -196,7 +210,7 @@ impl Drive {
         let first = order(state).first().copied();
         let round = state.flow.round + 1;
         ctx.emit(Event::RoundStarted(round))?;
-        tree.start(ctx)?;
+        tree.enter(ctx, &Sym::new(ROUND))?;
         tree.advance(ctx)?;
         let players = (0..seats as u8).map(PlayerId).collect();
         let seating = self.rank(ctx, env, players, first, 0)?;

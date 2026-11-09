@@ -73,7 +73,8 @@ impl<'a> Session<'a> {
     /// Asks whoever must act next, and returns the events that committed (none when the
     /// command paused on a decision).
     ///
-    /// A pending decision goes to its chooser; otherwise the active player picks a command.
+    /// A pending decision goes to its chooser; otherwise the acting player picks a command: the
+    /// active player, or whoever the rules name instead, such as the player deploying in setup.
     pub fn step(&mut self) -> Result<Vec<Event>, SessionError> {
         let state = self.engine.state();
         let outcome = match state.pending.clone() {
@@ -87,7 +88,7 @@ impl<'a> Session<'a> {
                 self.engine.answer(answer)
             }
             None => {
-                let active = state.flow.active;
+                let active = self.engine.acting();
                 let view = PlayerView::of(state, active);
                 let legal = self.legal_commands(active);
                 let seat = self.seat(active)?;

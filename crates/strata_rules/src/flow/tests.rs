@@ -545,3 +545,35 @@ fn legal_commands_list_native_actions_with_their_own_targets() {
     assert!(legal.contains(&hit(0, 3, 7)), "{legal:?}");
     assert!(legal.contains(&walk(0)) && !legal.contains(&hit(0, 3, 1)));
 }
+
+/// Names a fixed player as the one to act.
+struct Names(PlayerId);
+
+impl NextActor for Names {
+    fn next_actor(&self, _: &GameState, _: &dyn crate::NativeEnv) -> Option<PlayerId> {
+        Some(self.0)
+    }
+}
+
+#[test]
+fn without_a_next_actor_the_active_player_acts() {
+    let rules = rules(OrderingPolicy::AllFiguresPerStep);
+    let runner = Runner(rules.clone());
+    let rt = runtime(&rules);
+    let engine = into_turns(&rt, &runner, &rules);
+    assert_eq!(engine.acting(), engine.state().flow.active);
+}
+
+#[test]
+fn a_next_actor_service_decides_who_acts_and_who_is_offered_commands() {
+    let rules = rules(OrderingPolicy::AllFiguresPerStep);
+    let runner = Runner(rules.clone());
+    let mut rt = runtime(&rules);
+    rt.reg
+        .service::<dyn NextActor>(Box::new(Names(PlayerId(1))));
+    let engine = into_turns(&rt, &runner, &rules);
+    assert_eq!(engine.state().flow.active, PlayerId(0));
+    assert_eq!(engine.acting(), PlayerId(1));
+    // Player 0 is active but not the one to act, so nothing is offered to them.
+    assert!(engine.legal_commands(PlayerId(0)).is_empty());
+}
