@@ -280,3 +280,56 @@ fn an_enemy_engaged_only_through_its_rear_cell_gets_a_reprisal() {
     assert_eq!(reprisals(report), [i64::from(FigureId(1).0)]);
     assert_eq!(rolls(report), 1);
 }
+
+#[test]
+fn a_route_may_pass_through_an_enemys_space_but_not_stop_there() {
+    let reports = run();
+    let report = passed(
+        &reports,
+        "a lane through an enemy's space reaches past it but cannot stop on it",
+    );
+    let routes = paths(report);
+    // The enemy's own space is passed, never listed as a stop.
+    assert!(!routes.contains_key(&(1, 0, -1)), "{routes:?}");
+    let through = vec![(1, 0, 1), (2, 0, 1)];
+    assert_eq!(routes.get(&(2, 0, -1)), Some(&through), "{routes:?}");
+    // The route starts and ends next to the enemy: only the step into its hex leaves it.
+    assert_eq!(flags(report).get(&(2, 0, -1)), Some(&true));
+    let blocked = passed(
+        &reports,
+        "with enemies blocking, a lane through an enemy's space reaches nothing",
+    );
+    assert!(paths(blocked).is_empty(), "{:?}", paths(blocked));
+}
+
+#[test]
+fn a_route_through_an_enemys_space_rolls_one_reprisal() {
+    let reports = run();
+    let report = passed(
+        &reports,
+        "a route through an enemy's space is allowed and gives it one reprisal",
+    );
+    assert_eq!(reprisals(report), [i64::from(FigureId(1).0)]);
+    assert_eq!(rolls(report), 1);
+    let path = [(1, 0), (2, 0)].map(|(q, r)| Space::new(q, r, 1));
+    assert_eq!(moves(report), [path.to_vec()]);
+}
+
+#[test]
+fn with_enemies_blocking_the_route_goes_around_the_enemy() {
+    let reports = run();
+    let report = passed(
+        &reports,
+        "with enemies blocking, the route goes around the enemy and provokes nothing",
+    );
+    let moved = moves(report);
+    let [path] = moved.as_slice() else {
+        panic!("one move expected: {moved:?}");
+    };
+    // Around (1, 0) rather than through it, and next to the enemy all the way.
+    assert_eq!(path.len(), 3, "{path:?}");
+    assert!(!path.contains(&Space::new(1, 0, 1)), "{path:?}");
+    assert_eq!(path.last(), Some(&Space::new(2, 0, 1)));
+    assert!(reprisals(report).is_empty());
+    assert_eq!(rolls(report), 0);
+}

@@ -45,6 +45,13 @@ map {
   pieces = { at(0, 0), at(1, 0), at(1, 1), at(2, 1), at(3, 0), at(3, -1), at(4, -2), at(2, -1, 'spire') },
 }
 
+-- A lane of three columns, (0, 0), (1, 0) and (2, 0), with the enemy on the middle one: the only
+-- route from (0, 0) to (2, 0) passes through the enemy's space.
+map {
+  id = 'pass', name = 'Pass', orientation = 'pointy',
+  pieces = { at(0, 0), at(1, 0), at(2, 0) },
+}
+
 footprint { id = 'one', name = 'One', cells = {{ q = 0, r = 0 }}, move = 'rigid', max_spread = 1 }
 footprint { id = 'snake', name = 'Snake', cells = {{ q = 0, r = 0 }, { q = 1, r = 0 }}, move = 'snake', max_spread = 1 }
 
@@ -81,7 +88,22 @@ rule_module {
   end,
 }
 
-local function setup(id, engagement)
+-- A ruleset in which enemies block movement (#200): `can_enter` is denied on the enemy's space.
+-- No descriptor can read the occupant of the space `can_enter` asks about yet, and Lua holds no
+-- state, so the veto names the cell the `pass_*` tests put the enemy on, (1, 0).
+rule_module {
+  id = 'no_pass',
+  register = function(r)
+    r.modifier {
+      query = 'can_enter', layer = 'set', value = function() return false end,
+      when = function(_, _, at) return at[1] == 1 and at[2] == 0 end,
+    }
+  end,
+}
+
+local function setup(id, engagement, addon)
+  local addons = {{ id = 'reprisals:rules' }}
+  if addon then addons[2] = { id = 'reprisals:' .. addon } end
   ruleset {
     id = id, name = id,
     slots = {
@@ -90,12 +112,13 @@ local function setup(id, engagement)
       units = { id = 'core:units' },
       engagement = engagement,
     },
-    addons = {{ id = 'reprisals:rules' }},
+    addons = addons,
   }
 end
 setup('engaged', { id = 'core:engagement' })
 setup('plain', nil)
 setup('reach', { id = 'core:engagement', config = { heights = { Str = 'ignore' } } })
+setup('blocked', { id = 'core:engagement' }, 'no_pass')
 
 local function pair(unit, q, r, z)
   return {
@@ -165,3 +188,19 @@ test {
     expect.event('figure_moved', { figure = 'p0.test_soldier#1' }),
   },
 }
+
+-- Passing through an enemy's space (#168, #200). The enemy is on (1, 0), next to the mover on
+-- (0, 0) and to (2, 0). By default a route may pass through its space but not stop there, and
+-- stepping into its hex leaves engagement with it, so the move owes it one reprisal even though
+-- the route starts and ends next to it.
+survey('pass_lane', 'a lane through an enemy\'s space reaches past it but cannot stop on it', 'engaged',
+  'test_soldier', 1, 0, 'pass')
+survey('pass_lane_blocked', 'with enemies blocking, a lane through an enemy\'s space reaches nothing',
+  'blocked', 'test_soldier', 1, 0, 'pass')
+walk('pass_through', 'a route through an enemy\'s space is allowed and gives it one reprisal', 'field',
+  'test_soldier', { 1, 0 }, { 2, 0, 1 }, { 'blank' },
+  { expect.event('reprisal'), expect.event('figure_moved', { figure = 'p0.test_soldier#1' }) })
+-- On open ground the blocked ruleset walks around the enemy instead, staying next to it.
+walk('pass_around', 'with enemies blocking, the route goes around the enemy and provokes nothing', 'field',
+  'test_soldier', { 1, 0 }, { 2, 0, 1 }, nil,
+  { expect.event('figure_moved', { figure = 'p0.test_soldier#1' }) }, 'blocked')

@@ -150,6 +150,14 @@ test {
     expect.event('reprisal'),
   },
 }
+test {
+  id = 'reach_one_way', name = 'the is_engaged modifier is the figure\'s own: its enemy walks away freely',
+  ruleset = 'rs_reach', map = 'field', place = pair('test_soldier', 2, -1, 2),
+  steps = {
+    act.command(1, 'move_to', go(1, 3, 0)),
+    expect.event('figure_moved', { figure = 'p1.test_soldier#1' }),
+  },
+}
 
 -- Figure 0 for player 0 on (1,0), between two enemies on (2,0) and (1,1).
 local function flanked(mover)
