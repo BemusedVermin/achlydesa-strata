@@ -11,3 +11,6 @@ strata_kernel = { path = "../strata_kernel" }
 strata_model = { path = "../strata_model" }
 strata_content = { path = "../strata_content" }
 glam = { workspace = true }
+
+[dev-dependencies]
+proptest = "1"

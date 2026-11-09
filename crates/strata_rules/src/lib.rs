@@ -5,6 +5,7 @@
 #![warn(missing_docs)]
 
 pub mod catalog;
+pub mod combat;
 pub mod config;
 pub mod descriptor;
 pub mod engagement;
@@ -21,6 +22,7 @@ pub mod runtime;
 pub mod slots;
 
 pub use catalog::{DuplicateModule, ModuleCatalog};
+pub use combat::{AttackPools, CombatPreview, PreviewPool};
 pub use config::{ConfigError, ConfigSchema};
 pub use descriptor::{DescriptorError, NativeEvaluator, Node, World, check_ability, compile};
 pub use engagement::{Engagement, EngagementMemo};

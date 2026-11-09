@@ -18,6 +18,7 @@ use exec::Exec;
 use names::answer_fits;
 
 use crate::flow::{Flow, TokenRules};
+use crate::native::NativeEnv;
 use crate::runtime::RulesRuntime;
 
 /// Drives a game: owns the committed state and the command log.
@@ -50,6 +51,16 @@ impl<'a> Engine<'a> {
     /// The committed state.
     pub fn state(&self) -> &GameState {
         &self.state
+    }
+
+    /// The registrations the engine runs, for services such as previews.
+    pub fn runtime(&self) -> &'a RulesRuntime {
+        self.rt
+    }
+
+    /// What native logic may ask of the loaded content, for previews computed outside a command.
+    pub fn env(&self) -> &'a dyn NativeEnv {
+        self.hooks.env()
     }
 
     /// The committed commands, oldest first.

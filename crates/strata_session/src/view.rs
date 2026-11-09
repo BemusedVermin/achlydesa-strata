@@ -4,6 +4,7 @@ use std::sync::Arc;
 
 use crate::cards::UnitCard;
 use crate::names::Names;
+use crate::preview::Previews;
 use strata_kernel::{DefId, Sym};
 use strata_model::board::CompiledBoard;
 use strata_model::{Command, Event, GameState, PlayerId, TokenChoice, UnitId, Visibility};
@@ -40,6 +41,8 @@ pub struct PlayerView {
     pub legal: Vec<Command>,
     /// How the viewer may place the tokens in hand, when they have tokens to place.
     pub tokens: Option<TokenChoice>,
+    /// What the legal moves and attacks would do; empty whenever `legal` is.
+    pub previews: Previews,
 }
 
 impl PlayerView {
@@ -65,6 +68,7 @@ impl PlayerView {
             names: Arc::default(),
             legal: Vec::new(),
             tokens: None,
+            previews: Previews::default(),
         }
     }
 }

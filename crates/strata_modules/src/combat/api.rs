@@ -115,7 +115,7 @@ impl Api {
         let Some(sight) = self.sight(ctx, env, pair, range, Blind::Unseen)? else {
             return Ok(Value::Nil);
         };
-        let record = resolve::start(&self.0, ctx, env, (attacker, target), sight, dice)?;
+        let record = resolve::start(&self.0, ctx.state(), env, (attacker, target), sight, dice)?;
         let fields = [
             ("attack_dice", Value::Int(record.attack_dice)),
             ("defense_dice", Value::Int(record.defense_dice)),

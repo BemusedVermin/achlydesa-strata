@@ -9,11 +9,13 @@ use strata_model::{
     DieKind, FigureId, FigureState, FigureStatus, GameState, PlayerId, PlayerState,
 };
 use strata_rules::{
-    FigureVolume, LogicError, LosResult, ModuleError, NativeEnv, Registrar, RuleModule, VoteQuery,
+    AttackPools, CombatPreview, FigureVolume, LogicError, LosResult, ModuleError, NativeEnv,
+    PreviewPool, Registrar, RuleModule, VoteQuery,
 };
 
+use super::preview::Previews;
 use super::sight::{Blind, Sight, distance, height_bonus};
-use super::{CombatModule, Rules};
+use super::{ACTION, CombatModule, Rules};
 
 /// The module's defaults with `name` set to `value`.
 fn config(name: &str, value: Value) -> Value {
@@ -63,6 +65,8 @@ impl NativeEnv for Env {
     fn stat(&self, _: &GameState, _: FigureId, stat: &str) -> Result<i64, LogicError> {
         match stat {
             "range" => Ok(3),
+            "attack" => Ok(4),
+            "defense" => Ok(2),
             other => Err(LogicError(format!("no stat `{other}`"))),
         }
     }
@@ -258,6 +262,57 @@ fn a_failing_line_of_sight_hides_only_that_target() {
     assert_eq!(found.ok(), Some(vec![FigureId(1)]));
     let found = rules(false, 0).targets(&s, &env(Some(21)), FigureId(0), None);
     assert_eq!(found.ok(), Some(vec![FigureId(1), FigureId(2)]));
+}
+
+/// What the preview service reports for figure 0 at (0, 0, `from`) attacking figure 1 at `to`.
+fn pools(rules: Rules, env: &Env, from: u32, to: Space) -> Option<AttackPools> {
+    let s = state(Space::new(0, 0, from), to);
+    let previews = Previews(std::sync::Arc::new(rules));
+    previews.pools(&s, env, FigureId(0), FigureId(1)).unwrap()
+}
+
+#[test]
+fn the_preview_names_the_attack_action_and_both_pools() {
+    let previews = Previews(std::sync::Arc::new(rules(false, 0)));
+    assert_eq!(previews.action(), ACTION);
+    let pool = |dice, face: &str| PreviewPool {
+        dice,
+        die: "combat".into(),
+        face: Sym::new(face),
+    };
+    let melee = pools(rules(false, 0), &env(None), 1, Space::new(1, 0, 1));
+    let expected = AttackPools {
+        attack: pool(4, "hit"),
+        defense: pool(2, "block"),
+        ranged: false,
+        cover: false,
+    };
+    assert_eq!(melee, Some(expected));
+}
+
+#[test]
+fn the_preview_adds_height_and_cover_dice() {
+    let high = pools(rules(false, 1), &env(Some(21)), 2, Space::new(1, 0, 1)).unwrap();
+    assert_eq!((high.attack.dice, high.defense.dice), (5, 2));
+    let covered = pools(rules(true, 0), &env(Some(5)), 1, Space::new(2, 0, 1)).unwrap();
+    assert_eq!((covered.ranged, covered.cover), (true, true));
+    assert_eq!((covered.attack.dice, covered.defense.dice), (4, 3));
+}
+
+#[test]
+fn the_preview_of_an_unseen_or_distant_target_is_none() {
+    assert_eq!(
+        pools(rules(false, 0), &env(Some(0)), 1, Space::new(2, 0, 1)),
+        None
+    );
+    assert_eq!(
+        pools(rules(false, 0), &env(None), 1, Space::new(2, 0, 1)),
+        None
+    );
+    assert_eq!(
+        pools(rules(false, 0), &env(Some(21)), 1, Space::new(5, 0, 1)),
+        None
+    );
 }
 
 proptest! {

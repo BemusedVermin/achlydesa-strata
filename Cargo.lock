@@ -5211,6 +5211,7 @@ name = "strata_scene"
 version = "0.1.0"
 dependencies = [
  "glam",
+ "proptest",
  "strata_content",
  "strata_kernel",
  "strata_model",

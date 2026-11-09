@@ -23,7 +23,7 @@ impl BoardDefs for Defs {
 }
 
 /// A slab with a crate on it at `q = 0` and another pair at `q = 20`, which is a different chunk.
-fn board() -> SceneBoard {
+pub(crate) fn board() -> SceneBoard {
     let tile = TileDef {
         id: DefId(0),
         name: Text::default(),

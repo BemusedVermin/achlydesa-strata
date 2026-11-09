@@ -19,8 +19,12 @@
 //! windows, the attack ends there, with no further rolls and no wounds. Once it ends, the custom
 //! event `attack` carries the final record. Special attacks resolve through
 //! `ctx.combat.attack { ... }`.
+//!
+//! The module also provides the [`CombatPreview`] service: the pools an attack would roll, with
+//! the die and the counted face of each, for the client's attack preview (design §13.6).
 
 mod api;
+mod preview;
 mod resolve;
 mod sight;
 
@@ -30,7 +34,8 @@ use std::sync::{Arc, OnceLock};
 use strata_kernel::{ModuleId, SlotId, Sym, Value, WindowId};
 use strata_model::{ConfigField, FigureId, GameState};
 use strata_rules::{
-    ConfigSchema, Ctx, Halt, LuaApi, ModuleError, NativeAction, NativeEnv, Registrar, RuleModule,
+    CombatPreview, ConfigSchema, Ctx, Halt, LuaApi, ModuleError, NativeAction, NativeEnv,
+    Registrar, RuleModule,
 };
 
 pub use self::resolve::{ATTACK_EVENT, RECORD};
@@ -57,7 +62,7 @@ pub const WINDOWS: [&str; 4] = [
 ];
 
 /// The name the attack action is registered under.
-const ACTION: &str = "core:combat.attack";
+pub const ACTION: &str = "core:combat.attack";
 /// The module the combat slot depends on to apply wounds.
 const UNITS: &str = "core:units";
 
@@ -206,6 +211,8 @@ impl RuleModule for CombatModule {
             ACTION,
             Box::new(Attack(rules.clone())),
         );
+        let previews: Arc<dyn CombatPreview> = Arc::new(preview::Previews(rules.clone()));
+        r.service(Box::new(previews));
         let functions = ["attack", "targets", "preview", "current", "set"];
         let functions = functions.map(Sym::new).to_vec();
         r.lua_api_native("combat", LuaApi { functions }, Box::new(api::Api(rules)));
