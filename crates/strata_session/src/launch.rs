@@ -110,7 +110,9 @@ fn play(spec: &LaunchSpec, link: &SimLink) -> Result<(), String> {
     let engagement = rt.service::<Arc<dyn Engagement>>().cloned();
     let host = Host::new(registry, pack, modifiers.collect(), Some(built.board));
     let host = host.with_los(los).with_movement(movement);
-    let host = host.with_engagement(engagement);
+    let host = host
+        .with_engagement(engagement)
+        .with_pair_queries(rt.pair_queries());
     let tree = PhaseTree::build(rt.phases()).unwrap_or_default();
     let actions = rt.actions().iter().map(|a| &a.id);
     let names = Names::of(registry, tree.phases()).with_actions(actions);

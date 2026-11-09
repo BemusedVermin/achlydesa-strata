@@ -58,6 +58,7 @@ fn modifier(
             when: None,
             value,
             overrides: false,
+            on: Default::default(),
         },
     }
 }

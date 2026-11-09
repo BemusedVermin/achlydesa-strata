@@ -17,6 +17,7 @@ pub mod footprint;
 pub mod ids;
 pub mod map;
 pub mod pack_test;
+pub mod printed;
 pub mod relic;
 pub mod ruleset;
 pub mod scenario;
@@ -28,7 +29,7 @@ pub mod vocab;
 
 pub use ability::{
     AbilityDef, ActionDef, ArchetypeInfo, Descriptor, Logic, ModifierDef, ModifierLayer,
-    ReactionDef, ReplacementDef, Scope, ScriptRef, TriggerDef, TriggerLimit,
+    ModifierSide, ReactionDef, ReplacementDef, Scope, ScriptRef, TriggerDef, TriggerLimit,
 };
 pub use ability_key::AbilityKey;
 pub use apply::ApplyError;

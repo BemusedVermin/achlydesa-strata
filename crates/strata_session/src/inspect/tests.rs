@@ -43,6 +43,7 @@ fn modifier(query: &str, layer: ModifierLayer, source: &str, value: Logic) -> So
             when: None,
             value,
             overrides: false,
+            on: Default::default(),
         },
     }
 }
@@ -226,4 +227,40 @@ fn the_heading_names_the_traced_figure() {
     assert_eq!(inspection.heading(), "defense of figure 1");
     inspection.subject = Value::Nil;
     assert_eq!(inspection.heading(), "defense");
+}
+
+#[test]
+fn an_ability_source_is_shown_by_its_display_name() {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let root = root.join("../../fixtures/pack_test/grants");
+    let tests = crate::pack_test::PackTests::load(&[root]).unwrap();
+    let names = Names::of(&tests.registry, &[]);
+    let mods = [
+        int(ModifierLayer::Add, "t:test_veteran/abilities/1", 2),
+        int(ModifierLayer::Add, "t:fury/grants/abilities/1", 1),
+        int(ModifierLayer::Add, "t:sharp", 1),
+        int(ModifierLayer::Add, "rs", 1),
+    ];
+    let (_, inspection) = inspect(&mods, 3);
+    let named = inspection.named(&names);
+    let shown: Vec<(&str, &str)> = named
+        .steps
+        .iter()
+        .map(|s| (s.id.as_str(), s.source.as_str()))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            ("rs", "rs"),
+            ("t:fury/grants/abilities/1", "Fury"),
+            ("t:sharp", "Sharp"),
+            ("t:test_veteran/abilities/1", "Drill"),
+        ]
+    );
+    assert!(
+        named
+            .lines()
+            .contains(&"+2 from Drill (native) = 8".to_owned())
+    );
+    assert_eq!(names.ability("rs"), None);
 }

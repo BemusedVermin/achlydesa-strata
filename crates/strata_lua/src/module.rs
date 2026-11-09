@@ -3,7 +3,7 @@
 use std::fmt::Display;
 
 use mlua::{Function, Lua, Table, Value as LuaValue};
-use strata_kernel::{DefId, ModuleId, PackId, SlotId, Value, WindowId};
+use strata_kernel::{DefId, ModuleId, PackId, SlotId, Sym, Value, WindowId};
 use strata_model::{ActionDef, ModifierDef, ReactionDef, ReplacementDef, TriggerDef};
 use strata_rules::{ConfigSchema, ModuleError, Registrar, RuleModule};
 
@@ -104,6 +104,7 @@ fn add(r: &mut Registrar, lua: &Lua, kind: &str, def: LuaValue) -> mlua::Result<
         "trigger" => r.trigger(from_lua::<TriggerDef>(lua, def)?),
         "replacement" => r.replacement(from_lua::<ReplacementDef>(lua, def)?),
         "reaction" => r.reaction(from_lua::<ReactionDef>(lua, def)?),
+        "pair_query" => r.pair_query(Sym::new(&from_lua::<String>(lua, def)?)),
         _ => r.window(WindowId::new(&from_lua::<String>(lua, def)?)),
     }
     Ok(())

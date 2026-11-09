@@ -268,7 +268,7 @@ fn freeze_record(
     match decoded {
         Ok(def) => {
             if let Err(bad) = check::check(&record.id, &def) {
-                return Err(error_at(&record, bad.field_path, bad.message));
+                return Err(error_at(&record, &bad.field_path, bad.message));
             }
             Ok(FrozenRecord {
                 record,

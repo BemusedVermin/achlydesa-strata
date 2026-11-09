@@ -1,7 +1,7 @@
 //! The [`RuleHost`] a pack test runs under: content lookups, native descriptors, stat queries
 //! and rigged dice.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 use crate::cards::{AbilityLine, CardSource, FigureLine, StatLine, UnitCard};
@@ -12,8 +12,8 @@ use strata_lua::{Def, LuaRules, RuleHost};
 use strata_model::board::CompiledBoard;
 use strata_model::{
     AbilityOwner, Descriptor, DieDef, DieKind, FigureDef, FigureDefRef, FigureId, FigureStatus,
-    FootprintDef, GameState, MapDef, MarkerDef, PlayerId, RelicDef, ScenarioDef, StatDef,
-    TerrainDef, UnitDef, UnitId, UnitState,
+    FootprintDef, GameState, MapDef, MarkerDef, ModifierDef, ModifierSide, PlayerId, RelicDef,
+    ScenarioDef, StatDef, TerrainDef, UnitDef, UnitId, UnitState,
 };
 use strata_rules::{
     Ctx, DeploySlot, Engagement, EngagementMemo, EvalCtx, FigureVolume, Halt, LineOfSight,
@@ -59,6 +59,8 @@ pub(crate) struct Host {
     los: Option<Arc<dyn LineOfSight>>,
     movement: Option<Arc<dyn Movement>>,
     engagement: Option<Arc<dyn Engagement>>,
+    /// The vote keys whose context is a figure (design §6.6).
+    pair_queries: BTreeSet<Sym>,
     rig: Mutex<Rig>,
     /// Set once the ruleset's phases are known.
     pub(crate) names: OnceLock<Arc<Names>>,
@@ -89,6 +91,7 @@ impl Host {
             los: None,
             movement: None,
             engagement: None,
+            pair_queries: VoteQuery::PAIR_KEYS.iter().map(|k| Sym::new(k)).collect(),
             rig: Mutex::default(),
             names: OnceLock::new(),
             rules: OnceLock::new(),
@@ -169,6 +172,13 @@ impl Host {
         self
     }
 
+    /// Treats the votes `keys` as pair queries, whose integer context is a figure. Without this
+    /// only the core pair queries are.
+    pub(crate) fn with_pair_queries(mut self, keys: BTreeSet<Sym>) -> Self {
+        self.pair_queries = keys;
+        self
+    }
+
     /// Forces the dice of the next command and counts its rolls from the first.
     pub(super) fn set_rig(&self, rolls: Vec<Vec<Sym>>) {
         *self.rig.lock().unwrap() = Rig { rolls, next: 0 };
@@ -179,31 +189,53 @@ impl Host {
         self.rig.lock().unwrap().next = 0;
     }
 
-    /// The modifiers of attached abilities that reach `figure`: those owned by its controller,
-    /// its unit, or both.
-    fn granted(&self, state: &GameState, figure: FigureId) -> Vec<SourcedModifier> {
-        let Some(fig) = state.figures.get(figure.index()) else {
-            return Vec::new();
-        };
+    /// The modifiers of attached abilities for a query about `subject`, asked with the figure
+    /// `context` for a pair query. A modifier is on one side (design §6.6): one `on` the subject,
+    /// the default, joins when its ability reaches the subject; one `on = "context"` joins only
+    /// a pair query whose context figure its ability reaches. So "enemies cannot target me"
+    /// changes who may target the owner, never whom the owner may target. When the subject is
+    /// the context, both sides join, each modifier once.
+    fn granted(
+        &self,
+        state: &GameState,
+        subject: FigureId,
+        context: Option<FigureId>,
+    ) -> Vec<SourcedModifier> {
+        let own = reaching(state, subject);
+        let theirs = context.map(|c| reaching(state, c)).unwrap_or_default();
         let mut found = Vec::new();
-        for instance in &state.abilities {
-            let reaches = match instance.owner {
-                AbilityOwner::Player(p) => p == fig.controller,
-                AbilityOwner::Unit(u) => u == fig.unit,
-                AbilityOwner::Relic(_) => false,
-            };
-            let named = reaches.then(|| self.registry.ability_with_name(instance.def));
-            let Some((ability, name)) = named.flatten() else {
+        for (at, instance) in state.abilities.iter().enumerate() {
+            let sides = (own.contains(&at), theirs.contains(&at));
+            if sides == (false, false) {
+                continue;
+            }
+            let Some((ability, name)) = self.registry.ability_with_name(instance.def) else {
                 continue;
             };
-            let modifiers = ability.modifiers.iter();
+            let joins = |m: &&ModifierDef| match m.on {
+                ModifierSide::Subject => sides.0,
+                ModifierSide::Context => sides.1,
+            };
+            let source = Sym::new(&name);
+            let modifiers = ability.modifiers.iter().filter(joins);
             found.extend(modifiers.map(|m| SourcedModifier {
-                source: Sym::new(&name),
+                source: source.clone(),
                 priority: 0,
                 def: m.clone(),
             }));
         }
         found
+    }
+
+    /// The context figure of `query`, if it is a pair query asked with a figure that exists.
+    /// Any other vote's context is an input, even when it is an integer.
+    fn pair_context(&self, state: &GameState, query: &VoteQuery) -> Option<FigureId> {
+        if !self.pair_queries.contains(&query.key) {
+            return None;
+        }
+        let n = query.context.as_int().ok()?;
+        let figure = FigureId(u32::try_from(n).ok()?);
+        state.figures.get(figure.index()).map(|_| figure)
     }
 
     /// A figure's stat after every modifier.
@@ -235,25 +267,25 @@ impl Host {
             subject: Value::Int(i64::from(figure.0)),
             context: Value::Nil,
         };
-        self.ask_trace(state, figure, &query)
+        self.ask_trace(state, (figure, None), &query)
     }
 
-    /// Resolves `query` against the state with every modifier applied.
+    /// Resolves `query` about the figure `pair.0` against the state with every modifier
+    /// applied. `pair.1` is the figure in the query's context, for a pair query.
     fn ask<Q: Query>(
         &self,
         state: &GameState,
-        figure: FigureId,
+        pair: (FigureId, Option<FigureId>),
         query: &Q,
     ) -> Result<Q::Output, LogicError> {
-        self.ask_trace(state, figure, query)
-            .map(|(output, _)| output)
+        self.ask_trace(state, pair, query).map(|(output, _)| output)
     }
 
     /// Resolves `query` like [`Host::ask`], with how it was reached.
     fn ask_trace<Q: Query>(
         &self,
         state: &GameState,
-        figure: FigureId,
+        (figure, context): (FigureId, Option<FigureId>),
         query: &Q,
     ) -> Result<(Q::Output, QueryTrace), LogicError> {
         let fail = LogicError;
@@ -262,7 +294,7 @@ impl Host {
         let world = StateWorld { host: self, state };
         let evaluator = NativeEvaluator { world: &world };
         let mut modifiers = self.modifiers.clone();
-        modifiers.extend(self.granted(state, figure));
+        modifiers.extend(self.granted(state, figure, context));
         let asked = rules.with_state(|scripts| {
             let logics = Logics {
                 evaluator: &evaluator,
@@ -309,7 +341,8 @@ impl RuleHost for Host {
                     context: context.clone(),
                 };
                 let figure = FigureId(subject.as_int().map_err(asked)? as u32);
-                self.ask(state, figure, &query).map(Value::Bool)
+                let other = self.pair_context(state, &query);
+                self.ask(state, (figure, other), &query).map(Value::Bool)
             }
             _ => Err(LogicError(format!(
                 "the harness cannot answer query `{name}`"
@@ -452,6 +485,23 @@ impl RuleHost for Host {
             "the harness has no `ctx.{namespace}.{name}`"
         )))
     }
+}
+
+/// The positions in `state.abilities` of the instances that reach `figure`: those owned by its
+/// controller or its unit.
+fn reaching(state: &GameState, figure: FigureId) -> BTreeSet<usize> {
+    let Some(fig) = state.figures.get(figure.index()) else {
+        return BTreeSet::new();
+    };
+    let reaches = |owner: AbilityOwner| match owner {
+        AbilityOwner::Player(p) => p == fig.controller,
+        AbilityOwner::Unit(u) => u == fig.unit,
+        AbilityOwner::Relic(_) => false,
+    };
+    let all = state.abilities.iter().enumerate();
+    all.filter(|(_, a)| reaches(a.owner))
+        .map(|(at, _)| at)
+        .collect()
 }
 
 /// The game as descriptors see it: the state, with units and terrain from the registry.
@@ -673,14 +723,14 @@ impl MoveWorld for StateMove<'_> {
             subject: Value::Int(i64::from(figure.0)),
             context: self.step(terrain, dz),
         };
-        self.host.ask(self.state, figure, &query)
+        self.host.ask(self.state, (figure, None), &query)
     }
 
     fn can_climb(&self, figure: FigureId, terrain: DefId, dz: i32) -> Result<bool, LogicError> {
         let subject = Value::Int(i64::from(figure.0));
         self.host.ask(
             self.state,
-            figure,
+            (figure, None),
             &VoteQuery::can_climb(subject, self.step(terrain, dz)),
         )
     }
@@ -692,8 +742,11 @@ impl MoveWorld for StateMove<'_> {
                 .map(|n| Value::Int(i64::from(n)))
                 .to_vec(),
         );
-        self.host
-            .ask(self.state, figure, &VoteQuery::can_enter(subject, at))
+        self.host.ask(
+            self.state,
+            (figure, None),
+            &VoteQuery::can_enter(subject, at),
+        )
     }
 
     fn provokes_reprisal(
@@ -720,3 +773,6 @@ impl MoveWorld for StateMove<'_> {
         Ok(!owed.is_empty())
     }
 }
+
+#[cfg(test)]
+mod tests;

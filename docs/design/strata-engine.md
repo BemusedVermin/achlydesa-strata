@@ -349,6 +349,8 @@ Stats are never stored as current values. They are computed by queries, which is
 
 This is where the hot-path design lives. A modifier's condition, selector and value are usually *descriptors*: tagged tables such as `cond.adjacent { to = "self" }` or `sel.allies { trait = "soldier" }`, which the Rust evaluator handles natively and the AI can read. Any of those fields also accepts a plain Lua function, which is the slow path for cases no descriptor covers. Because archetypes (section 8) are built from descriptors, most queries never enter Lua.
 
+A query about a figure gathers the modifiers of every ability that reaches it: those owned by its unit or its controller. A pair query is a vote whose context is another figure: the core ones are `can_target`, `is_engaged` and `provokes_reprisal`, and a rule module declares more with `r.pair_query(key)`. Any other vote's context is an input, even when it is a number. Each modifier sits on one side of a pair, set by its `on` field. The default, `on = "subject"`, is gathered only when its ability reaches the figure asked about. `on = "context"` opts in to the other side: the modifier is gathered only for pair queries whose context figure its ability reaches, never for queries about its owner's own figures. So "enemies cannot target me" is a `can_target` modifier with `on = "context"`; it changes who may target the owner and leaves whom the owner may target alone, even when both armies field the same unit. When the subject is also the context, both sides are gathered, each modifier once. Ruleset modifiers are not owned by anything and always apply; `on` does not affect them.
+
 Results are memoized within a resolution step and invalidated whenever an event applies.
 
 ### 6.7 Triggers, replacements and windows
@@ -693,6 +695,10 @@ pub enum Logic {
 ```
 
 `Logic` puts the fast and slow paths into the type system. Coverage stats (section 8.6) simply count the two variants.
+
+A unit's printed abilities are attached as `AbilityKey::Unit` instances owned by the unit, through `AbilityAttached` events, when the unit enters the match state: at setup, or by whatever adds a unit later, such as reinforcements. They belong to the unit rather than its figures, so deploying from reserve, a figure dying and a figure being restored neither attach nor detach them, and setup never attaches an entry twice.
+
+A printed ability must be scoped to `unit` or `figure`. There is no figure owner, so a `figure` ability is attached to the unit like a `unit` one; it reaches each of the unit's figures, which is what a per-figure ability needs while abilities carry no per-figure state. An `army`, `holder` or `occupant` scope on a unit's ability is a content load error until those scopes are attached from units (#211).
 
 ### 10.6 Relics
 

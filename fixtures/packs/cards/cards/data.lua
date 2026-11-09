@@ -1,4 +1,5 @@
--- A duel whose ruleset adds 1 to every figure's defense, so cards show a buffed stat.
+-- A duel whose ruleset adds 1 to every figure's defense, and whose soldiers' printed Shieldwall
+-- adds 1 more, so cards show a buffed stat with two sources.
 stat { id = 'attack', name = 'Attack', abbrev = 'ATK', order = 1, min = 0, max = 9 }
 stat { id = 'defense', name = 'Defense', abbrev = 'DEF', order = 2, min = 0, max = 9 }
 marker { id = 'wound', name = 'Wound', stacking = 'count', visibility = 'public' }
@@ -26,7 +27,10 @@ footprint { id = 'one', name = 'One', cells = {{ q = 0, r = 0 }}, move = 'rigid'
 unit {
   id = 'test_soldier', name = 'Test Soldier', kind = 'squad', rarity = 'common',
   stats = { attack = 3, defense = 2 },
-  abilities = {{ name = 'Shieldwall', text = 'Adds 1 to defense.', scope = 'unit' }},
+  abilities = {{
+    name = 'Shieldwall', text = 'Adds 1 to defense.', scope = 'unit',
+    modifiers = {{ query = 'defense', layer = 'add', value = 1 }},
+  }},
   figures = {{
     id = 's', count = 2, footprint = 'one', height = 1,
     los = { target = 10, hit_zone = {0, 12}, samples = {'center'} },

@@ -5,6 +5,8 @@ use strata_kernel::Value;
 use strata_model::ModifierLayer;
 use strata_rules::{QueryTrace, TraceStep};
 
+use crate::names::Names;
+
 /// What one modifier did to the value.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Change {
@@ -26,8 +28,12 @@ pub enum Change {
 /// One modifier's line in the inspector.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct InspectStep {
-    /// The ability, terrain, relic or ruleset that provides the modifier.
+    /// The ability, terrain, relic or ruleset that provides the modifier, as the inspector
+    /// shows it: an ability's display name once [`Inspection::named`] has run.
     pub source: String,
+    /// The stable name the modifier's source carries in the trace, such as
+    /// `p:soldier/abilities/1` for a unit's first printed ability or `rs` for a ruleset.
+    pub id: String,
     /// What it did.
     pub change: Change,
     /// Whether its logic ran in Lua, the slow path, rather than natively.
@@ -85,6 +91,18 @@ impl Inspection {
             clamp,
             result: trace.result.clone(),
         }
+    }
+
+    /// Shows each ability by its display name from `names`, such as `Shieldwall` rather than
+    /// `p:soldier/abilities/1`. Sources `names` does not know, such as a ruleset, stay as they
+    /// are.
+    pub fn named(mut self, names: &Names) -> Self {
+        for step in &mut self.steps {
+            if let Some(name) = names.ability(&step.id) {
+                step.source = name.to_owned();
+            }
+        }
+        self
     }
 
     /// How many steps ran in Lua: a hint at where a query spends its time.
@@ -193,6 +211,7 @@ fn agree(at: &str, recorded: Option<i64>, computed: i64) -> Result<(), TraceMism
 fn step(s: &TraceStep) -> InspectStep {
     InspectStep {
         source: s.source.as_str().to_owned(),
+        id: s.source.as_str().to_owned(),
         change: change(s),
         lua: s.scripted,
         overrides: s.overrides,

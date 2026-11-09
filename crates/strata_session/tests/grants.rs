@@ -3,15 +3,57 @@
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
-use strata_kernel::{DefId, ModuleId, SlotId, Value};
-use strata_model::{AbilityKey, AbilityOwner, Command, Event, PlayerId, UnitId};
+use strata_content::ContentRegistry;
+use strata_kernel::{DefId, ModuleId, SlotId, Sym, Value};
+use strata_model::{AbilityDef, AbilityKey, AbilityOwner, Command, Event, PlayerId, RelicDef};
+use strata_model::{UnitDef, UnitId};
 use strata_rules::{CommandHandler, ConfigSchema, Ctx, Halt, ModuleError, Registrar, RuleModule};
 use strata_session::pack_test::{PackTests, TestReport, summary};
 
+/// The fixture's packs.
+fn root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/pack_test/grants")
+}
+
+/// The fixture's definitions the `attach` and `detach` commands name, looked up by name.
+#[derive(Clone, Copy)]
+struct Ids {
+    sharp: DefId,
+    fury: DefId,
+    veil: DefId,
+    veteran: DefId,
+}
+
+impl Ids {
+    fn load() -> Self {
+        let registry: ContentRegistry = strata_content::load(&[root()]).unwrap();
+        let id = |found: Option<DefId>, name: &str| found.unwrap_or_else(|| panic!("no `{name}`"));
+        Self {
+            sharp: id(
+                registry.lookup::<AbilityDef>("t", "sharp").map(|f| f.0),
+                "sharp",
+            ),
+            fury: id(
+                registry.lookup::<RelicDef>("t", "fury").map(|f| f.0),
+                "fury",
+            ),
+            veil: id(
+                registry.lookup::<RelicDef>("t", "veil").map(|f| f.0),
+                "veil",
+            ),
+            veteran: id(
+                registry.lookup::<UnitDef>("t", "test_veteran").map(|f| f.0),
+                "veteran",
+            ),
+        }
+    }
+}
+
 /// Handles `attach` and `detach`: `{ what, owner }` names an ability record (`sharp`) or a
-/// relic's first grant (`fury`) and the player it goes on, or a unit's first ability (`drill`)
-/// and the unit.
-struct Grants(&'static str);
+/// relic's first grant (`fury`, `veil`) and the player it goes on, or the veteran's first
+/// printed ability (`drill`) and the unit. Handles `probe` by emitting its payload as a `probe`
+/// event.
+struct Grants(&'static str, Ids);
 
 impl CommandHandler for Grants {
     fn kind(&self) -> &str {
@@ -22,27 +64,26 @@ impl CommandHandler for Grants {
         let Command::Custom { payload, .. } = command else {
             return Err(Halt::reject("not a custom command"));
         };
+        if self.0 == "probe" {
+            let (id, payload) = (Sym::new("probe"), payload.clone());
+            return ctx.emit(Event::Custom { id, payload });
+        }
         let owner = payload.get("owner").and_then(Value::as_int).unwrap_or(0);
         let player = AbilityOwner::Player(PlayerId(owner as u8));
+        let ids = self.1;
+        let relic = |relic| AbilityKey::Relic { relic, index: 0 };
         let (def, owner) = match payload.get("what").and_then(Value::as_str) {
-            Ok("fury") => (
-                AbilityKey::Relic {
-                    relic: DefId(0),
-                    index: 0,
-                },
-                player,
-            ),
+            Ok("fury") => (relic(ids.fury), player),
+            Ok("veil") => (relic(ids.veil), player),
             Ok("drill") => {
                 let unit = AbilityOwner::Unit(UnitId(owner as u32));
-                (
-                    AbilityKey::Unit {
-                        unit: DefId(0),
-                        index: 0,
-                    },
-                    unit,
-                )
+                let key = AbilityKey::Unit {
+                    unit: ids.veteran,
+                    index: 0,
+                };
+                (key, unit)
             }
-            _ => (AbilityKey::Def(DefId(0)), player),
+            _ => (AbilityKey::Def(ids.sharp), player),
         };
         let params = Default::default();
         match self.0 {
@@ -52,7 +93,7 @@ impl CommandHandler for Grants {
     }
 }
 
-struct GrantModule;
+struct GrantModule(Ids);
 
 impl RuleModule for GrantModule {
     fn id(&self) -> ModuleId {
@@ -73,16 +114,18 @@ impl RuleModule for GrantModule {
     }
 
     fn register(&self, r: &mut Registrar, _: &Value) -> Result<(), ModuleError> {
-        r.command(Grants("attach"));
-        r.command(Grants("detach"));
+        r.command(Grants("attach", self.0));
+        r.command(Grants("detach", self.0));
+        r.command(Grants("probe", self.0));
         Ok(())
     }
 }
 
 fn run(filter: &str) -> Vec<TestReport> {
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/pack_test/grants");
-    let tests = PackTests::load(&[root]).unwrap();
-    let tests = tests.with_native(Box::new(GrantModule)).unwrap();
+    let tests = PackTests::load(&[root()]).unwrap();
+    let tests = tests
+        .with_native(Box::new(GrantModule(Ids::load())))
+        .unwrap();
     tests.run(Some(filter))
 }
 
@@ -99,8 +142,35 @@ fn a_relic_grant_applies_only_to_the_army_it_is_attached_to() {
 }
 
 #[test]
-fn a_unit_ability_is_found_by_its_unit_and_index() {
-    let reports = run("a unit ability");
+fn a_printed_unit_ability_applies_with_no_manual_attach() {
+    let reports = run("a printed unit ability");
+    assert!(reports[0].outcome.is_ok(), "{}", summary(&reports));
+}
+
+#[test]
+fn a_pair_query_gathers_the_context_figures_selected_modifiers() {
+    let reports = run("a pair query");
+    assert!(reports[0].outcome.is_ok(), "{}", summary(&reports));
+}
+
+#[test]
+fn a_context_side_veto_stops_others_targeting_its_owner_not_the_owner() {
+    let reports = run("a context-side veto stops");
+    assert_eq!(reports.len(), 1, "{}", summary(&reports));
+    assert!(reports[0].outcome.is_ok(), "{}", summary(&reports));
+}
+
+#[test]
+fn a_context_side_veto_in_mirror_armies_applies_only_to_its_owner() {
+    let reports = run("mirror armies");
+    assert_eq!(reports.len(), 1, "{}", summary(&reports));
+    assert!(reports[0].outcome.is_ok(), "{}", summary(&reports));
+}
+
+#[test]
+fn a_player_owned_grant_on_the_context_side_shields_that_army() {
+    let reports = run("a player-owned grant");
+    assert_eq!(reports.len(), 1, "{}", summary(&reports));
     assert!(reports[0].outcome.is_ok(), "{}", summary(&reports));
 }
 
@@ -114,5 +184,7 @@ fn detaching_an_ability_that_is_not_attached_is_refused() {
 #[test]
 fn running_twice_gives_identical_hashes() {
     assert_eq!(run("an attached ability"), run("an attached ability"));
-    assert_eq!(run("a unit ability"), run("a unit ability"));
+    assert_eq!(run("a printed unit ability"), run("a printed unit ability"));
+    assert_eq!(run("a pair query"), run("a pair query"));
+    assert_eq!(run("a context-side veto"), run("a context-side veto"));
 }

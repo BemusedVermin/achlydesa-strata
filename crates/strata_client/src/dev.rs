@@ -51,7 +51,7 @@ pub fn inspection(view: &PlayerView, selected: &Inspected) -> Result<Inspection,
     let stat = stat.ok_or(NoTrace::NotFound)?;
     stat.trace
         .as_ref()
-        .map(Inspection::of)
+        .map(|trace| Inspection::of(trace).named(&view.names))
         .ok_or(NoTrace::Untraced)
 }
 

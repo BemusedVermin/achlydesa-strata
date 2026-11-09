@@ -47,6 +47,7 @@ impl MatchRig {
         let movement = rt.service::<Arc<dyn Movement>>().cloned();
         let engagement = rt.service::<Arc<dyn Engagement>>().cloned();
         let host = host.with_los(los).with_movement(movement);
+        let host = host.with_pair_queries(rt.pair_queries());
         let host = Arc::new(host.with_engagement(engagement));
         let lua = rt
             .configs()
