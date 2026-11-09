@@ -1,6 +1,6 @@
 # T-067: Sprite lint: sprite height against the LOS profile
 
-**Task T-067** · M6 AI and tooling · Est. core lines: ~250 / 500
+**Task T-067** · M6 AI and tooling · Est. core lines: ~250
 **Depends on:** T-066, T-050
 
 ## Goal
@@ -26,8 +26,7 @@ Guarantee the picture matches the rules.
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

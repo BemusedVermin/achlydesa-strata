@@ -1,10 +1,10 @@
 ---
 name: Engine task
-about: A unit of work small enough for one PR (≤ 500 lines of core logic)
+about: A unit of work small enough for one PR
 labels: task
 ---
 
-**Task T-NNN** · Milestone · Est. core lines: ~N / 500
+**Task T-NNN** · Milestone · Est. core lines: ~N
 
 <!-- Add prerequisites as "Blocked by" relationships in the issue sidebar, not here. -->
 
@@ -24,7 +24,6 @@ labels: task
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines; split the work if not
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed

@@ -1,6 +1,6 @@
 # T-048: Isometric camera and kernel-based picking
 
-**Task T-048** · M4 Playable client · Est. core lines: ~350 / 500
+**Task T-048** · M4 Playable client · Est. core lines: ~350
 **Depends on:** T-047
 
 ## Goal
@@ -28,8 +28,7 @@ The 2.5D view and exact hex picking.
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 

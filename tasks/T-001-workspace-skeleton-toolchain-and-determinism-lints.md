@@ -1,6 +1,6 @@
 # T-001: Workspace skeleton, toolchain and determinism lints
 
-**Task T-001** · M0 Foundations · Est. core lines: ~120 / 500
+**Task T-001** · M0 Foundations · Est. core lines: ~120
 **Depends on:** nothing
 
 ## Goal
@@ -38,8 +38,7 @@ Create the Cargo workspace and every guard rail the later tasks rely on, so CI i
 
 ## Definition of done
 
-- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny, line budget
-- [ ] Core logic ≤ 500 added lines (`scripts/line_budget.py`); if it will not fit, split the work and say so on this issue
+- [ ] CI green: fmt, clippy, tests on Linux/macOS/Windows, cargo-deny
 - [ ] Every acceptance criterion has a test
 - [ ] Automated Claude review addressed; the PR body says `Closes #<this issue>`
 
